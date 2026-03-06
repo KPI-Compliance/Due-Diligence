@@ -1,5 +1,9 @@
+import Link from "next/link";
 import { EntityWorkspace } from "@/components/ui/EntityWorkspace";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { getAssessmentsList } from "@/lib/data";
+
+export const dynamic = "force-dynamic";
 
 const filters = [
   { label: "Company", kind: "text" as const, placeholder: "Filter by company name" },
@@ -13,66 +17,9 @@ const filters = [
   { label: "Date Range", kind: "button" as const, buttonText: "Last 30 days", className: "sm:max-w-[220px]" },
 ];
 
-const assessments = [
-  {
-    companyGroup: "VTEX",
-    company: "V-Global Tech",
-    domain: "v-global.cloud",
-    type: "Vendor",
-    status: "in_review" as const,
-    risk: "Medium",
-    riskClass: "text-amber-600",
-    riskDot: "bg-amber-500",
-    progress: 100,
-    progressClass: "bg-emerald-500",
-    analyst: "Ana Souza",
-    sentDate: "12 out 2025",
-  },
-  {
-    companyGroup: "Weni",
-    company: "Prime Logistics",
-    domain: "prime.logistics",
-    type: "Partner",
-    status: "sent" as const,
-    risk: "High",
-    riskClass: "text-red-600",
-    riskDot: "bg-red-500",
-    progress: 45,
-    progressClass: "bg-[var(--color-primary)]",
-    analyst: "Carlos Lima",
-    sentDate: "18 out 2025",
-  },
-  {
-    companyGroup: "VTEX",
-    company: "SecurePay Inc",
-    domain: "securepay.com",
-    type: "Vendor",
-    status: "completed" as const,
-    risk: "Low",
-    riskClass: "text-emerald-600",
-    riskDot: "bg-emerald-500",
-    progress: 100,
-    progressClass: "bg-emerald-500",
-    analyst: "Mariana Costa",
-    sentDate: "05 out 2025",
-  },
-  {
-    companyGroup: "Weni",
-    company: "CloudScale Ops",
-    domain: "cloudscale.io",
-    type: "Vendor",
-    status: "pending" as const,
-    risk: "TBD",
-    riskClass: "text-[var(--color-neutral-600)]",
-    riskDot: "bg-[var(--color-neutral-600)]",
-    progress: 0,
-    progressClass: "bg-[var(--color-neutral-200)]",
-    analyst: "Unassigned",
-    sentDate: "-",
-  },
-];
+export default async function AssessmentsPage() {
+  const assessments = await getAssessmentsList();
 
-export default function AssessmentsPage() {
   return (
     <EntityWorkspace
       title="Assessments"
@@ -80,15 +27,40 @@ export default function AssessmentsPage() {
       actionLabel="New Assessment"
       secondaryActionLabel="Export"
       filters={filters}
-      columns={["Company", "Empresa", "Type", "Status", "Risk", "Response Progress", "Analyst", "Sent Date", "Actions"]}
-      tableFooterText="Showing 1 to 4 of 24 assessments"
+      columns={[
+        "Company",
+        "Empresa",
+        "Type",
+        "Status",
+        "Risk",
+        "Response Progress",
+        "Analyst",
+        "Sent Date",
+        "Actions",
+      ]}
+      tableFooterText={`Showing 1 to ${assessments.length} of ${assessments.length} assessments`}
       summary={[
-        { label: "In Progress", value: "12", note: "4 assessments need immediate review", tone: "primary" },
-        { label: "Approved", value: "156", note: "Last approved: SecurePay Inc", tone: "success" },
-        { label: "High Risk", value: "08", note: "Requires C-Level sign-off", tone: "danger" },
+        {
+          label: "In Progress",
+          value: assessments.filter((a) => ["pending", "sent", "responded", "in_review"].includes(a.status)).length.toString(),
+          note: "Assessments currently in workflow",
+          tone: "primary",
+        },
+        {
+          label: "Approved",
+          value: assessments.filter((a) => a.status === "completed").length.toString(),
+          note: "Completed assessment cycles",
+          tone: "success",
+        },
+        {
+          label: "High Risk",
+          value: assessments.filter((a) => a.risk === "High" || a.risk === "Critical").length.toString(),
+          note: "Requires C-Level sign-off",
+          tone: "danger",
+        },
       ]}
       rows={assessments.map((item) => (
-        <tr key={item.company} className="hover:bg-[var(--color-neutral-100)]/40 transition-colors">
+        <tr key={item.id} className="hover:bg-[var(--color-neutral-100)]/40 transition-colors">
           <td className="px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded bg-[var(--color-neutral-100)] text-xs font-bold text-[var(--color-neutral-600)]">
@@ -122,13 +94,17 @@ export default function AssessmentsPage() {
           <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]">{item.analyst}</td>
           <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]">{item.sentDate}</td>
           <td className="px-6 py-4 text-right">
-            <button type="button" className="rounded p-1 text-[var(--color-neutral-600)] transition hover:text-[var(--color-primary)]">
+            <Link
+              href={item.type === "Vendor" ? `/vendors/${item.slug}` : `/partners/${item.slug}`}
+              className="inline-flex rounded p-1 text-[var(--color-neutral-600)] transition hover:text-[var(--color-primary)]"
+              aria-label={`Abrir detalhes de ${item.company}`}
+            >
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
                 <circle cx="12" cy="6" r="1.8" />
                 <circle cx="12" cy="12" r="1.8" />
                 <circle cx="12" cy="18" r="1.8" />
               </svg>
-            </button>
+            </Link>
           </td>
         </tr>
       ))}

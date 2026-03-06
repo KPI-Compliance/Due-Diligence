@@ -1,75 +1,21 @@
 import Link from "next/link";
 import { EntityWorkspace } from "@/components/ui/EntityWorkspace";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { getPartnersList } from "@/lib/data";
+
+export const dynamic = "force-dynamic";
 
 const filters = [
   { label: "Partner", kind: "text" as const, placeholder: "Filter by partner name" },
   { label: "Status", kind: "select" as const, options: ["All Status", "Pending", "Sent", "In Review", "Completed"] },
   { label: "Risk Level", kind: "select" as const, options: ["All Risks", "Low", "Medium", "High", "Critical"] },
-  { label: "Region", kind: "select" as const, options: ["All Regions", "LATAM", "North America", "Europe"] },
+  { label: "Region", kind: "select" as const, options: ["All Regions"] },
   { label: "Date Range", kind: "button" as const, buttonText: "Last 60 days", className: "sm:max-w-[220px]" },
 ];
 
-const partners = [
-  {
-    id: "prime-logistics",
-    companyGroup: "VTEX",
-    company: "Prime Logistics",
-    domain: "prime.logistics",
-    segment: "Distribution",
-    status: "sent" as const,
-    risk: "High",
-    riskClass: "text-red-600",
-    riskDot: "bg-red-500",
-    openAssessments: 2,
-    owner: "Lucas Nogueira",
-    lastReview: "26 fev 2026",
-  },
-  {
-    id: "orbit-commerce",
-    companyGroup: "Weni",
-    company: "Orbit Commerce",
-    domain: "orbit-commerce.com",
-    segment: "Marketplace",
-    status: "in_review" as const,
-    risk: "Medium",
-    riskClass: "text-amber-600",
-    riskDot: "bg-amber-500",
-    openAssessments: 1,
-    owner: "Marina Alves",
-    lastReview: "21 fev 2026",
-  },
-  {
-    id: "blueroute",
-    companyGroup: "VTEX",
-    company: "BlueRoute",
-    domain: "blueroute.app",
-    segment: "Operations",
-    status: "completed" as const,
-    risk: "Low",
-    riskClass: "text-emerald-600",
-    riskDot: "bg-emerald-500",
-    openAssessments: 0,
-    owner: "Bruno Martins",
-    lastReview: "15 fev 2026",
-  },
-  {
-    id: "nexus-flows",
-    companyGroup: "Weni",
-    company: "Nexus Flows",
-    domain: "nexusflows.net",
-    segment: "Integration",
-    status: "pending" as const,
-    risk: "Critical",
-    riskClass: "text-rose-600",
-    riskDot: "bg-rose-500",
-    openAssessments: 3,
-    owner: "Lucas Nogueira",
-    lastReview: "10 fev 2026",
-  },
-];
+export default async function PartnersPage() {
+  const partners = await getPartnersList();
 
-export default function PartnersPage() {
   return (
     <EntityWorkspace
       title="Partners"
@@ -77,15 +23,40 @@ export default function PartnersPage() {
       actionLabel="New Partner"
       secondaryActionLabel="Export"
       filters={filters}
-      columns={["Company", "Empresa", "Segment", "Status", "Risk", "Open Assessments", "Owner", "Last Review", "Actions"]}
-      tableFooterText="Showing 1 to 4 of 62 partners"
+      columns={[
+        "Company",
+        "Empresa",
+        "Segment",
+        "Status",
+        "Risk",
+        "Open Assessments",
+        "Owner",
+        "Last Review",
+        "Actions",
+      ]}
+      tableFooterText={`Showing 1 to ${partners.length} of ${partners.length} partners`}
       summary={[
-        { label: "In Progress", value: "14", note: "5 partners awaiting documentation", tone: "primary" },
-        { label: "Approved", value: "41", note: "Last approved: BlueRoute", tone: "success" },
-        { label: "Critical", value: "07", note: "Requires executive approval", tone: "danger" },
+        {
+          label: "In Progress",
+          value: partners.filter((v) => v.status === "in_review" || v.status === "pending" || v.status === "sent").length.toString(),
+          note: "Partners with active due diligence workflows",
+          tone: "primary",
+        },
+        {
+          label: "Approved",
+          value: partners.filter((v) => v.status === "completed").length.toString(),
+          note: "Partners with completed assessments",
+          tone: "success",
+        },
+        {
+          label: "Critical",
+          value: partners.filter((v) => v.risk === "Critical").length.toString(),
+          note: "Executive attention required",
+          tone: "danger",
+        },
       ]}
       rows={partners.map((item) => (
-        <tr key={item.company} className="hover:bg-[var(--color-neutral-100)]/40 transition-colors">
+        <tr key={item.id} className="hover:bg-[var(--color-neutral-100)]/40 transition-colors">
           <td className="px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded bg-[var(--color-neutral-100)] text-xs font-bold text-[var(--color-neutral-600)]">
