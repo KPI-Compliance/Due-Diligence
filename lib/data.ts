@@ -87,6 +87,12 @@ function mapPartnerAssessmentStatus(status: string | null) {
   return "Completed";
 }
 
+function mapTechnicalReviewStatus(status: string | null) {
+  const workflowStatus = toWorkflowStatus(status);
+  if (workflowStatus === "in_review" || workflowStatus === "completed") return "Sent";
+  return "Not Sent";
+}
+
 function mapMainQuestionnaireStatus(questionCount: number, privacyLevel: string | null, securityLevel: string | null) {
   if (questionCount <= 0) return "Pending";
   if (hasDualReview(privacyLevel, securityLevel)) return "Reviewed";
@@ -196,6 +202,7 @@ export async function getVendorsList() {
         row.latest_privacy_level,
         row.latest_security_level,
       ),
+      technicalReviewStatus: mapTechnicalReviewStatus(row.latest_assessment_status),
       risk: finalRisk,
       privacyRisk: mapDecisionRisk(row.latest_privacy_level),
       securityRisk: mapDecisionRisk(row.latest_security_level),
@@ -285,6 +292,7 @@ export async function getPartnersList() {
       segment: row.segment ?? "-",
       status: mapStatus(row.status),
       assessmentStatus: mapPartnerAssessmentStatus(row.latest_assessment_status),
+      technicalReviewStatus: mapTechnicalReviewStatus(row.latest_assessment_status),
       risk: finalRisk,
       privacyRisk: mapDecisionRisk(row.latest_privacy_level),
       securityRisk: mapDecisionRisk(row.latest_security_level),
