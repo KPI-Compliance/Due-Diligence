@@ -20,6 +20,39 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Google Sheets Integration (Questionnaire Answers)
+
+You can use Google Sheets as the questionnaire source (instead of direct Typeform webhook processing).
+
+1. Publish your worksheet as CSV.
+2. Configure environment variables in `.env.local`:
+
+```bash
+GOOGLE_SHEETS_ENABLED=true
+GOOGLE_SHEETS_CSV_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=0"
+GOOGLE_SHEETS_STRICT_MATCH=true
+```
+
+3. Ensure your sheet has at least these columns:
+- `assessment_id` (recommended)
+- `question_text`
+- `answer_text`
+
+The integration also supports Typeform exported CSV in "wide format" (one row per response, many question columns), in both Portuguese and English headers.
+
+Optional:
+- `domain`
+- `review_status` (`compliant` or `needs_review`)
+- `evidence_url`
+- `entity_slug` / `entity_name`
+
+When rows match the current entity/assessment, answers are shown in the detail page (`Security Review` tab).
+
+`GOOGLE_SHEETS_STRICT_MATCH=true` (default) avoids ambiguous imports and only accepts deterministic matches.
+
+Health check endpoint:
+- `GET /api/health/google-sheets`
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

@@ -273,6 +273,19 @@ export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDe
                 <p className="rounded-lg border-l-4 border-[var(--color-primary)]/30 bg-[var(--color-neutral-100)] p-3 text-sm text-[var(--color-neutral-700)]">
                   {item.answer}
                 </p>
+                {item.evidenceUrl ? (
+                  <a
+                    href={item.evidenceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex text-xs font-semibold text-[var(--color-secondary)] hover:underline"
+                  >
+                    Ver evidência anexada
+                  </a>
+                ) : null}
+                {item.source === "google_sheets" ? (
+                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Fonte: Google Sheets</p>
+                ) : null}
               </article>
             ))}
           </div>

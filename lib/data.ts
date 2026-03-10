@@ -1,5 +1,6 @@
 import { sql } from "@/lib/db";
 import type { DetailTabKey, EntityDetailData, RiskLevel } from "@/lib/entity-detail-data";
+import { readAssessmentQuestionsFromGoogleSheets } from "@/lib/google-sheets";
 
 type UiStatus = "pending" | "sent" | "responded" | "in_review" | "completed";
 
@@ -14,6 +15,11 @@ function mapStatus(status: string): UiStatus {
   if (normalized === "responded") return "responded";
   if (normalized === "in_review") return "in_review";
   return "completed";
+}
+
+function mapStatusNullable(status: string | null): UiStatus | null {
+  if (!status) return null;
+  return mapStatus(status);
 }
 
 function mapRisk(level: string | null): UiRisk {
@@ -69,14 +75,24 @@ export async function getVendorsList() {
       e.company_group,
       e.last_review_at,
       COALESCE(u.full_name, 'Unassigned') AS owner,
+      active_assessment.id AS active_assessment_id,
+      active_assessment.status AS active_assessment_status,
       COUNT(a.id) FILTER (
         WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
       )::int AS open_assessments
     FROM entities e
     LEFT JOIN users u ON u.id = e.owner_user_id
     LEFT JOIN assessments a ON a.entity_id = e.id
+    LEFT JOIN LATERAL (
+      SELECT aa.id, aa.status
+      FROM assessments aa
+      WHERE aa.entity_id = e.id
+        AND aa.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
+      ORDER BY aa.created_at DESC
+      LIMIT 1
+    ) active_assessment ON true
     WHERE e.kind = 'VENDOR'
-    GROUP BY e.id, u.full_name
+    GROUP BY e.id, u.full_name, active_assessment.id, active_assessment.status
     ORDER BY e.name ASC
   `) as Array<{
     slug: string;
@@ -88,6 +104,8 @@ export async function getVendorsList() {
     company_group: string;
     last_review_at: string | null;
     owner: string;
+    active_assessment_id: string | null;
+    active_assessment_status: string | null;
     open_assessments: number;
   }>;
 
@@ -107,6 +125,8 @@ export async function getVendorsList() {
       openAssessments: row.open_assessments,
       owner: row.owner,
       lastReview: formatDate(row.last_review_at),
+      activeAssessmentId: row.active_assessment_id,
+      activeAssessmentStatus: mapStatusNullable(row.active_assessment_status),
     };
   });
 }
@@ -123,14 +143,24 @@ export async function getPartnersList() {
       e.company_group,
       e.last_review_at,
       COALESCE(u.full_name, 'Unassigned') AS owner,
+      active_assessment.id AS active_assessment_id,
+      active_assessment.status AS active_assessment_status,
       COUNT(a.id) FILTER (
         WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
       )::int AS open_assessments
     FROM entities e
     LEFT JOIN users u ON u.id = e.owner_user_id
     LEFT JOIN assessments a ON a.entity_id = e.id
+    LEFT JOIN LATERAL (
+      SELECT aa.id, aa.status
+      FROM assessments aa
+      WHERE aa.entity_id = e.id
+        AND aa.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
+      ORDER BY aa.created_at DESC
+      LIMIT 1
+    ) active_assessment ON true
     WHERE e.kind = 'PARTNER'
-    GROUP BY e.id, u.full_name
+    GROUP BY e.id, u.full_name, active_assessment.id, active_assessment.status
     ORDER BY e.name ASC
   `) as Array<{
     slug: string;
@@ -142,6 +172,8 @@ export async function getPartnersList() {
     company_group: string;
     last_review_at: string | null;
     owner: string;
+    active_assessment_id: string | null;
+    active_assessment_status: string | null;
     open_assessments: number;
   }>;
 
@@ -161,6 +193,8 @@ export async function getPartnersList() {
       openAssessments: row.open_assessments,
       owner: row.owner,
       lastReview: formatDate(row.last_review_at),
+      activeAssessmentId: row.active_assessment_id,
+      activeAssessmentStatus: mapStatusNullable(row.active_assessment_status),
     };
   });
 }
@@ -217,6 +251,42 @@ export async function getAssessmentsList() {
       sentDate: formatDate(row.sent_at),
     };
   });
+}
+
+export async function markAssessmentRespondedManually(assessmentId: string) {
+  await sql`
+    UPDATE assessments
+    SET
+      status = 'RESPONDED',
+      responded_at = COALESCE(responded_at, now()),
+      updated_at = now()
+    WHERE id = ${assessmentId}::uuid
+      AND status IN ('PENDING', 'SENT')
+  `;
+}
+
+export async function markAssessmentInReviewManually(assessmentId: string) {
+  await sql`
+    UPDATE assessments
+    SET
+      status = 'IN_REVIEW',
+      updated_at = now()
+    WHERE id = ${assessmentId}::uuid
+      AND status = 'RESPONDED'
+  `;
+}
+
+export async function markAssessmentCompletedManually(assessmentId: string) {
+  await sql`
+    UPDATE assessments
+    SET
+      status = 'COMPLETED',
+      completed_at = COALESCE(completed_at, now()),
+      progress_percent = 100,
+      updated_at = now()
+    WHERE id = ${assessmentId}::uuid
+      AND status = 'IN_REVIEW'
+  `;
 }
 
 export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: string): Promise<EntityDetailData | null> {
@@ -295,6 +365,23 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       }>)
     : [];
 
+  const sheetQuestions = await readAssessmentQuestionsFromGoogleSheets({
+    assessmentId: latestAssessment?.id,
+    entitySlug: entity.slug,
+    entityName: entity.name,
+  });
+
+  const finalQuestions =
+    sheetQuestions.length > 0
+      ? sheetQuestions
+      : questions.map((q) => ({
+          domain: q.domain,
+          status: q.review_status.toLowerCase() === "needs_review" ? ("needs_review" as const) : ("compliant" as const),
+          question: q.question_text,
+          answer: q.answer_text ?? "No answer provided.",
+          source: "database" as const,
+        }));
+
   const breakdownRows = (await sql`
     SELECT dimension, score, level
     FROM entity_risk_breakdowns
@@ -364,12 +451,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     statusLabel: entity.status_label ?? "In Progress",
     statusMode,
     riskScore: entity.risk_score ?? 0,
-    questions: questions.map((q) => ({
-      domain: q.domain,
-      status: q.review_status.toLowerCase() === "needs_review" ? "needs_review" : "compliant",
-      question: q.question_text,
-      answer: q.answer_text ?? "No answer provided.",
-    })),
+    questions: finalQuestions,
     overview: {
       category: entity.category ?? "-",
       hqLocation: entity.hq_location ?? "-",

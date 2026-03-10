@@ -23,6 +23,8 @@ export type EntityDetailData = {
     status: ReviewStatus;
     question: string;
     answer: string;
+    evidenceUrl?: string;
+    source?: "database" | "google_sheets";
   }>;
   overview: {
     category: string;
