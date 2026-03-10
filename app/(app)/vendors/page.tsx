@@ -58,7 +58,6 @@ export default async function VendorsPage({
           "Main Questionnaire",
           "Redteam",
           "Final Risk",
-          "Owner",
           "Last Review",
         ]}
         tableFooterText={`Showing 1 to ${vendors.length} of ${vendors.length} vendors`}
@@ -113,7 +112,6 @@ export default async function VendorsPage({
                 </p>
               </Link>
             </td>
-            <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]"><Link href={`/vendors/${item.id}`} className="block">{item.owner}</Link></td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]"><Link href={`/vendors/${item.id}`} className="block">{item.lastReview}</Link></td>
           </tr>
         ))}

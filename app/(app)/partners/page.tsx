@@ -57,7 +57,6 @@ export default async function PartnersPage({
           "Compliance",
           "Redteam",
           "Final Risk",
-          "Owner",
           "Last Review",
         ]}
         tableFooterText={`Showing 1 to ${partners.length} of ${partners.length} partners`}
@@ -111,7 +110,6 @@ export default async function PartnersPage({
                 </span>
               </Link>
             </td>
-            <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]"><Link href={`/partners/${item.id}`} className="block">{item.owner}</Link></td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]"><Link href={`/partners/${item.id}`} className="block">{item.lastReview}</Link></td>
           </tr>
         ))}
