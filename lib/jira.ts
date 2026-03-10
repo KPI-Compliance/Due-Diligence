@@ -226,6 +226,15 @@ function inferCompanyGroup(fields: JiraIssueFields, description: string): "VTEX"
   return "VTEX";
 }
 
+function normalizeCompanyGroup(value: string | null): "VTEX" | "WENI" | null {
+  const normalized = value?.trim().toUpperCase() ?? "";
+  if (normalized === "VTEX" || normalized === "WENI") {
+    return normalized;
+  }
+
+  return null;
+}
+
 function inferStatus(fields: JiraIssueFields): "PENDING" | "IN_REVIEW" | "RESPONDED" | "COMPLETED" {
   const status = fields.status?.name?.toLowerCase() ?? "";
 
@@ -305,6 +314,11 @@ export function extractEntityFromJiraIssue(payload: JiraWebhookPayload): SyncedJ
   const languagePreference =
     findValueInObject(payload, ["vendor language preferences", "language preference", "idioma", "language"]) ??
     findFieldValue(description, ["vendor language preferences", "language preference", "idioma"]);
+  const companyGroupFromForm =
+    normalizeCompanyGroup(
+      findValueInObject(payload, ["company", "company group", "grupo", "business unit"]) ??
+        findFieldValue(description, ["company", "company group", "grupo", "business unit"]),
+    );
   const capNumber =
     findValueInObject(payload, ["cap number", "cap"]) ?? findFieldValue(description, ["cap number", "cap"]);
   const scope =
@@ -327,7 +341,7 @@ export function extractEntityFromJiraIssue(payload: JiraWebhookPayload): SyncedJ
     "Vendor assessment";
   const contactEmail = vendorEmail;
   const kind = inferKind(fields, description);
-  const companyGroup = inferCompanyGroup(fields, description);
+  const companyGroup = companyGroupFromForm ?? inferCompanyGroup(fields, description);
   const status = inferStatus(fields);
   const riskLevel = inferRiskLevel(
     {
