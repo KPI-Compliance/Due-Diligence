@@ -154,7 +154,7 @@ export async function getVendorsList() {
       latest_assessment.response_count,
       latest_decision.security_level,
       latest_decision.privacy_level
-    ORDER BY e.name ASC
+    ORDER BY e.created_at DESC, e.name ASC
   `) as Array<{
     slug: string;
     name: string;
@@ -244,7 +244,7 @@ export async function getPartnersList() {
       latest_decision.security_level,
       latest_decision.privacy_level,
       latest_decision.compliance_level
-    ORDER BY e.name ASC
+    ORDER BY e.created_at DESC, e.name ASC
   `) as Array<{
     slug: string;
     name: string;
