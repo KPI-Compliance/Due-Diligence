@@ -68,12 +68,16 @@ function toWorkflowStatus(status: string | null): UiStatus | null {
   return mapStatus(status);
 }
 
-function mapVendorIntakeStatus(status: string | null) {
+function hasDualReview(privacyLevel: string | null, securityLevel: string | null) {
+  return Boolean(privacyLevel && securityLevel);
+}
+
+function mapVendorIntakeStatus(status: string | null, privacyLevel: string | null, securityLevel: string | null) {
   const workflowStatus = toWorkflowStatus(status);
   if (!workflowStatus || workflowStatus === "pending") return "Pending";
   if (workflowStatus === "sent") return "Sent";
-  if (workflowStatus === "responded") return "Responded";
-  return "Analyzed";
+  if (hasDualReview(privacyLevel, securityLevel)) return "Reviewed";
+  return "Responded";
 }
 
 function mapPartnerAssessmentStatus(status: string | null) {
@@ -83,8 +87,10 @@ function mapPartnerAssessmentStatus(status: string | null) {
   return "Completed";
 }
 
-function hasPrincipalQuestionnaire(questionCount: number) {
-  return questionCount > 0 ? "Responded" : "Pending";
+function mapMainQuestionnaireStatus(questionCount: number, privacyLevel: string | null, securityLevel: string | null) {
+  if (questionCount <= 0) return "Pending";
+  if (hasDualReview(privacyLevel, securityLevel)) return "Reviewed";
+  return "Responded";
 }
 
 function compareRiskSeverity(level: UiRisk) {
@@ -184,8 +190,12 @@ export async function getVendorsList() {
       domain: row.domain ?? "-",
       segment: row.segment ?? "-",
       status: mapStatus(row.status),
-      intakeStatus: mapVendorIntakeStatus(row.latest_assessment_status),
-      principalQuestionnaireStatus: hasPrincipalQuestionnaire(row.latest_response_count),
+      intakeStatus: mapVendorIntakeStatus(row.latest_assessment_status, row.latest_privacy_level, row.latest_security_level),
+      principalQuestionnaireStatus: mapMainQuestionnaireStatus(
+        row.latest_response_count,
+        row.latest_privacy_level,
+        row.latest_security_level,
+      ),
       risk: finalRisk,
       privacyRisk: mapDecisionRisk(row.latest_privacy_level),
       securityRisk: mapDecisionRisk(row.latest_security_level),

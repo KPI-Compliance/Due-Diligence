@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 
 const filters = [
   { label: "Vendor", kind: "text" as const, placeholder: "Filter by vendor name" },
-  { label: "Initial Questionnaire", kind: "select" as const, options: ["All", "Pending", "Sent", "Responded", "Analyzed"] },
-  { label: "Main Questionnaire", kind: "select" as const, options: ["All", "Pending", "Responded"] },
+  { label: "Initial Questionnaire", kind: "select" as const, options: ["All", "Pending", "Sent", "Responded", "Reviewed"] },
+  { label: "Main Questionnaire", kind: "select" as const, options: ["All", "Pending", "Responded", "Reviewed"] },
   { label: "Risk Level", kind: "select" as const, options: ["All Risks", "Low", "Medium", "High", "Critical"] },
   { label: "Owner", kind: "select" as const, options: ["All Owners"] },
   { label: "Date Range", kind: "button" as const, buttonText: "Last 90 days", className: "sm:max-w-[220px]" },
@@ -18,15 +18,51 @@ const filters = [
 function renderWorkflowBadge(label: string) {
   const normalized = label.toLowerCase();
   const className =
-    normalized === "analyzed"
-      ? "border-sky-200 bg-sky-50 text-sky-700"
+    normalized === "reviewed"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : normalized === "responded"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        ? "border-sky-200 bg-sky-50 text-sky-700"
         : normalized === "sent"
           ? "border-amber-200 bg-amber-50 text-amber-700"
           : "border-slate-200 bg-slate-100 text-slate-700";
 
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{label}</span>;
+}
+
+function WorkflowIcon({ kind }: { kind: "responded" | "review" | "finalize" | "details" }) {
+  if (kind === "responded") {
+    return (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M4 12h16" />
+        <path d="m13 5 7 7-7 7" />
+      </svg>
+    );
+  }
+
+  if (kind === "review") {
+    return (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="11" cy="11" r="6" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+    );
+  }
+
+  if (kind === "finalize") {
+    return (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="m5 12 4 4L19 6" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="6" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="18" r="1.8" />
+    </svg>
+  );
 }
 
 async function markAsRespondedAction(formData: FormData) {
@@ -105,7 +141,7 @@ export default async function VendorsPage({
           "Final Risk",
           "Owner",
           "Last Review",
-          "Actions",
+          "Workflow",
         ]}
         tableFooterText={`Showing 1 to ${vendors.length} of ${vendors.length} vendors`}
         summary={[
@@ -116,9 +152,9 @@ export default async function VendorsPage({
             tone: "primary",
           },
           {
-            label: "Main Responded",
-            value: vendors.filter((v) => v.principalQuestionnaireStatus === "Responded").length.toString(),
-            note: "Questionario principal ja retornou dados",
+            label: "Main Reviewed",
+            value: vendors.filter((v) => v.principalQuestionnaireStatus === "Reviewed").length.toString(),
+            note: "Questionario principal revisado por Privacy e Security",
             tone: "success",
           },
           {
@@ -167,9 +203,11 @@ export default async function VendorsPage({
                     <input type="hidden" name="assessment_id" value={item.activeAssessmentId} />
                     <button
                       type="submit"
-                      className="rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+                      aria-label={`Marcar ${item.company} como responded`}
+                      title="Marcar como responded"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                     >
-                      RESPONDED
+                      <WorkflowIcon kind="responded" />
                     </button>
                   </form>
                 ) : null}
@@ -178,9 +216,11 @@ export default async function VendorsPage({
                     <input type="hidden" name="assessment_id" value={item.activeAssessmentId} />
                     <button
                       type="submit"
-                      className="rounded border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100"
+                      aria-label={`Enviar ${item.company} para análise`}
+                      title="Enviar para análise"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
                     >
-                      ANALYZE
+                      <WorkflowIcon kind="review" />
                     </button>
                   </form>
                 ) : null}
@@ -189,22 +229,21 @@ export default async function VendorsPage({
                     <input type="hidden" name="assessment_id" value={item.activeAssessmentId} />
                     <button
                       type="submit"
-                      className="rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-700 hover:bg-sky-100"
+                      aria-label={`Finalizar análise de ${item.company}`}
+                      title="Finalizar análise"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
                     >
-                      FINALIZE
+                      <WorkflowIcon kind="finalize" />
                     </button>
                   </form>
                 ) : null}
                 <Link
                   href={`/vendors/${item.id}`}
                   aria-label={`Abrir detalhes de ${item.company}`}
-                  className="inline-flex rounded p-1 text-[var(--color-neutral-600)] transition hover:text-[var(--color-primary)]"
+                  title="Abrir detalhes"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--color-neutral-200)] text-[var(--color-neutral-600)] transition hover:text-[var(--color-primary)]"
                 >
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="6" r="1.8" />
-                    <circle cx="12" cy="12" r="1.8" />
-                    <circle cx="12" cy="18" r="1.8" />
-                  </svg>
+                  <WorkflowIcon kind="details" />
                 </Link>
               </div>
             </td>

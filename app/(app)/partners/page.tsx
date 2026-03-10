@@ -26,6 +26,42 @@ function renderAssessmentBadge(label: string) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{label}</span>;
 }
 
+function WorkflowIcon({ kind }: { kind: "responded" | "review" | "finalize" | "details" }) {
+  if (kind === "responded") {
+    return (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M4 12h16" />
+        <path d="m13 5 7 7-7 7" />
+      </svg>
+    );
+  }
+
+  if (kind === "review") {
+    return (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="11" cy="11" r="6" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+    );
+  }
+
+  if (kind === "finalize") {
+    return (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="m5 12 4 4L19 6" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="6" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="18" r="1.8" />
+    </svg>
+  );
+}
+
 async function markAsRespondedAction(formData: FormData) {
   "use server";
 
@@ -104,7 +140,7 @@ export default async function PartnersPage({
           "Final Risk",
           "Owner",
           "Last Review",
-          "Actions",
+          "Workflow",
         ]}
         tableFooterText={`Showing 1 to ${partners.length} of ${partners.length} partners`}
         summary={[
@@ -163,9 +199,11 @@ export default async function PartnersPage({
                     <input type="hidden" name="assessment_id" value={item.activeAssessmentId} />
                     <button
                       type="submit"
-                      className="rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+                      aria-label={`Marcar ${item.company} como responded`}
+                      title="Marcar como responded"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                     >
-                      RESPONDED
+                      <WorkflowIcon kind="responded" />
                     </button>
                   </form>
                 ) : null}
@@ -174,9 +212,11 @@ export default async function PartnersPage({
                     <input type="hidden" name="assessment_id" value={item.activeAssessmentId} />
                     <button
                       type="submit"
-                      className="rounded border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100"
+                      aria-label={`Enviar ${item.company} para revisão`}
+                      title="Enviar para revisão"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
                     >
-                      REVIEW
+                      <WorkflowIcon kind="review" />
                     </button>
                   </form>
                 ) : null}
@@ -185,22 +225,21 @@ export default async function PartnersPage({
                     <input type="hidden" name="assessment_id" value={item.activeAssessmentId} />
                     <button
                       type="submit"
-                      className="rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-700 hover:bg-sky-100"
+                      aria-label={`Finalizar análise de ${item.company}`}
+                      title="Finalizar análise"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
                     >
-                      FINALIZE
+                      <WorkflowIcon kind="finalize" />
                     </button>
                   </form>
                 ) : null}
                 <Link
                   href={`/partners/${item.id}`}
                   aria-label={`Abrir detalhes de ${item.company}`}
-                  className="inline-flex rounded p-1 text-[var(--color-neutral-600)] transition hover:text-[var(--color-primary)]"
+                  title="Abrir detalhes"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--color-neutral-200)] text-[var(--color-neutral-600)] transition hover:text-[var(--color-primary)]"
                 >
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="6" r="1.8" />
-                    <circle cx="12" cy="12" r="1.8" />
-                    <circle cx="12" cy="18" r="1.8" />
-                  </svg>
+                  <WorkflowIcon kind="details" />
                 </Link>
               </div>
             </td>
