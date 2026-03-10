@@ -2,18 +2,32 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { EntityWorkspace } from "@/components/ui/EntityWorkspace";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import { getVendorsList, markAssessmentCompletedManually, markAssessmentInReviewManually, markAssessmentRespondedManually } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 const filters = [
   { label: "Vendor", kind: "text" as const, placeholder: "Filter by vendor name" },
-  { label: "Status", kind: "select" as const, options: ["All Status", "Pending", "In Review", "Completed"] },
+  { label: "Initial Questionnaire", kind: "select" as const, options: ["All", "Pending", "Sent", "Responded", "Analyzed"] },
+  { label: "Main Questionnaire", kind: "select" as const, options: ["All", "Pending", "Responded"] },
   { label: "Risk Level", kind: "select" as const, options: ["All Risks", "Low", "Medium", "High", "Critical"] },
   { label: "Owner", kind: "select" as const, options: ["All Owners"] },
   { label: "Date Range", kind: "button" as const, buttonText: "Last 90 days", className: "sm:max-w-[220px]" },
 ];
+
+function renderWorkflowBadge(label: string) {
+  const normalized = label.toLowerCase();
+  const className =
+    normalized === "analyzed"
+      ? "border-sky-200 bg-sky-50 text-sky-700"
+      : normalized === "responded"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : normalized === "sent"
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : "border-slate-200 bg-slate-100 text-slate-700";
+
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{label}</span>;
+}
 
 async function markAsRespondedAction(formData: FormData) {
   "use server";
@@ -23,7 +37,6 @@ async function markAsRespondedAction(formData: FormData) {
 
   await markAssessmentRespondedManually(id);
 
-  revalidatePath("/assessments");
   revalidatePath("/vendors");
   revalidatePath("/partners");
   revalidatePath("/dashboard");
@@ -38,7 +51,6 @@ async function markAsInReviewAction(formData: FormData) {
 
   await markAssessmentInReviewManually(id);
 
-  revalidatePath("/assessments");
   revalidatePath("/vendors");
   revalidatePath("/partners");
   revalidatePath("/dashboard");
@@ -53,7 +65,6 @@ async function markAsCompletedAction(formData: FormData) {
 
   await markAssessmentCompletedManually(id);
 
-  revalidatePath("/assessments");
   revalidatePath("/vendors");
   revalidatePath("/partners");
   revalidatePath("/dashboard");
@@ -73,15 +84,15 @@ export default async function VendorsPage({
       {params?.updated ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
           {params.updated === "responded"
-            ? "Assessment atualizado para RESPONDED."
+            ? "Vendor atualizado para RESPONDED."
             : params.updated === "in_review"
-              ? "Assessment atualizado para IN_REVIEW."
-              : "Assessment atualizado para COMPLETED."}
+              ? "Vendor movido para análise."
+              : "Vendor finalizado."}
         </div>
       ) : null}
       <EntityWorkspace
         title="Vendors"
-        description="Consolide fornecedores, acompanhe risco e gerencie ciclos de due diligence em andamento."
+        description="Centralize vendors e acompanhe o intake inicial, o questionário principal e o risco final por Privacy e Security."
         actionLabel="New Vendor"
         secondaryActionLabel="Export"
         filters={filters}
@@ -89,9 +100,9 @@ export default async function VendorsPage({
           "Company",
           "Empresa",
           "Segment",
-          "Status",
-          "Risk",
-          "Open Assessments",
+          "Initial Questionnaire",
+          "Main Questionnaire",
+          "Final Risk",
           "Owner",
           "Last Review",
           "Actions",
@@ -99,21 +110,21 @@ export default async function VendorsPage({
         tableFooterText={`Showing 1 to ${vendors.length} of ${vendors.length} vendors`}
         summary={[
           {
-            label: "In Progress",
-            value: vendors.filter((v) => v.status === "in_review" || v.status === "pending").length.toString(),
-            note: "Vendors with open due diligence workflows",
+            label: "Initial Pending",
+            value: vendors.filter((v) => v.intakeStatus === "Pending").length.toString(),
+            note: "Vendors aguardando o primeiro questionario",
             tone: "primary",
           },
           {
-            label: "Approved",
-            value: vendors.filter((v) => v.status === "completed").length.toString(),
-            note: "Vendors with completed assessments",
+            label: "Main Responded",
+            value: vendors.filter((v) => v.principalQuestionnaireStatus === "Responded").length.toString(),
+            note: "Questionario principal ja retornou dados",
             tone: "success",
           },
           {
             label: "Critical",
             value: vendors.filter((v) => v.risk === "Critical").length.toString(),
-            note: "High-priority risk escalation",
+            note: "Maior risco final entre Privacy e Security",
             tone: "danger",
           },
         ]}
@@ -134,16 +145,19 @@ export default async function VendorsPage({
             </td>
             <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]">{item.companyGroup}</td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]">{item.segment}</td>
+            <td className="px-6 py-4">{renderWorkflowBadge(item.intakeStatus)}</td>
+            <td className="px-6 py-4">{renderWorkflowBadge(item.principalQuestionnaireStatus)}</td>
             <td className="px-6 py-4">
-              <StatusBadge status={item.status} />
+              <div className="space-y-1">
+                <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${item.riskClass}`}>
+                  <span className={`h-2 w-2 rounded-full ${item.riskDot}`} />
+                  {item.risk}
+                </span>
+                <p className="text-[11px] text-[var(--color-neutral-600)]">
+                  Privacy: {item.privacyRisk ?? "-"} | Security: {item.securityRisk ?? "-"}
+                </p>
+              </div>
             </td>
-            <td className="px-6 py-4">
-              <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${item.riskClass}`}>
-                <span className={`h-2 w-2 rounded-full ${item.riskDot}`} />
-                {item.risk}
-              </span>
-            </td>
-            <td className="px-6 py-4 text-sm font-semibold text-[var(--color-text)]">{item.openAssessments}</td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]">{item.owner}</td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]">{item.lastReview}</td>
             <td className="px-6 py-4 text-right">
@@ -166,7 +180,7 @@ export default async function VendorsPage({
                       type="submit"
                       className="rounded border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100"
                     >
-                      IN REVIEW
+                      ANALYZE
                     </button>
                   </form>
                 ) : null}
@@ -177,7 +191,7 @@ export default async function VendorsPage({
                       type="submit"
                       className="rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-700 hover:bg-sky-100"
                     >
-                      COMPLETED
+                      FINALIZE
                     </button>
                   </form>
                 ) : null}

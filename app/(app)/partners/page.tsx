@@ -2,18 +2,29 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { EntityWorkspace } from "@/components/ui/EntityWorkspace";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import { getPartnersList, markAssessmentCompletedManually, markAssessmentInReviewManually, markAssessmentRespondedManually } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 const filters = [
   { label: "Partner", kind: "text" as const, placeholder: "Filter by partner name" },
-  { label: "Status", kind: "select" as const, options: ["All Status", "Pending", "Sent", "In Review", "Completed"] },
+  { label: "Assessment Status", kind: "select" as const, options: ["All", "Pending", "In Review", "Completed"] },
   { label: "Risk Level", kind: "select" as const, options: ["All Risks", "Low", "Medium", "High", "Critical"] },
-  { label: "Region", kind: "select" as const, options: ["All Regions"] },
+  { label: "Owner", kind: "select" as const, options: ["All Owners"] },
   { label: "Date Range", kind: "button" as const, buttonText: "Last 60 days", className: "sm:max-w-[220px]" },
 ];
+
+function renderAssessmentBadge(label: string) {
+  const normalized = label.toLowerCase();
+  const className =
+    normalized === "completed"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : normalized === "in review"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-slate-200 bg-slate-100 text-slate-700";
+
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{label}</span>;
+}
 
 async function markAsRespondedAction(formData: FormData) {
   "use server";
@@ -23,7 +34,6 @@ async function markAsRespondedAction(formData: FormData) {
 
   await markAssessmentRespondedManually(id);
 
-  revalidatePath("/assessments");
   revalidatePath("/vendors");
   revalidatePath("/partners");
   revalidatePath("/dashboard");
@@ -38,7 +48,6 @@ async function markAsInReviewAction(formData: FormData) {
 
   await markAssessmentInReviewManually(id);
 
-  revalidatePath("/assessments");
   revalidatePath("/vendors");
   revalidatePath("/partners");
   revalidatePath("/dashboard");
@@ -53,7 +62,6 @@ async function markAsCompletedAction(formData: FormData) {
 
   await markAssessmentCompletedManually(id);
 
-  revalidatePath("/assessments");
   revalidatePath("/vendors");
   revalidatePath("/partners");
   revalidatePath("/dashboard");
@@ -73,15 +81,15 @@ export default async function PartnersPage({
       {params?.updated ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
           {params.updated === "responded"
-            ? "Assessment atualizado para RESPONDED."
+            ? "Partner atualizado para RESPONDED."
             : params.updated === "in_review"
-              ? "Assessment atualizado para IN_REVIEW."
-              : "Assessment atualizado para COMPLETED."}
+              ? "Partner movido para revisão."
+              : "Partner finalizado."}
         </div>
       ) : null}
       <EntityWorkspace
         title="Partners"
-        description="Centralize strategic partners and track relationship risk across active due diligence cycles."
+        description="Acompanhe partners pela etapa da analise e pelo resultado final consolidado de Privacy, Security e Compliance."
         actionLabel="New Partner"
         secondaryActionLabel="Export"
         filters={filters}
@@ -89,9 +97,11 @@ export default async function PartnersPage({
           "Company",
           "Empresa",
           "Segment",
-          "Status",
-          "Risk",
-          "Open Assessments",
+          "Assessment Status",
+          "Privacy",
+          "Security",
+          "Compliance",
+          "Final Risk",
           "Owner",
           "Last Review",
           "Actions",
@@ -99,21 +109,21 @@ export default async function PartnersPage({
         tableFooterText={`Showing 1 to ${partners.length} of ${partners.length} partners`}
         summary={[
           {
-            label: "In Progress",
-            value: partners.filter((v) => v.status === "in_review" || v.status === "pending" || v.status === "sent").length.toString(),
-            note: "Partners with active due diligence workflows",
+            label: "Pending",
+            value: partners.filter((v) => v.assessmentStatus === "Pending").length.toString(),
+            note: "Partners aguardando avance da avaliacao",
             tone: "primary",
           },
           {
-            label: "Approved",
-            value: partners.filter((v) => v.status === "completed").length.toString(),
-            note: "Partners with completed assessments",
+            label: "Completed",
+            value: partners.filter((v) => v.assessmentStatus === "Completed").length.toString(),
+            note: "Partners com analise encerrada",
             tone: "success",
           },
           {
             label: "Critical",
             value: partners.filter((v) => v.risk === "Critical").length.toString(),
-            note: "Executive attention required",
+            note: "Risco final consolidado entre as 3 areas",
             tone: "danger",
           },
         ]}
@@ -134,16 +144,16 @@ export default async function PartnersPage({
             </td>
             <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]">{item.companyGroup}</td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]">{item.segment}</td>
-            <td className="px-6 py-4">
-              <StatusBadge status={item.status} />
-            </td>
+            <td className="px-6 py-4">{renderAssessmentBadge(item.assessmentStatus)}</td>
+            <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]">{item.privacyRisk ?? "-"}</td>
+            <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]">{item.securityRisk ?? "-"}</td>
+            <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]">{item.complianceRisk ?? "-"}</td>
             <td className="px-6 py-4">
               <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${item.riskClass}`}>
                 <span className={`h-2 w-2 rounded-full ${item.riskDot}`} />
                 {item.risk}
               </span>
             </td>
-            <td className="px-6 py-4 text-sm font-semibold text-[var(--color-text)]">{item.openAssessments}</td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]">{item.owner}</td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]">{item.lastReview}</td>
             <td className="px-6 py-4 text-right">
@@ -166,7 +176,7 @@ export default async function PartnersPage({
                       type="submit"
                       className="rounded border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100"
                     >
-                      IN REVIEW
+                      REVIEW
                     </button>
                   </form>
                 ) : null}
@@ -177,7 +187,7 @@ export default async function PartnersPage({
                       type="submit"
                       className="rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-700 hover:bg-sky-100"
                     >
-                      COMPLETED
+                      FINALIZE
                     </button>
                   </form>
                 ) : null}

@@ -60,7 +60,46 @@ function toUiKind(kind: string): UiKind {
 }
 
 function toCompanyGroup(value: string) {
-  return value.toUpperCase() === "WENI" ? "Weni" : "VTEX";
+  return value.toUpperCase() === "WENI" ? "WENI" : "VTEX";
+}
+
+function toWorkflowStatus(status: string | null): UiStatus | null {
+  if (!status) return null;
+  return mapStatus(status);
+}
+
+function mapVendorIntakeStatus(status: string | null) {
+  const workflowStatus = toWorkflowStatus(status);
+  if (!workflowStatus || workflowStatus === "pending") return "Pending";
+  if (workflowStatus === "sent") return "Sent";
+  if (workflowStatus === "responded") return "Responded";
+  return "Analyzed";
+}
+
+function mapPartnerAssessmentStatus(status: string | null) {
+  const workflowStatus = toWorkflowStatus(status);
+  if (!workflowStatus || workflowStatus === "pending" || workflowStatus === "sent") return "Pending";
+  if (workflowStatus === "responded" || workflowStatus === "in_review") return "In Review";
+  return "Completed";
+}
+
+function hasPrincipalQuestionnaire(questionCount: number) {
+  return questionCount > 0 ? "Responded" : "Pending";
+}
+
+function compareRiskSeverity(level: UiRisk) {
+  if (level === "Critical") return 4;
+  if (level === "High") return 3;
+  if (level === "Medium") return 2;
+  return 1;
+}
+
+function maxRisk(...levels: Array<string | null>) {
+  return levels.map(mapRisk).sort((a, b) => compareRiskSeverity(b) - compareRiskSeverity(a))[0] ?? "Low";
+}
+
+function mapDecisionRisk(level: string | null) {
+  return level ? mapRisk(level) : null;
 }
 
 export async function getVendorsList() {
@@ -75,8 +114,11 @@ export async function getVendorsList() {
       e.company_group,
       e.last_review_at,
       COALESCE(u.full_name, 'Unassigned') AS owner,
-      active_assessment.id AS active_assessment_id,
-      active_assessment.status AS active_assessment_status,
+      latest_assessment.id AS latest_assessment_id,
+      latest_assessment.status AS latest_assessment_status,
+      latest_assessment.response_count AS latest_response_count,
+      latest_decision.security_level AS latest_security_level,
+      latest_decision.privacy_level AS latest_privacy_level,
       COUNT(a.id) FILTER (
         WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
       )::int AS open_assessments
@@ -84,15 +126,34 @@ export async function getVendorsList() {
     LEFT JOIN users u ON u.id = e.owner_user_id
     LEFT JOIN assessments a ON a.entity_id = e.id
     LEFT JOIN LATERAL (
-      SELECT aa.id, aa.status
+      SELECT
+        aa.id,
+        aa.status,
+        (
+          SELECT COUNT(*)
+          FROM assessment_question_responses aqr
+          WHERE aqr.assessment_id = aa.id
+        )::int AS response_count
       FROM assessments aa
       WHERE aa.entity_id = e.id
-        AND aa.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
       ORDER BY aa.created_at DESC
       LIMIT 1
-    ) active_assessment ON true
+    ) latest_assessment ON true
+    LEFT JOIN LATERAL (
+      SELECT security_level, privacy_level
+      FROM assessment_decisions ad
+      WHERE ad.assessment_id = latest_assessment.id
+      LIMIT 1
+    ) latest_decision ON true
     WHERE e.kind = 'VENDOR'
-    GROUP BY e.id, u.full_name, active_assessment.id, active_assessment.status
+    GROUP BY
+      e.id,
+      u.full_name,
+      latest_assessment.id,
+      latest_assessment.status,
+      latest_assessment.response_count,
+      latest_decision.security_level,
+      latest_decision.privacy_level
     ORDER BY e.name ASC
   `) as Array<{
     slug: string;
@@ -104,14 +165,17 @@ export async function getVendorsList() {
     company_group: string;
     last_review_at: string | null;
     owner: string;
-    active_assessment_id: string | null;
-    active_assessment_status: string | null;
+    latest_assessment_id: string | null;
+    latest_assessment_status: string | null;
+    latest_response_count: number;
+    latest_security_level: string | null;
+    latest_privacy_level: string | null;
     open_assessments: number;
   }>;
 
   return rows.map((row) => {
-    const risk = mapRisk(row.risk_level);
-    const riskUi = riskClasses(risk);
+    const finalRisk = maxRisk(row.latest_security_level, row.latest_privacy_level, row.risk_level);
+    const riskUi = riskClasses(finalRisk);
 
     return {
       id: row.slug,
@@ -120,13 +184,17 @@ export async function getVendorsList() {
       domain: row.domain ?? "-",
       segment: row.segment ?? "-",
       status: mapStatus(row.status),
-      risk,
+      intakeStatus: mapVendorIntakeStatus(row.latest_assessment_status),
+      principalQuestionnaireStatus: hasPrincipalQuestionnaire(row.latest_response_count),
+      risk: finalRisk,
+      privacyRisk: mapDecisionRisk(row.latest_privacy_level),
+      securityRisk: mapDecisionRisk(row.latest_security_level),
       ...riskUi,
       openAssessments: row.open_assessments,
       owner: row.owner,
       lastReview: formatDate(row.last_review_at),
-      activeAssessmentId: row.active_assessment_id,
-      activeAssessmentStatus: mapStatusNullable(row.active_assessment_status),
+      activeAssessmentId: row.latest_assessment_id,
+      activeAssessmentStatus: mapStatusNullable(row.latest_assessment_status),
     };
   });
 }
@@ -143,8 +211,11 @@ export async function getPartnersList() {
       e.company_group,
       e.last_review_at,
       COALESCE(u.full_name, 'Unassigned') AS owner,
-      active_assessment.id AS active_assessment_id,
-      active_assessment.status AS active_assessment_status,
+      latest_assessment.id AS latest_assessment_id,
+      latest_assessment.status AS latest_assessment_status,
+      latest_decision.security_level AS latest_security_level,
+      latest_decision.privacy_level AS latest_privacy_level,
+      latest_decision.compliance_level AS latest_compliance_level,
       COUNT(a.id) FILTER (
         WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
       )::int AS open_assessments
@@ -155,12 +226,24 @@ export async function getPartnersList() {
       SELECT aa.id, aa.status
       FROM assessments aa
       WHERE aa.entity_id = e.id
-        AND aa.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
       ORDER BY aa.created_at DESC
       LIMIT 1
-    ) active_assessment ON true
+    ) latest_assessment ON true
+    LEFT JOIN LATERAL (
+      SELECT security_level, privacy_level, compliance_level
+      FROM assessment_decisions ad
+      WHERE ad.assessment_id = latest_assessment.id
+      LIMIT 1
+    ) latest_decision ON true
     WHERE e.kind = 'PARTNER'
-    GROUP BY e.id, u.full_name, active_assessment.id, active_assessment.status
+    GROUP BY
+      e.id,
+      u.full_name,
+      latest_assessment.id,
+      latest_assessment.status,
+      latest_decision.security_level,
+      latest_decision.privacy_level,
+      latest_decision.compliance_level
     ORDER BY e.name ASC
   `) as Array<{
     slug: string;
@@ -172,14 +255,17 @@ export async function getPartnersList() {
     company_group: string;
     last_review_at: string | null;
     owner: string;
-    active_assessment_id: string | null;
-    active_assessment_status: string | null;
+    latest_assessment_id: string | null;
+    latest_assessment_status: string | null;
+    latest_security_level: string | null;
+    latest_privacy_level: string | null;
+    latest_compliance_level: string | null;
     open_assessments: number;
   }>;
 
   return rows.map((row) => {
-    const risk = mapRisk(row.risk_level);
-    const riskUi = riskClasses(risk);
+    const finalRisk = maxRisk(row.latest_security_level, row.latest_privacy_level, row.latest_compliance_level, row.risk_level);
+    const riskUi = riskClasses(finalRisk);
 
     return {
       id: row.slug,
@@ -188,13 +274,17 @@ export async function getPartnersList() {
       domain: row.domain ?? "-",
       segment: row.segment ?? "-",
       status: mapStatus(row.status),
-      risk,
+      assessmentStatus: mapPartnerAssessmentStatus(row.latest_assessment_status),
+      risk: finalRisk,
+      privacyRisk: mapDecisionRisk(row.latest_privacy_level),
+      securityRisk: mapDecisionRisk(row.latest_security_level),
+      complianceRisk: mapDecisionRisk(row.latest_compliance_level),
       ...riskUi,
       openAssessments: row.open_assessments,
       owner: row.owner,
       lastReview: formatDate(row.last_review_at),
-      activeAssessmentId: row.active_assessment_id,
-      activeAssessmentStatus: mapStatusNullable(row.active_assessment_status),
+      activeAssessmentId: row.latest_assessment_id,
+      activeAssessmentStatus: mapStatusNullable(row.latest_assessment_status),
     };
   });
 }
