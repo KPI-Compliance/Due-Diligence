@@ -14,6 +14,7 @@ type IntegrationsSettingsProps = {
   slack: { enabled: boolean; config: SlackConfig };
   typeformSecretConfigured: boolean;
   jiraTokenConfigured: boolean;
+  jiraWebhookSecretConfigured: boolean;
   slackTokenConfigured: boolean;
   saveTypeformSettings: (formData: FormData) => Promise<void>;
   saveTypeformForm: (formData: FormData) => Promise<void>;
@@ -41,6 +42,7 @@ export function IntegrationsSettings({
   slack,
   typeformSecretConfigured,
   jiraTokenConfigured,
+  jiraWebhookSecretConfigured,
   slackTokenConfigured,
   saveTypeformSettings,
   saveTypeformForm,
@@ -344,12 +346,32 @@ export function IntegrationsSettings({
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
               <h3 className="text-xl font-bold text-[var(--color-text)]">Configurar Jira</h3>
-              <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Defina o projeto de destino e os padroes de issue.</p>
+              <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Defina o projeto de destino e o webhook que replica issues para Vendors.</p>
             </div>
             <button type="button" onClick={() => setOpenModal(null)} className="rounded-md px-2 py-1 text-[var(--color-neutral-600)] hover:bg-[var(--color-neutral-100)]">
               ✕
             </button>
           </div>
+
+          <section className="mb-4 rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-4">
+            <p className="text-sm font-bold text-[var(--color-text)]">Webhook de Sincronizacao Jira → Vendors</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-[var(--color-neutral-700)]">
+              <li>Cadastre no Jira Automation ou Webhook um gatilho para issue criada e issue atualizada.</li>
+              <li>Aponte o destino para o endpoint abaixo.</li>
+              <li>Se usar segredo, envie o header `x-jira-webhook-secret` com o mesmo valor de `JIRA_WEBHOOK_SECRET`.</li>
+              <li>Para preencher dominio, segmento e contato automaticamente, inclua esses campos no corpo da issue/descricao.</li>
+            </ol>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="space-y-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Endpoint do Webhook</span>
+                <input type="text" readOnly value={`${appUrl}/api/jira/webhook`} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Segredo do Webhook</span>
+                <input type="text" readOnly value={jiraWebhookSecretConfigured ? "Configurado no ambiente" : "Opcional, mas recomendado: JIRA_WEBHOOK_SECRET"} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" />
+              </label>
+            </div>
+          </section>
 
           <form action={saveJiraSettings} className="space-y-4">
             <label className="space-y-1 block">

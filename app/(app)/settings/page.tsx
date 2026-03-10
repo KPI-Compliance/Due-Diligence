@@ -61,9 +61,12 @@ const statusClass: Record<UserRow["status"], string> = {
   pending: "text-slate-400",
 };
 
-const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+const appUrl =
+  process.env.NEXT_PUBLIC_APP_URL ??
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://due-diligence-eight.vercel.app");
 const typeformSecretConfigured = Boolean(process.env.TYPEFORM_WEBHOOK_SECRET);
 const jiraTokenConfigured = Boolean(process.env.JIRA_API_TOKEN);
+const jiraWebhookSecretConfigured = Boolean(process.env.JIRA_WEBHOOK_SECRET);
 const slackTokenConfigured = Boolean(process.env.SLACK_BOT_TOKEN);
 
 export const dynamic = "force-dynamic";
@@ -566,6 +569,7 @@ export default async function SettingsPage({
           slack={slack}
           typeformSecretConfigured={typeformSecretConfigured}
           jiraTokenConfigured={jiraTokenConfigured}
+          jiraWebhookSecretConfigured={jiraWebhookSecretConfigured}
           slackTokenConfigured={slackTokenConfigured}
           saveTypeformSettings={saveTypeformSettings}
           saveTypeformForm={saveTypeformForm}
