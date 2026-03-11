@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { normalizeAssessmentId, normalizeTypeformAnswers, verifyTypeformSignature } from "@/lib/typeform";
+import {
+  extractCompanyNameFromTypeformAnswers,
+  extractTicketFromTypeformAnswers,
+  normalizeAssessmentId,
+  normalizeTypeformAnswers,
+  verifyTypeformSignature,
+} from "@/lib/typeform";
 
 export const runtime = "nodejs";
 
@@ -48,6 +54,14 @@ type TypeformFormMapping = {
 
 function isValidUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function normalizeComparable(value: string | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 export async function POST(request: Request) {
@@ -157,15 +171,77 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, message: "Form not configured or disabled. Event stored and ignored." });
     }
 
+    const answers = normalizeTypeformAnswers(payload.form_response?.answers);
     const hiddenFieldName =
       formMapping.hidden_assessment_field || typeformSetting.config?.default_hidden_assessment_field || "assessment_id";
 
-    const assessmentId = normalizeAssessmentId(payload.form_response?.hidden, hiddenFieldName);
+    let assessmentId = normalizeAssessmentId(payload.form_response?.hidden, hiddenFieldName);
+    let resolvedEntityKind: "VENDOR" | "PARTNER" | null = null;
+
     if (!assessmentId || !isValidUuid(assessmentId)) {
-      return NextResponse.json(
-        { ok: false, message: `Missing or invalid hidden field: ${hiddenFieldName}.` },
-        { status: 400 },
-      );
+      const companyName = extractCompanyNameFromTypeformAnswers(payload.form_response?.answers);
+      const jiraTicket = extractTicketFromTypeformAnswers(payload.form_response?.answers);
+
+      if (!companyName) {
+        return NextResponse.json(
+          { ok: false, message: `Missing hidden field ${hiddenFieldName} and no company name answer was found.` },
+          { status: 400 },
+        );
+      }
+
+      const entityRows = (await sql`
+        SELECT e.id::text, e.kind::text AS entity_kind, e.name, e.jira_issue_key
+        FROM entities e
+        WHERE ${formMapping.entity_kind ?? null}::text IS NULL OR e.kind = ${formMapping.entity_kind ?? null}::entity_kind
+      `) as Array<{
+        id: string;
+        entity_kind: "VENDOR" | "PARTNER";
+        name: string;
+        jira_issue_key: string | null;
+      }>;
+
+      const normalizedCompanyName = normalizeComparable(companyName);
+      const normalizedTicket = normalizeComparable(jiraTicket ?? "");
+
+      const matchedEntity =
+        entityRows.find(
+          (row) =>
+            normalizeComparable(row.name) === normalizedCompanyName &&
+            normalizedTicket &&
+            normalizeComparable(row.jira_issue_key ?? "") === normalizedTicket,
+        ) ??
+        entityRows.find((row) => normalizeComparable(row.name) === normalizedCompanyName);
+
+      if (!matchedEntity) {
+        return NextResponse.json(
+          { ok: false, message: `No entity found for company name "${companyName}".` },
+          { status: 404 },
+        );
+      }
+
+      resolvedEntityKind = matchedEntity.entity_kind;
+
+      const assessmentRowsByEntity = (await sql`
+        SELECT id::text
+        FROM assessments
+        WHERE entity_id = ${matchedEntity.id}::uuid
+        ORDER BY
+          CASE
+            WHEN status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW') THEN 0
+            ELSE 1
+          END,
+          created_at DESC
+        LIMIT 1
+      `) as Array<{ id: string }>;
+
+      assessmentId = assessmentRowsByEntity[0]?.id ?? null;
+
+      if (!assessmentId) {
+        return NextResponse.json(
+          { ok: false, message: `No assessment found for entity "${matchedEntity.name}".` },
+          { status: 404 },
+        );
+      }
     }
 
     const assessmentRows = (await sql`
@@ -177,17 +253,17 @@ export async function POST(request: Request) {
     `) as Array<{ id: string; entity_kind: "VENDOR" | "PARTNER" }>;
 
     if (assessmentRows.length === 0) {
-      return NextResponse.json({ ok: false, message: "Assessment not found for provided assessment_id." }, { status: 404 });
+      return NextResponse.json({ ok: false, message: "Assessment not found for resolved Typeform response." }, { status: 404 });
     }
 
-    if (formMapping.entity_kind && formMapping.entity_kind !== assessmentRows[0].entity_kind) {
+    resolvedEntityKind = assessmentRows[0].entity_kind;
+
+    if (formMapping.entity_kind && formMapping.entity_kind !== resolvedEntityKind) {
       return NextResponse.json(
         { ok: false, message: `Assessment entity kind mismatch. Expected ${formMapping.entity_kind}.` },
         { status: 400 },
       );
     }
-
-    const answers = normalizeTypeformAnswers(payload.form_response?.answers);
 
     await sql`
       UPDATE assessments

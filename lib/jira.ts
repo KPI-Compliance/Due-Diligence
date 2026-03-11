@@ -50,6 +50,23 @@ export type SyncedJiraEntityInput = {
   ownerEmail: string | null;
 };
 
+type JiraServiceDeskResponse = {
+  values?: Array<{
+    id?: string;
+    projectKey?: string;
+  }>;
+};
+
+type JiraQueueResponse = {
+  jql?: string | null;
+};
+
+type JiraJqlMatchResponse = {
+  matches?: Array<{
+    matchedIssues?: number[];
+  }>;
+};
+
 function adfToText(node: JiraPrimitive | JiraAdfNode): string {
   if (typeof node === "string") {
     return node;
@@ -210,6 +227,135 @@ function inferKind(fields: JiraIssueFields, description: string): "VENDOR" | "PA
   return "VENDOR";
 }
 
+function normalizeEntityLabel(value: string | null | undefined): "VENDOR" | "PARTNER" | null {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes("partner") || normalized.includes("parceir")) return "PARTNER";
+  if (normalized.includes("vendor") || normalized.includes("fornecedor")) return "VENDOR";
+  return null;
+}
+
+function parseQueueId(queueUrl: string | null | undefined) {
+  const value = (queueUrl ?? "").trim();
+  if (!value) return null;
+
+  const directMatch = value.match(/\/queues\/custom\/(\d+)/i);
+  if (directMatch?.[1]) {
+    return directMatch[1];
+  }
+
+  const fallbackMatch = value.match(/(\d+)(?:\/)?$/);
+  return fallbackMatch?.[1] ?? null;
+}
+
+function buildJiraBasicAuthHeader(email: string, token: string) {
+  return `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`;
+}
+
+async function fetchJiraJson<T>(url: string, email: string, token: string, init?: RequestInit) {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Accept: "application/json",
+      Authorization: buildJiraBasicAuthHeader(email, token),
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Jira API request failed (${response.status}) for ${url}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function fetchServiceDeskId(baseUrl: string, email: string, token: string, projectKey: string) {
+  const payload = await fetchJiraJson<JiraServiceDeskResponse>(
+    `${baseUrl.replace(/\/$/, "")}/rest/servicedeskapi/servicedesk`,
+    email,
+    token,
+  );
+
+  const match = payload.values?.find((item) => item.projectKey?.toUpperCase() === projectKey.toUpperCase());
+  return match?.id ?? null;
+}
+
+async function fetchQueueJql(baseUrl: string, email: string, token: string, serviceDeskId: string, queueId: string) {
+  const payload = await fetchJiraJson<JiraQueueResponse>(
+    `${baseUrl.replace(/\/$/, "")}/rest/servicedeskapi/servicedesk/${serviceDeskId}/queue/${queueId}`,
+    email,
+    token,
+  );
+
+  return payload.jql?.trim() ?? null;
+}
+
+async function issueMatchesJql(baseUrl: string, email: string, token: string, issueId: number, jql: string) {
+  const payload = await fetchJiraJson<JiraJqlMatchResponse>(
+    `${baseUrl.replace(/\/$/, "")}/rest/api/3/jql/match`,
+    email,
+    token,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        issueIds: [issueId],
+        jqls: [jql],
+      }),
+    },
+  );
+
+  return payload.matches?.[0]?.matchedIssues?.includes(issueId) ?? false;
+}
+
+export async function resolveKindFromJiraQueues(input: {
+  baseUrl: string;
+  email: string;
+  token: string;
+  issueId: string | undefined;
+  vendorsProjectKey: string;
+  vendorsQueueUrl: string;
+  partnersProjectKey: string;
+  partnersQueueUrl: string;
+}) {
+  const numericIssueId = Number(input.issueId ?? "");
+  if (!Number.isFinite(numericIssueId) || numericIssueId <= 0) {
+    return null;
+  }
+
+  const partnerQueueId = parseQueueId(input.partnersQueueUrl);
+  const vendorQueueId = parseQueueId(input.vendorsQueueUrl);
+
+  const projectKey = input.partnersProjectKey || input.vendorsProjectKey;
+  if (!projectKey || (!partnerQueueId && !vendorQueueId)) {
+    return null;
+  }
+
+  const serviceDeskId = await fetchServiceDeskId(input.baseUrl, input.email, input.token, projectKey);
+  if (!serviceDeskId) {
+    return null;
+  }
+
+  if (partnerQueueId) {
+    const partnerJql = await fetchQueueJql(input.baseUrl, input.email, input.token, serviceDeskId, partnerQueueId);
+    if (partnerJql && (await issueMatchesJql(input.baseUrl, input.email, input.token, numericIssueId, partnerJql))) {
+      return "PARTNER" as const;
+    }
+  }
+
+  if (vendorQueueId) {
+    const vendorJql = await fetchQueueJql(input.baseUrl, input.email, input.token, serviceDeskId, vendorQueueId);
+    if (vendorJql && (await issueMatchesJql(input.baseUrl, input.email, input.token, numericIssueId, vendorJql))) {
+      return "VENDOR" as const;
+    }
+  }
+
+  return null;
+}
+
 function inferCompanyGroup(fields: JiraIssueFields, description: string): "VTEX" | "WENI" {
   const explicit = findFieldValue(description, ["company group", "grupo", "business unit"]);
   const labels = fields.labels?.map((label) => label.toLowerCase()) ?? [];
@@ -292,7 +438,10 @@ export function isSupportedJiraWebhookEvent(payload: JiraWebhookPayload) {
   );
 }
 
-export function extractEntityFromJiraIssue(payload: JiraWebhookPayload): SyncedJiraEntityInput | null {
+export function extractEntityFromJiraIssue(
+  payload: JiraWebhookPayload,
+  forcedKind?: "VENDOR" | "PARTNER" | null,
+): SyncedJiraEntityInput | null {
   const issue = payload.issue;
   const fields = issue?.fields;
   const issueKey = issue?.key?.trim();
@@ -303,11 +452,35 @@ export function extractEntityFromJiraIssue(payload: JiraWebhookPayload): SyncedJ
   }
 
   const description = normalizeWhitespace(adfToText(fields.description ?? ""));
-  const vendorName =
-    findValueInObject(payload, ["name of vendor", "vendor name", "nome do vendor", "nome do fornecedor"]) ?? summary;
-  const vendorEmail =
-    findValueInObject(payload, ["vendor e-mail address", "vendor email address", "vendor email", "email do vendor"]) ??
-    findFieldValue(description, ["vendor e-mail address", "vendor email", "contact email", "email", "e-mail"]);
+  const payloadKind =
+    normalizeEntityLabel(findValueInObject(payload, ["entity kind", "kind", "tipo de entidade", "entity_type"])) ??
+    normalizeEntityLabel(summary);
+  const entityName =
+    findValueInObject(payload, [
+      "name of vendor",
+      "vendor name",
+      "nome do vendor",
+      "nome do fornecedor",
+      "name of partner",
+      "partner name",
+      "nome do parceiro",
+      "company name",
+      "nome da empresa",
+      "name",
+    ]) ?? summary;
+  const contactEmail =
+    findValueInObject(payload, [
+      "vendor e-mail address",
+      "vendor email address",
+      "vendor email",
+      "email do vendor",
+      "partner e-mail address",
+      "partner email address",
+      "partner email",
+      "email do parceiro",
+      "contact email",
+      "email",
+    ]) ?? findFieldValue(description, ["vendor e-mail address", "partner email", "contact email", "email", "e-mail"]);
   const vtexResponsibleEmail =
     findValueInObject(payload, ["vtex e-mail responsible", "vtex email responsible", "responsavel vtex", "responsible email"]) ??
     findFieldValue(description, ["vtex e-mail responsible", "vtex email responsible", "responsavel vtex"]);
@@ -329,18 +502,17 @@ export function extractEntityFromJiraIssue(payload: JiraWebhookPayload): SyncedJ
     findValueInObject(payload, ["website", "site", "url"]) ?? findFieldValue(description, ["website", "site", "url"]),
   );
   const domain = cleanDomain(
-    findValueInObject(payload, ["domain", "dominio"]) ??
+      findValueInObject(payload, ["domain", "dominio"]) ??
       findFieldValue(description, ["domain", "dominio"]) ??
       website ??
-      domainFromEmail(vendorEmail),
+      domainFromEmail(contactEmail),
   );
   const segment =
     findValueInObject(payload, ["segment", "segmento", "category", "categoria"]) ??
     findFieldValue(description, ["segment", "segmento", "category", "categoria"]) ??
     languagePreference ??
     "Vendor assessment";
-  const contactEmail = vendorEmail;
-  const kind = inferKind(fields, description);
+  const kind = forcedKind ?? payloadKind ?? inferKind(fields, description);
   const companyGroup = companyGroupFromForm ?? inferCompanyGroup(fields, description);
   const status = inferStatus(fields);
   const riskLevel = inferRiskLevel(
@@ -355,7 +527,7 @@ export function extractEntityFromJiraIssue(payload: JiraWebhookPayload): SyncedJ
     },
     [requestDescription, scope].filter(Boolean).join("\n\n"),
   );
-  const slugBase = slugify(vendorName) || slugify(issueKey) || "jira-entity";
+  const slugBase = slugify(entityName) || slugify(issueKey) || "jira-entity";
   const mergedDescription = [scope, requestDescription]
     .filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index)
     .join("\n\n")
@@ -365,7 +537,7 @@ export function extractEntityFromJiraIssue(payload: JiraWebhookPayload): SyncedJ
   return {
     issueKey,
     issueUrl: issue.self?.trim() || null,
-    name: vendorName,
+    name: entityName,
     slug: `${slugBase}-${issueKey.toLowerCase()}`,
     kind,
     companyGroup,
@@ -375,7 +547,7 @@ export function extractEntityFromJiraIssue(payload: JiraWebhookPayload): SyncedJ
     contactEmail,
     description: mergedDescription || null,
     category: category || null,
-    subtitle: "Vendor assessment",
+    subtitle: kind === "PARTNER" ? "Partner assessment" : "Vendor assessment",
     statusLabel: formatStatusLabel(status),
     status,
     riskLevel,

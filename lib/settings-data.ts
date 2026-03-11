@@ -9,8 +9,18 @@ export type TypeformConfig = {
 
 export type JiraConfig = {
   base_url: string;
-  project_key: string;
-  issue_type: string;
+  api_email: string;
+  api_token: string;
+  vendors: {
+    queue_url: string;
+    project_key: string;
+    issue_type: string;
+  };
+  partners: {
+    queue_url: string;
+    project_key: string;
+    issue_type: string;
+  };
 };
 
 export type SlackConfig = {
@@ -59,8 +69,18 @@ function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraCon
   if (provider === "JIRA") {
     return {
       base_url: "",
-      project_key: "",
-      issue_type: "Task",
+      api_email: "",
+      api_token: "",
+      vendors: {
+        queue_url: "",
+        project_key: "VSC",
+        issue_type: "Task",
+      },
+      partners: {
+        queue_url: "",
+        project_key: "VSC",
+        issue_type: "Task",
+      },
     };
   }
 
@@ -168,6 +188,36 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
               },
             ],
     } as GoogleSheetsConfig;
+  }
+
+  if (provider === "JIRA") {
+    const raw = merged as JiraConfig & {
+      project_key?: string;
+      issue_type?: string;
+      vendor_queue_url?: string;
+      partner_queue_url?: string;
+      vendors?: Partial<JiraConfig["vendors"]>;
+      partners?: Partial<JiraConfig["partners"]>;
+    };
+
+    const legacyProjectKey = String(raw.project_key ?? "").trim();
+    const legacyIssueType = String(raw.issue_type ?? "Task").trim() || "Task";
+
+    return {
+      base_url: String(raw.base_url ?? "").trim(),
+      api_email: String((raw as { api_email?: string }).api_email ?? "").trim(),
+      api_token: String((raw as { api_token?: string }).api_token ?? "").trim(),
+      vendors: {
+        queue_url: String(raw.vendors?.queue_url ?? raw.vendor_queue_url ?? "").trim(),
+        project_key: String(raw.vendors?.project_key ?? (legacyProjectKey || "VSC")).trim() || "VSC",
+        issue_type: String(raw.vendors?.issue_type ?? legacyIssueType).trim() || "Task",
+      },
+      partners: {
+        queue_url: String(raw.partners?.queue_url ?? raw.partner_queue_url ?? "").trim(),
+        project_key: String(raw.partners?.project_key ?? (legacyProjectKey || "VSC")).trim() || "VSC",
+        issue_type: String(raw.partners?.issue_type ?? legacyIssueType).trim() || "Task",
+      },
+    } as JiraConfig;
   }
 
   return merged;

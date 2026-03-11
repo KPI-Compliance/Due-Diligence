@@ -196,7 +196,7 @@ export function IntegrationsSettings({
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
               <h3 className="text-xl font-bold text-[var(--color-text)]">Configurar Typeform</h3>
-              <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Configure uma vez e depois mapeie um ou varios formularios por `form_id`.</p>
+              <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Configure uma vez e depois mapeie um ou varios formularios por `form_id`, inclusive varios externos para Partners.</p>
             </div>
             <button type="button" onClick={() => setOpenModal(null)} className="rounded-md px-2 py-1 text-[var(--color-neutral-600)] hover:bg-[var(--color-neutral-100)]">
               ✕
@@ -212,7 +212,8 @@ export function IntegrationsSettings({
               <li>1. Salve as configuracoes globais (endpoint, modo e hidden field padrao).</li>
               <li>2. No Typeform, cadastre a URL de webhook abaixo.</li>
               <li>3. Para cada formulario Typeform, adicione um mapeamento com o `form_id` exato.</li>
-              <li>4. Garanta que o hidden field contenha o UUID do assessment (padrao: `assessment_id`).</li>
+              <li>4. Para Partners, voce pode cadastrar varios formularios `external_questionnaire` apontando para a mesma fila do Jira.</li>
+              <li>5. Hidden field continua opcional quando o vinculo for feito pelo nome da empresa.</li>
             </ol>
             <div className="flex flex-wrap gap-2">
               <button
@@ -354,7 +355,7 @@ export function IntegrationsSettings({
                   <option value="VENDOR">Vendor</option>
                   <option value="PARTNER">Partner</option>
                 </select>
-                <span className="block text-xs text-[var(--color-neutral-600)]">Use Qualquer, exceto se o formulario for exclusivo para um tipo.</span>
+                <span className="block text-xs text-[var(--color-neutral-600)]">Para os formularios externos de parceiros, use `Partner`.</span>
               </label>
 
               <label className="space-y-1">
@@ -366,13 +367,13 @@ export function IntegrationsSettings({
                   <option value="internal_questionnaire">internal_questionnaire</option>
                   <option value="external_questionnaire">external_questionnaire</option>
                 </select>
-                <span className="block text-xs text-[var(--color-neutral-600)]">Tag usada para organizar automacoes atuais e futuras.</span>
+                <span className="block text-xs text-[var(--color-neutral-600)]">Para esse fluxo, use `external_questionnaire`.</span>
               </label>
 
               <label className="space-y-1">
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome do Hidden Field</span>
                 <input name="hidden_assessment_field" type="text" defaultValue="assessment_id" className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" required />
-                <span className="block text-xs text-[var(--color-neutral-600)]">Exemplo: {`{"assessment_id":"uuid"}`}</span>
+                <span className="block text-xs text-[var(--color-neutral-600)]">Opcional para Partners quando o match vier pelo nome da empresa; mantenha `assessment_id` como padrao.</span>
               </label>
             </div>
 
@@ -396,7 +397,7 @@ export function IntegrationsSettings({
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
               <h3 className="text-xl font-bold text-[var(--color-text)]">Configurar Jira</h3>
-              <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Defina o projeto de destino e o webhook que replica issues para Vendors.</p>
+              <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Separe a configuracao operacional das filas de Vendors e Partners dentro do mesmo projeto Jira.</p>
             </div>
             <button type="button" onClick={() => setOpenModal(null)} className="rounded-md px-2 py-1 text-[var(--color-neutral-600)] hover:bg-[var(--color-neutral-100)]">
               ✕
@@ -404,12 +405,12 @@ export function IntegrationsSettings({
           </div>
 
           <section className="mb-4 rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-4">
-            <p className="text-sm font-bold text-[var(--color-text)]">Webhook de Sincronizacao Jira → Vendors</p>
+            <p className="text-sm font-bold text-[var(--color-text)]">Webhook de Sincronizacao Jira</p>
             <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-[var(--color-neutral-700)]">
               <li>Cadastre no Jira Automation ou Webhook um gatilho para issue criada e issue atualizada.</li>
               <li>Aponte o destino para o endpoint abaixo.</li>
               <li>Se usar segredo, envie o header `x-jira-webhook-secret` com o mesmo valor de `JIRA_WEBHOOK_SECRET`.</li>
-              <li>Para preencher dominio, segmento e contato automaticamente, inclua esses campos no corpo da issue/descricao.</li>
+              <li>Use as filas configuradas abaixo para orientar a operacao: Vendors e Partners possuem links diferentes.</li>
             </ol>
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
               <label className="space-y-1">
@@ -429,21 +430,85 @@ export function IntegrationsSettings({
               <input name="base_url" type="text" placeholder="https://your-company.atlassian.net" defaultValue={jira.config.base_url} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" />
             </label>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <label className="space-y-1 block">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Project Key</span>
-                <input name="project_key" type="text" defaultValue={jira.config.project_key} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" />
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">API Email</span>
+                <input
+                  name="api_email"
+                  type="email"
+                  placeholder="seu.email@vtex.com"
+                  defaultValue={jira.config.api_email}
+                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                />
+                <span className="block text-xs text-[var(--color-neutral-600)]">
+                  E-mail da conta Atlassian que gerou o token da API.
+                </span>
               </label>
+
               <label className="space-y-1 block">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Issue Type</span>
-                <input name="issue_type" type="text" defaultValue={jira.config.issue_type} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" />
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">API Token</span>
+                <input
+                  name="api_token"
+                  type="password"
+                  placeholder={jiraTokenConfigured ? "Configurado no ambiente ou sobrescreva aqui" : "Cole aqui o JIRA_API_TOKEN"}
+                  defaultValue={jira.config.api_token}
+                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                />
+                <span className="block text-xs text-[var(--color-neutral-600)]">
+                  Se preenchido aqui, o sistema usa este token antes do `JIRA_API_TOKEN` do ambiente.
+                </span>
               </label>
             </div>
 
-            <label className="space-y-1 block">
-              <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">API Token</span>
-              <input type="text" readOnly value={jiraTokenConfigured ? "Configurado no ambiente" : "Ausente: JIRA_API_TOKEN"} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm" />
-            </label>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <section className="space-y-3 rounded-xl border border-[var(--color-neutral-200)] p-4">
+                <p className="text-sm font-bold text-[var(--color-text)]">Fila de Vendors</p>
+                <label className="space-y-1 block">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">URL da fila</span>
+                  <input
+                    name="vendors_queue_url"
+                    type="text"
+                    defaultValue={jira.config.vendors.queue_url}
+                    placeholder="https://vtex-dev.atlassian.net/jira/servicedesk/projects/VSC/queues/custom/114"
+                    className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1 block">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Project Key</span>
+                    <input name="vendors_project_key" type="text" defaultValue={jira.config.vendors.project_key} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-1 block">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Issue Type</span>
+                    <input name="vendors_issue_type" type="text" defaultValue={jira.config.vendors.issue_type} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" />
+                  </label>
+                </div>
+              </section>
+
+              <section className="space-y-3 rounded-xl border border-[var(--color-neutral-200)] p-4">
+                <p className="text-sm font-bold text-[var(--color-text)]">Fila de Partners</p>
+                <label className="space-y-1 block">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">URL da fila</span>
+                  <input
+                    name="partners_queue_url"
+                    type="text"
+                    defaultValue={jira.config.partners.queue_url}
+                    placeholder="https://vtex-dev.atlassian.net/jira/servicedesk/projects/VSC/queues/custom/159"
+                    className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1 block">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Project Key</span>
+                    <input name="partners_project_key" type="text" defaultValue={jira.config.partners.project_key} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-1 block">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Issue Type</span>
+                    <input name="partners_issue_type" type="text" defaultValue={jira.config.partners.issue_type} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" />
+                  </label>
+                </div>
+              </section>
+            </div>
 
             <label className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm font-medium text-[var(--color-text)]">
               <input name="enabled" type="checkbox" defaultChecked={jira.enabled} className="h-4 w-4 accent-[var(--color-primary)]" />

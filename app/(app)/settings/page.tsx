@@ -145,8 +145,18 @@ async function saveJiraSettings(formData: FormData) {
 
   const config: JiraConfig = {
     base_url: String(formData.get("base_url") ?? "").trim(),
-    project_key: String(formData.get("project_key") ?? "").trim(),
-    issue_type: String(formData.get("issue_type") ?? "Task").trim() || "Task",
+    api_email: String(formData.get("api_email") ?? "").trim(),
+    api_token: String(formData.get("api_token") ?? "").trim(),
+    vendors: {
+      queue_url: String(formData.get("vendors_queue_url") ?? "").trim(),
+      project_key: String(formData.get("vendors_project_key") ?? "VSC").trim() || "VSC",
+      issue_type: String(formData.get("vendors_issue_type") ?? "Task").trim() || "Task",
+    },
+    partners: {
+      queue_url: String(formData.get("partners_queue_url") ?? "").trim(),
+      project_key: String(formData.get("partners_project_key") ?? "VSC").trim() || "VSC",
+      issue_type: String(formData.get("partners_issue_type") ?? "Task").trim() || "Task",
+    },
   };
 
   await upsertIntegrationSetting("JIRA", enabled, config);

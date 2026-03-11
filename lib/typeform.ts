@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 type TypeformChoice = { label?: string };
 type TypeformChoices = { labels?: string[] };
 
-type TypeformAnswer = {
+export type TypeformAnswer = {
   type?: string;
   field?: {
     ref?: string;
@@ -21,6 +21,26 @@ type TypeformAnswer = {
   choice?: TypeformChoice;
   choices?: TypeformChoices;
 };
+
+const companyQuestionCandidates = [
+  "what's the company name?",
+  "whats the company name?",
+  "what is the company name?",
+  "company name",
+  "qual e o nome da empresa?",
+  "qual é o nome da empresa?",
+  "nome da empresa",
+  "nome do vendor",
+  "vendor name",
+];
+
+const ticketQuestionCandidates = [
+  "jira ticket",
+  "ticket jira",
+  "qual e o id do ticket do jira?",
+  "qual é o id do ticket do jira?",
+  "ticket",
+];
 
 function safeEqual(a: string, b: string) {
   const aBuf = Buffer.from(a);
@@ -60,6 +80,14 @@ function answerToText(answer: TypeformAnswer): string {
   return "";
 }
 
+function normalizeComparable(value: string | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 export function normalizeTypeformAnswers(answers: TypeformAnswer[] | undefined) {
   if (!answers?.length) return [];
 
@@ -73,6 +101,30 @@ export function normalizeTypeformAnswers(answers: TypeformAnswer[] | undefined) 
       value: answerToText(answer),
     };
   });
+}
+
+function findAnswerByQuestionCandidates(answers: TypeformAnswer[] | undefined, candidates: string[]) {
+  if (!answers?.length) return null;
+
+  const normalizedCandidates = candidates.map(normalizeComparable);
+  for (const answer of answers) {
+    const fieldTitle = normalizeComparable(answer.field?.title);
+    const fieldRef = normalizeComparable(answer.field?.ref);
+    if (normalizedCandidates.includes(fieldTitle) || normalizedCandidates.includes(fieldRef)) {
+      const value = answerToText(answer).trim();
+      if (value) return value;
+    }
+  }
+
+  return null;
+}
+
+export function extractCompanyNameFromTypeformAnswers(answers: TypeformAnswer[] | undefined) {
+  return findAnswerByQuestionCandidates(answers, companyQuestionCandidates);
+}
+
+export function extractTicketFromTypeformAnswers(answers: TypeformAnswer[] | undefined) {
+  return findAnswerByQuestionCandidates(answers, ticketQuestionCandidates);
 }
 
 export function normalizeAssessmentId(

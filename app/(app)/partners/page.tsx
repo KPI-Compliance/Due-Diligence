@@ -49,6 +49,7 @@ export default async function PartnersPage({
         filters={filters}
         columns={[
           "Company",
+          "Jira Ticket",
           "Empresa",
           "Segment",
           "Assessment Status",
@@ -95,6 +96,7 @@ export default async function PartnersPage({
                 </div>
               </Link>
             </td>
+            <td className="px-6 py-4 text-sm font-semibold text-[var(--color-secondary)]"><Link href={`/partners/${item.id}`} className="block">{item.jiraTicket ?? "-"}</Link></td>
             <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/partners/${item.id}`} className="block">{item.companyGroup}</Link></td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]"><Link href={`/partners/${item.id}`} className="block">{item.segment}</Link></td>
             <td className="px-6 py-4"><Link href={`/partners/${item.id}`} className="block">{renderAssessmentBadge(item.assessmentStatus)}</Link></td>

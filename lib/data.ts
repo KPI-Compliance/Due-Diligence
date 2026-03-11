@@ -1,6 +1,7 @@
 import { sql } from "@/lib/db";
 import type { DetailTabKey, EntityDetailData, RiskLevel } from "@/lib/entity-detail-data";
 import { readAssessmentQuestionsFromGoogleSheets, readInternalQuestionnaireFromGoogleSheets } from "@/lib/google-sheets";
+import { syncPartnerExternalQuestionnaire } from "@/lib/typeform-sync";
 
 type UiStatus = "pending" | "sent" | "responded" | "in_review" | "completed";
 
@@ -224,6 +225,7 @@ export async function getPartnersList() {
     SELECT
       e.slug,
       e.name,
+      e.jira_issue_key,
       e.domain,
       e.segment,
       e.status,
@@ -268,6 +270,7 @@ export async function getPartnersList() {
   `) as Array<{
     slug: string;
     name: string;
+    jira_issue_key: string | null;
     domain: string | null;
     segment: string | null;
     status: string;
@@ -289,6 +292,7 @@ export async function getPartnersList() {
 
     return {
       id: row.slug,
+      jiraTicket: row.jira_issue_key,
       companyGroup: toCompanyGroup(row.company_group),
       company: row.name,
       domain: row.domain ?? "-",
@@ -448,6 +452,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
 
   const entity = entityRows[0];
   if (!entity) return null;
+
+  if (kind === "partner") {
+    await syncPartnerExternalQuestionnaire(entity.id, entity.name);
+  }
 
   const assessments = (await sql`
     SELECT id, status, risk_level, created_at

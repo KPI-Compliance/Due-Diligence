@@ -67,6 +67,7 @@ function getQuestionnaireStatusClasses(status: string) {
 
 export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDetailViewProps) {
   const backHref = kind === "vendor" ? "/vendors" : "/partners";
+  const questionnaireAnswerCount = detail.questions.length;
 
   return (
     <div className="space-y-6">
@@ -349,6 +350,73 @@ export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDe
         )
       ) : null}
 
+      {activeTab === "external_questionnaire" ? (
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          <div className="space-y-4 lg:col-span-8">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-[var(--color-text)]">External Questionnaire Responses</h2>
+                <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                  Respostas importadas do questionario externo para suporte a analise desta entidade.
+                </p>
+              </div>
+              <span className="rounded bg-[var(--color-neutral-100)] px-2 py-1 text-xs font-semibold text-[var(--color-neutral-600)]">
+                {questionnaireAnswerCount} respostas
+              </span>
+            </div>
+
+            {questionnaireAnswerCount > 0 ? (
+              detail.questions.map((item) => (
+                <article
+                  key={`${item.domain}-${item.question}`}
+                  className={`rounded-xl border bg-white p-5 shadow-sm ${reviewAccent[item.status]}`}
+                >
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <span className="rounded bg-[var(--color-primary)]/5 px-2 py-1 text-xs font-bold uppercase tracking-wide text-[var(--color-primary)]">
+                      {item.domain}
+                    </span>
+                    <span className={`text-xs font-bold ${reviewClasses[item.status]}`}>{reviewLabel[item.status]}</span>
+                  </div>
+                  <h3 className="mb-2 text-sm font-bold text-[var(--color-text)]">{item.question}</h3>
+                  <p className="rounded-lg border-l-4 border-[var(--color-primary)]/30 bg-[var(--color-neutral-100)] p-3 text-sm text-[var(--color-neutral-700)]">
+                    {item.answer}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <article className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-10 text-center shadow-sm">
+                <p className="text-lg font-bold text-[var(--color-text)]">Questionario externo ainda nao encontrado</p>
+                <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                  Nenhuma resposta do Typeform foi vinculada a esta entidade ate o momento.
+                </p>
+              </article>
+            )}
+          </div>
+
+          <aside className="space-y-4 lg:col-span-4">
+            <section className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
+              <h3 className="text-lg font-bold text-[var(--color-text)]">Resumo de Vinculo</h3>
+              <div className="mt-5 space-y-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Entidade</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.name}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Jira Ticket</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">
+                    {questionnaireAnswerCount > 0 ? "Questionario recebido" : "Aguardando vinculacao"}
+                  </p>
+                </div>
+              </div>
+            </section>
+          </aside>
+        </section>
+      ) : null}
+
       {activeTab === "security_review" ? (
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
           <div className="space-y-4 lg:col-span-7">
@@ -599,6 +667,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDe
 
       {activeTab !== "overview" &&
       activeTab !== "internal_questionnaire" &&
+      activeTab !== "external_questionnaire" &&
       activeTab !== "security_review" &&
       activeTab !== "decision" ? (
         <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-10 text-center shadow-sm">

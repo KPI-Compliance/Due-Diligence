@@ -1,15 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { extractEntityFromJiraIssue, isSupportedJiraWebhookEvent, type JiraWebhookPayload } from "@/lib/jira";
+import { extractEntityFromJiraIssue, isSupportedJiraWebhookEvent, resolveKindFromJiraQueues, type JiraWebhookPayload } from "@/lib/jira";
+import type { JiraConfig } from "@/lib/settings-data";
 
 export const runtime = "nodejs";
 
 type JiraIntegrationRow = {
   enabled: boolean;
-  config: {
-    base_url?: string;
-  } | null;
+  config: JiraConfig | null;
 };
 
 function secretMatches(headerValue: string | null, configuredSecret: string) {
@@ -62,7 +61,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, message: "Event ignored (not issue_created/issue_updated)." });
     }
 
-    const entity = extractEntityFromJiraIssue(payload);
+    const jiraApiEmail = jiraSetting.config?.api_email || process.env.JIRA_API_EMAIL || "";
+    const jiraApiToken = jiraSetting.config?.api_token || process.env.JIRA_API_TOKEN || "";
+    let resolvedKind: "VENDOR" | "PARTNER" | null = null;
+
+    if (jiraSetting.config?.base_url && jiraApiEmail && jiraApiToken) {
+      try {
+        resolvedKind = await resolveKindFromJiraQueues({
+          baseUrl: jiraSetting.config.base_url,
+          email: jiraApiEmail,
+          token: jiraApiToken,
+          issueId: payload.issue?.id,
+          vendorsProjectKey: jiraSetting.config.vendors.project_key,
+          vendorsQueueUrl: jiraSetting.config.vendors.queue_url,
+          partnersProjectKey: jiraSetting.config.partners.project_key,
+          partnersQueueUrl: jiraSetting.config.partners.queue_url,
+        });
+      } catch (error) {
+        console.warn("Jira queue kind resolution failed:", error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    const entity = extractEntityFromJiraIssue(payload, resolvedKind);
     if (!entity) {
       return NextResponse.json({ ok: false, message: "Missing Jira issue key or summary." }, { status: 400 });
     }
@@ -151,6 +171,35 @@ export async function POST(request: Request) {
         jira_issue_url = COALESCE(EXCLUDED.jira_issue_url, entities.jira_issue_url),
         jira_synced_at = now()
     `;
+
+    const syncedEntityRows = (await sql`
+      SELECT id::text, name
+      FROM entities
+      WHERE jira_issue_key = ${entity.issueKey}
+      LIMIT 1
+    `) as Array<{ id: string; name: string }>;
+
+    const syncedEntity = syncedEntityRows[0];
+    if (syncedEntity) {
+      const assessmentRows = (await sql`
+        SELECT id::text
+        FROM assessments
+        WHERE entity_id = ${syncedEntity.id}::uuid
+        ORDER BY created_at DESC
+        LIMIT 1
+      `) as Array<{ id: string }>;
+
+      if (assessmentRows.length === 0) {
+        await sql`
+          INSERT INTO assessments (entity_id, title, status)
+          VALUES (
+            ${syncedEntity.id}::uuid,
+            ${`${entity.kind === "PARTNER" ? "Partner" : "Vendor"} Assessment - ${syncedEntity.name}`},
+            'PENDING'
+          )
+        `;
+      }
+    }
 
     return NextResponse.json({
       ok: true,
