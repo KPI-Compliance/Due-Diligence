@@ -52,6 +52,7 @@ export default async function VendorsPage({
         filters={filters}
         columns={[
           "Company",
+          "Jira Ticket",
           "Empresa",
           "Segment",
           "Initial Questionnaire",
@@ -95,6 +96,9 @@ export default async function VendorsPage({
                   </div>
                 </div>
               </Link>
+            </td>
+            <td className="px-6 py-4 text-sm font-semibold text-[var(--color-secondary)]">
+              <Link href={`/vendors/${item.id}`} className="block">{item.jiraTicket ?? "-"}</Link>
             </td>
             <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/vendors/${item.id}`} className="block">{item.companyGroup}</Link></td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]"><Link href={`/vendors/${item.id}`} className="block">{item.segment}</Link></td>

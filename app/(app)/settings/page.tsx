@@ -8,6 +8,7 @@ import {
   deleteTypeformForm as deleteTypeformFormRow,
   getTypeformForms,
   getIntegrationSettings,
+  type GoogleSheetsConfig,
   type IntegrationProvider,
   type JiraConfig,
   type SlackConfig,
@@ -167,6 +168,62 @@ async function saveSlackSettings(formData: FormData) {
   await upsertIntegrationSetting("SLACK", enabled, config);
   revalidatePath("/settings");
   redirect("/settings?tab=integracoes&saved=slack");
+}
+
+async function saveGoogleSheetsSettings(formData: FormData) {
+  "use server";
+
+  const enabled = formData.get("enabled") === "on";
+  const rawEmails = String(formData.get("service_account_emails_json") ?? "[]");
+  const rawSpreadsheets = String(formData.get("spreadsheets_json") ?? "[]");
+
+  const service_account_emails = (() => {
+    try {
+      const parsed = JSON.parse(rawEmails);
+      return Array.isArray(parsed) ? parsed.map((item) => String(item).trim()).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  const spreadsheets = (() => {
+    try {
+      const parsed = JSON.parse(rawSpreadsheets);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const row = item as Record<string, unknown>;
+          const entity_kind = String(row.entity_kind ?? "VENDOR").toUpperCase() === "PARTNER" ? "PARTNER" : "VENDOR";
+          const workflow =
+            entity_kind === "PARTNER"
+              ? "external_questionnaire"
+              : String(row.workflow ?? "internal_questionnaire") === "external_questionnaire"
+                ? "external_questionnaire"
+                : "internal_questionnaire";
+
+          return {
+            name: String(row.name ?? "").trim() || "Planilha",
+            entity_kind,
+            workflow,
+            spreadsheet_url: String(row.spreadsheet_url ?? "").trim(),
+            worksheet_name: String(row.worksheet_name ?? "Página 1").trim() || "Página 1",
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item)) as GoogleSheetsConfig["spreadsheets"];
+    } catch {
+      return [] as GoogleSheetsConfig["spreadsheets"];
+    }
+  })();
+
+  const config: GoogleSheetsConfig = {
+    service_account_emails,
+    spreadsheets,
+  };
+
+  await upsertIntegrationSetting("GOOGLE_SHEETS", enabled, config);
+  revalidatePath("/settings");
+  redirect("/settings?tab=integracoes&saved=google-sheets");
 }
 
 async function saveGeneralSettings(formData: FormData) {
@@ -521,6 +578,7 @@ export default async function SettingsPage({
   const typeform = getSetting<TypeformConfig>(settings, "TYPEFORM");
   const jira = getSetting<JiraConfig>(settings, "JIRA");
   const slack = getSetting<SlackConfig>(settings, "SLACK");
+  const googleSheets = getSetting<GoogleSheetsConfig>(settings, "GOOGLE_SHEETS");
 
   const savedFlag = params?.saved;
   const activeTab = normalizeTab(params?.tab);
@@ -567,6 +625,7 @@ export default async function SettingsPage({
           typeformForms={typeformForms}
           jira={jira}
           slack={slack}
+          googleSheets={googleSheets}
           typeformSecretConfigured={typeformSecretConfigured}
           jiraTokenConfigured={jiraTokenConfigured}
           jiraWebhookSecretConfigured={jiraWebhookSecretConfigured}
@@ -576,6 +635,7 @@ export default async function SettingsPage({
           deleteTypeformForm={deleteTypeformForm}
           saveJiraSettings={saveJiraSettings}
           saveSlackSettings={saveSlackSettings}
+          saveGoogleSheetsSettings={saveGoogleSheetsSettings}
         />
       ) : null}
       {activeTab === "pontuacao" ? <RiskScoringTab value={riskScoringSettings} saveAction={saveRiskScoringSettings} /> : null}

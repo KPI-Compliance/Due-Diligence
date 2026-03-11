@@ -30,6 +30,7 @@ You can use Google Sheets as the questionnaire source (instead of direct Typefor
 ```bash
 GOOGLE_SHEETS_ENABLED=true
 GOOGLE_SHEETS_CSV_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=0"
+GOOGLE_SHEETS_INTERNAL_CSV_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=0"
 GOOGLE_SHEETS_STRICT_MATCH=true
 ```
 
@@ -52,6 +53,26 @@ When rows match the current entity/assessment, answers are shown in the detail p
 
 Health check endpoint:
 - `GET /api/health/google-sheets`
+
+## Internal Questionnaire Sheet
+
+The `Internal Questionnaire` tab on vendor details supports a Google Sheets layout with one row per vendor. The configured sheet should include columns like:
+
+- `VENDOR`
+- `TICKET`
+- `Solicitado por`
+- `Status Mini Questionário`
+
+All remaining columns in the row are interpreted as question/answer pairs for the internal questionnaire.
+
+Optional environment variables for explicit column mapping:
+
+```bash
+GOOGLE_SHEETS_INTERNAL_COLUMN_VENDOR="VENDOR"
+GOOGLE_SHEETS_INTERNAL_COLUMN_TICKET="TICKET"
+GOOGLE_SHEETS_INTERNAL_COLUMN_REQUESTER="Solicitado por"
+GOOGLE_SHEETS_INTERNAL_COLUMN_STATUS="Status Mini Questionário"
+```
 
 ## Learn More
 

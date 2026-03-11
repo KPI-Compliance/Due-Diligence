@@ -1,11 +1,19 @@
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 
-export default function AppLayout({
+export default async function AppLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = (await cookies()).get("dd_session")?.value;
+
+  if (session !== "authenticated") {
+    redirect("/");
+  }
+
   return (
     <div className="min-h-screen bg-[var(--color-surface)]">
       <AppSidebar />

@@ -58,6 +58,13 @@ const levelBadgeStyles: Record<RiskLevel, string> = {
   High: "bg-red-100 text-red-700",
 };
 
+function getQuestionnaireStatusClasses(status: string) {
+  const normalized = status.trim().toLowerCase();
+  if (normalized.includes("concl")) return "bg-emerald-100 text-emerald-700";
+  if (normalized.includes("pend")) return "bg-amber-100 text-amber-700";
+  return "bg-slate-100 text-slate-700";
+}
+
 export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDetailViewProps) {
   const backHref = kind === "vendor" ? "/vendors" : "/partners";
 
@@ -130,6 +137,10 @@ export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDe
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Category</p>
                     <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.overview.category}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Jira Ticket</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
                   </div>
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">HQ Location</p>
@@ -246,6 +257,96 @@ export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDe
             </button>
           </article>
         </section>
+      ) : null}
+
+      {activeTab === "internal_questionnaire" ? (
+        detail.internalQuestionnaire ? (
+          <section className="space-y-6">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+              <div className="space-y-6 lg:col-span-4">
+                <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
+                  <div className="mb-5 flex items-center justify-between gap-3">
+                    <h2 className="text-lg font-bold text-[var(--color-text)]">Resumo da Solicitação</h2>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-bold ${getQuestionnaireStatusClasses(detail.internalQuestionnaire.status)}`}
+                    >
+                      {detail.internalQuestionnaire.status}
+                    </span>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Solicitante</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.internalQuestionnaire.requester}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Ticket Jira</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.internalQuestionnaire.ticket || detail.jiraTicket || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Vendor</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.internalQuestionnaire.vendor}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Fonte</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">Google Sheets</p>
+                    </div>
+                    {detail.internalQuestionnaire.submittedAt ? (
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Data de resposta</p>
+                        <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.internalQuestionnaire.submittedAt}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </article>
+              </div>
+
+              <div className="space-y-4 lg:col-span-8">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-[var(--color-text)]">Perguntas e Respostas</h2>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      Visualizacao do mini questionario interno respondido pelo ponto focal da VTEX.
+                    </p>
+                  </div>
+                  <span className="rounded bg-[var(--color-neutral-100)] px-2 py-1 text-xs font-semibold text-[var(--color-neutral-600)]">
+                    {detail.internalQuestionnaire.questions.length} respostas
+                  </span>
+                </div>
+
+                {detail.internalQuestionnaire.questions.length > 0 ? (
+                  <div className="space-y-4">
+                    {detail.internalQuestionnaire.questions.map((item) => (
+                      <article
+                        key={item.question}
+                        className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-5 shadow-sm"
+                      >
+                        <p className="text-sm font-bold text-[var(--color-text)]">{item.question}</p>
+                        <p className="mt-3 rounded-lg border-l-4 border-[var(--color-primary)]/30 bg-[var(--color-neutral-100)] p-3 text-sm text-[var(--color-neutral-700)]">
+                          {item.answer}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <article className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-8 text-center shadow-sm">
+                    <p className="text-lg font-bold text-[var(--color-text)]">Mini questionario ainda sem respostas</p>
+                    <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                      A solicitacao foi identificada, mas ainda nao ha respostas preenchidas para analise.
+                    </p>
+                  </article>
+                )}
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-10 text-center shadow-sm">
+            <p className="text-lg font-bold text-[var(--color-text)]">Mini questionario interno nao encontrado</p>
+            <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+              Nenhuma linha correspondente foi localizada na planilha do Google Sheets para este vendor.
+            </p>
+          </section>
+        )
       ) : null}
 
       {activeTab === "security_review" ? (
@@ -496,7 +597,10 @@ export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDe
         </section>
       ) : null}
 
-      {activeTab !== "overview" && activeTab !== "security_review" && activeTab !== "decision" ? (
+      {activeTab !== "overview" &&
+      activeTab !== "internal_questionnaire" &&
+      activeTab !== "security_review" &&
+      activeTab !== "decision" ? (
         <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-10 text-center shadow-sm">
           <p className="text-lg font-bold text-[var(--color-text)]">Tab em construção</p>
           <p className="mt-2 text-sm text-[var(--color-neutral-600)]">

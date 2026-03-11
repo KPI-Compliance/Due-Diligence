@@ -1,6 +1,6 @@
 import { sql } from "@/lib/db";
 
-export type IntegrationProvider = "TYPEFORM" | "JIRA" | "SLACK";
+export type IntegrationProvider = "TYPEFORM" | "JIRA" | "SLACK" | "GOOGLE_SHEETS";
 
 export type TypeformConfig = {
   default_hidden_assessment_field: string;
@@ -19,6 +19,17 @@ export type SlackConfig = {
   notify_on_critical: boolean;
 };
 
+export type GoogleSheetsConfig = {
+  service_account_emails: string[];
+  spreadsheets: Array<{
+    name: string;
+    entity_kind: "VENDOR" | "PARTNER";
+    workflow: "internal_questionnaire" | "external_questionnaire";
+    spreadsheet_url: string;
+    worksheet_name: string;
+  }>;
+};
+
 export type TypeformFormItem = {
   id: string;
   name: string;
@@ -32,12 +43,12 @@ export type TypeformFormItem = {
 export type IntegrationSetting = {
   provider: IntegrationProvider;
   enabled: boolean;
-  config: TypeformConfig | JiraConfig | SlackConfig;
+  config: TypeformConfig | JiraConfig | SlackConfig | GoogleSheetsConfig;
   validation_status: string | null;
   last_validated_at: string | null;
 };
 
-function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraConfig | SlackConfig {
+function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraConfig | SlackConfig | GoogleSheetsConfig {
   if (provider === "TYPEFORM") {
     return {
       default_hidden_assessment_field: "assessment_id",
@@ -50,6 +61,21 @@ function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraCon
       base_url: "",
       project_key: "",
       issue_type: "Task",
+    };
+  }
+
+  if (provider === "GOOGLE_SHEETS") {
+    return {
+      service_account_emails: [],
+      spreadsheets: [
+        {
+          name: "Mini Questionário Interno",
+          entity_kind: "VENDOR",
+          workflow: "internal_questionnaire",
+          spreadsheet_url: "",
+          worksheet_name: "Página 1",
+        },
+      ],
     };
   }
 
@@ -70,7 +96,7 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
   const merged = {
     ...base,
     ...(config as Record<string, unknown>),
-  } as TypeformConfig | JiraConfig | SlackConfig;
+  } as TypeformConfig | JiraConfig | SlackConfig | GoogleSheetsConfig;
 
   if (provider === "TYPEFORM") {
     const legacyForm = (config as { form_id?: string }).form_id;
@@ -83,6 +109,65 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
       webhook_mode: (merged as TypeformConfig).webhook_mode ?? "signed",
       ...(legacyForm ? { form_id: legacyForm } : {}),
     } as TypeformConfig;
+  }
+
+  if (provider === "GOOGLE_SHEETS") {
+    const raw = merged as GoogleSheetsConfig & {
+      service_account_email?: string;
+      spreadsheet_url?: string;
+      worksheet_name?: string;
+    };
+
+    const serviceAccountEmails = Array.isArray(raw.service_account_emails)
+      ? raw.service_account_emails.map((item) => String(item).trim()).filter(Boolean)
+      : raw.service_account_email
+        ? [String(raw.service_account_email).trim()].filter(Boolean)
+        : [];
+
+    const spreadsheets = Array.isArray(raw.spreadsheets)
+      ? raw.spreadsheets
+          .map((item) => {
+            if (!item || typeof item !== "object") return null;
+            const row = item as Record<string, unknown>;
+            return {
+              name: String(row.name ?? "").trim() || "Planilha",
+              entity_kind: String(row.entity_kind ?? "VENDOR").toUpperCase() === "PARTNER" ? "PARTNER" : "VENDOR",
+              workflow:
+                String(row.workflow ?? "internal_questionnaire") === "external_questionnaire"
+                  ? "external_questionnaire"
+                  : "internal_questionnaire",
+              spreadsheet_url: String(row.spreadsheet_url ?? "").trim(),
+              worksheet_name: String(row.worksheet_name ?? "Página 1").trim() || "Página 1",
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      : raw.spreadsheet_url
+        ? [
+            {
+              name: "Planilha Principal",
+              entity_kind: "VENDOR",
+              workflow: "internal_questionnaire",
+              spreadsheet_url: String(raw.spreadsheet_url).trim(),
+              worksheet_name: String(raw.worksheet_name ?? "Página 1").trim() || "Página 1",
+            },
+          ]
+        : [];
+
+    return {
+      service_account_emails: serviceAccountEmails,
+      spreadsheets:
+        spreadsheets.length > 0
+          ? spreadsheets
+          : [
+              {
+                name: "Mini Questionário Interno",
+                entity_kind: "VENDOR",
+                workflow: "internal_questionnaire",
+                spreadsheet_url: "",
+                worksheet_name: "Página 1",
+              },
+            ],
+    } as GoogleSheetsConfig;
   }
 
   return merged;
@@ -116,7 +201,7 @@ export async function getIntegrationSettings(): Promise<IntegrationSetting[]> {
     }
   }
 
-  const providers: IntegrationProvider[] = ["TYPEFORM", "JIRA", "SLACK"];
+  const providers: IntegrationProvider[] = ["TYPEFORM", "JIRA", "SLACK", "GOOGLE_SHEETS"];
 
   const mapped = rows.map((row) => ({
     provider: row.provider,
@@ -142,7 +227,7 @@ export async function getIntegrationSettings(): Promise<IntegrationSetting[]> {
 export async function upsertIntegrationSetting(
   provider: IntegrationProvider,
   enabled: boolean,
-  config: TypeformConfig | JiraConfig | SlackConfig,
+  config: TypeformConfig | JiraConfig | SlackConfig | GoogleSheetsConfig,
 ) {
   try {
     await sql`
@@ -160,6 +245,27 @@ export async function upsertIntegrationSetting(
     if (code === "42P01") {
       throw new Error("integration_settings table not found. Run database/004_settings_configuration.sql.");
     }
+
+    const message = (error as { message?: string })?.message ?? "";
+    if (
+      provider === "GOOGLE_SHEETS" &&
+      (code === "22P02" || message.includes('invalid input value for enum integration_provider: "GOOGLE_SHEETS"'))
+    ) {
+      await sql`ALTER TYPE integration_provider ADD VALUE IF NOT EXISTS 'GOOGLE_SHEETS'`;
+
+      await sql`
+        INSERT INTO integration_settings (provider, enabled, config)
+        VALUES (${provider}::integration_provider, ${enabled}, ${JSON.stringify(config)}::jsonb)
+        ON CONFLICT (provider)
+        DO UPDATE SET
+          enabled = EXCLUDED.enabled,
+          config = EXCLUDED.config,
+          validation_status = NULL,
+          last_validated_at = NULL
+      `;
+      return;
+    }
+
     throw error;
   }
 }

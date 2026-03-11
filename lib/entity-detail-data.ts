@@ -14,10 +14,23 @@ export type DetailTabKey =
 export type EntityDetailData = {
   id: string;
   name: string;
+  jiraTicket: string | null;
   subtitle: string;
   statusLabel: string;
   statusMode: "pending" | "in_review" | "completed";
   riskScore: number;
+  internalQuestionnaire: {
+    requester: string;
+    ticket: string;
+    vendor: string;
+    status: string;
+    submittedAt?: string;
+    source: "google_sheets" | "database";
+    questions: Array<{
+      question: string;
+      answer: string;
+    }>;
+  } | null;
   questions: Array<{
     domain: string;
     status: ReviewStatus;

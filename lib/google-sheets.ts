@@ -1,4 +1,6 @@
+import { google } from "googleapis";
 import type { ReviewStatus } from "@/lib/entity-detail-data";
+import { getIntegrationSettings, type GoogleSheetsConfig } from "@/lib/settings-data";
 
 export type GoogleSheetsQuestion = {
   domain: string;
@@ -9,14 +11,35 @@ export type GoogleSheetsQuestion = {
   source: "google_sheets";
 };
 
+export type GoogleSheetsInternalQuestionnaire = {
+  requester: string;
+  ticket: string;
+  vendor: string;
+  status: string;
+  submittedAt?: string;
+  source: "google_sheets";
+  questions: Array<{
+    question: string;
+    answer: string;
+  }>;
+};
+
 type ReadParams = {
   assessmentId?: string | null;
   entitySlug: string;
   entityName: string;
+  jiraTicket?: string | null;
+  entityKind?: "VENDOR" | "PARTNER";
 };
+
+const reportedFetchIssues = new Set<string>();
 
 function isEnabled() {
   return process.env.GOOGLE_SHEETS_ENABLED === "true";
+}
+
+function hasServiceAccountCredentials() {
+  return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) && Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL);
 }
 
 function normalizeHeader(value: string) {
@@ -135,6 +158,114 @@ function toTimestamp(value: string | undefined): number {
 
 function strictMatchEnabled() {
   return process.env.GOOGLE_SHEETS_STRICT_MATCH !== "false";
+}
+
+function reportFetchIssueOnce(key: string, message: string) {
+  if (reportedFetchIssues.has(key)) return;
+  reportedFetchIssues.add(key);
+  console.warn(message);
+}
+
+function parseSpreadsheetId(url: string) {
+  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return match?.[1] ?? null;
+}
+
+function toA1WorksheetRange(worksheetName: string) {
+  const escaped = worksheetName.replace(/'/g, "''");
+  return `'${escaped}'`;
+}
+
+async function getGoogleSheetsIntegrationConfig(): Promise<{ enabled: boolean; config: GoogleSheetsConfig } | null> {
+  const settings = await getIntegrationSettings();
+  const current = settings.find((item) => item.provider === "GOOGLE_SHEETS");
+  if (!current) return null;
+  return {
+    enabled: current.enabled,
+    config: current.config as GoogleSheetsConfig,
+  };
+}
+
+async function readWorksheetValuesWithServiceAccount(spreadsheetUrl: string, worksheetName: string) {
+  const spreadsheetId = parseSpreadsheetId(spreadsheetUrl);
+  const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL;
+  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+  if (!spreadsheetId || !clientEmail || !privateKey) {
+    return null;
+  }
+
+  const auth = new google.auth.JWT({
+    email: clientEmail,
+    key: privateKey,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+  });
+
+  const sheets = google.sheets({ version: "v4", auth });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: toA1WorksheetRange(worksheetName),
+  });
+
+  const values = response.data.values;
+  if (!values || values.length === 0) return [];
+  return values.map((row) => row.map((cell) => String(cell ?? "")));
+}
+
+async function readConfiguredSheetRows(
+  entityKind: "VENDOR" | "PARTNER",
+  workflow: "internal_questionnaire" | "external_questionnaire",
+) {
+  const integration = await getGoogleSheetsIntegrationConfig();
+  if (!integration?.enabled) return null;
+
+  const spreadsheet = integration.config.spreadsheets.find(
+    (item) => item.entity_kind === entityKind && item.workflow === workflow && item.spreadsheet_url.trim(),
+  );
+
+  if (!spreadsheet) return null;
+
+  if (!hasServiceAccountCredentials()) {
+    reportFetchIssueOnce(
+      `google-sheets-auth-missing-${entityKind}-${workflow}`,
+      "Google Sheets configurado na aplicacao, mas as credenciais da service account nao estao definidas no ambiente.",
+    );
+    return null;
+  }
+
+  try {
+    return await readWorksheetValuesWithServiceAccount(spreadsheet.spreadsheet_url, spreadsheet.worksheet_name);
+  } catch (error) {
+    reportFetchIssueOnce(
+      `google-sheets-auth-read-${entityKind}-${workflow}`,
+      `Google Sheets API read failed for ${entityKind}/${workflow}: ${(error as Error).message}`,
+    );
+    return null;
+  }
+}
+
+async function readRowsFromCsvUrl(csvUrl: string, issuePrefix: string) {
+  const response = await fetch(csvUrl, { cache: "no-store" });
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      reportFetchIssueOnce(
+        `${issuePrefix}-${response.status}-${csvUrl}`,
+        `Google Sheets access returned ${response.status}. Publish the sheet or configure service account access for this URL.`,
+      );
+      return null;
+    }
+
+    reportFetchIssueOnce(`${issuePrefix}-${response.status}-${csvUrl}`, `Google Sheets fetch failed with status ${response.status}.`);
+    return null;
+  }
+
+  const csv = await response.text();
+  return parseCsv(csv);
+}
+
+function findComparableHeaderIndex(header: string[], candidates: string[]) {
+  const normalizedCandidates = candidates.map(normalizeComparable);
+  return header.findIndex((item) => normalizedCandidates.includes(normalizeComparable(item)));
 }
 
 function parseRowBased(
@@ -311,21 +442,16 @@ export async function readAssessmentQuestionsFromGoogleSheets({
   assessmentId,
   entitySlug,
   entityName,
+  entityKind,
 }: ReadParams): Promise<GoogleSheetsQuestion[]> {
   if (!isEnabled()) return [];
 
-  const csvUrl = process.env.GOOGLE_SHEETS_CSV_URL;
-  if (!csvUrl) return [];
-
   try {
-    const response = await fetch(csvUrl, { cache: "no-store" });
-    if (!response.ok) {
-      console.error(`Google Sheets fetch failed: ${response.status}`);
-      return [];
-    }
-
-    const csv = await response.text();
-    const rows = parseCsv(csv);
+    const configuredRows =
+      entityKind ? await readConfiguredSheetRows(entityKind, "external_questionnaire") : null;
+    const csvUrl = process.env.GOOGLE_SHEETS_CSV_URL;
+    const rows = configuredRows ?? (csvUrl ? await readRowsFromCsvUrl(csvUrl, "assessment") : null);
+    if (!rows) return [];
     if (rows.length < 2) return [];
 
     const rawHeader = rows[0];
@@ -342,8 +468,131 @@ export async function readAssessmentQuestionsFromGoogleSheets({
 
     return parseWideTypeformExport(rawHeader, dataRows, { assessmentId, entitySlug, entityName });
   } catch (error) {
-    console.error("Google Sheets read failed", error);
+    reportFetchIssueOnce("assessment-read-error", `Google Sheets questionnaire read failed: ${(error as Error).message}`);
     return [];
+  }
+}
+
+export async function readInternalQuestionnaireFromGoogleSheets({
+  jiraTicket,
+  entitySlug,
+  entityName,
+  entityKind,
+}: Omit<ReadParams, "assessmentId">): Promise<GoogleSheetsInternalQuestionnaire | null> {
+  if (!isEnabled()) return null;
+
+  try {
+    const configuredRows =
+      entityKind ? await readConfiguredSheetRows(entityKind, "internal_questionnaire") : null;
+    const csvUrl = process.env.GOOGLE_SHEETS_INTERNAL_CSV_URL ?? process.env.GOOGLE_SHEETS_CSV_URL;
+    const rows = configuredRows ?? (csvUrl ? await readRowsFromCsvUrl(csvUrl, "internal") : null);
+    if (!rows) return null;
+    if (rows.length < 2) return null;
+
+    const header = rows[0].map((value) => value.trim());
+    const dataRows = rows.slice(1);
+
+    const vendorIdx = findComparableHeaderIndex(header, [
+      process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_VENDOR ?? "vendor",
+      "company_name",
+      "nome da empresa",
+    ]);
+    const ticketIdx = findComparableHeaderIndex(header, [
+      process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_TICKET ?? "ticket",
+      "jira ticket",
+      "id do ticket do jira",
+    ]);
+    const requesterIdx = findComparableHeaderIndex(header, [
+      process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_REQUESTER ?? "solicitado por",
+      "requested by",
+      "ponto focal vtex",
+      "quem e o ponto focal vtex (para quem enviar o questionario)?",
+      "quem é o ponto focal vtex (para quem enviar o questionário)?",
+    ]);
+    const statusIdx = findComparableHeaderIndex(header, [
+      process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_STATUS ?? "status mini questionario",
+      "status mini questionário",
+      "status",
+    ]);
+    const submitDateIdx = findComparableHeaderIndex(header, [
+      "submit date (utc)",
+      "submit_date_(utc)",
+      "data de envio",
+      "submitted_at",
+    ]);
+
+    if (vendorIdx < 0) return null;
+
+    const questionIndexes = header
+      .map((_, idx) => idx)
+      .filter((idx) => ![vendorIdx, ticketIdx, requesterIdx, statusIdx, submitDateIdx].includes(idx));
+
+    const targetEntity = normalizeComparable(entityName);
+    const targetSlug = normalizeComparable(entitySlug);
+    const targetTicket = normalizeText(jiraTicket ?? "");
+    const isStrict = strictMatchEnabled();
+
+    const candidates = dataRows
+      .map((line, index) => {
+        const rowVendor = normalizeComparable(line[vendorIdx]);
+        const rowTicket = ticketIdx >= 0 ? normalizeText(line[ticketIdx]) : "";
+        const rowRequester = requesterIdx >= 0 ? normalizeText(line[requesterIdx]) : "";
+        const rowStatus = statusIdx >= 0 ? normalizeText(line[statusIdx]) : "";
+        const ts = submitDateIdx >= 0 ? toTimestamp(line[submitDateIdx]) : index;
+
+        const byTicket = Boolean(targetTicket) && Boolean(rowTicket) && rowTicket === targetTicket;
+        const byVendor = Boolean(targetEntity) && rowVendor === targetEntity;
+        const bySlug = Boolean(targetSlug) && rowVendor === targetSlug;
+
+        return { line, ts, byTicket, byVendor, bySlug, rowTicket, rowRequester, rowStatus };
+      })
+      .filter((item) => item.byTicket || item.byVendor || item.bySlug);
+
+    if (isStrict && candidates.length === 0) {
+      console.warn("Google Sheets strict match enabled and no matching internal questionnaire row was found.");
+      return null;
+    }
+
+    const best =
+      candidates.sort((a, b) => {
+        const scoreA = (a.byTicket ? 4 : 0) + (a.byVendor ? 2 : 0) + (a.bySlug ? 1 : 0);
+        const scoreB = (b.byTicket ? 4 : 0) + (b.byVendor ? 2 : 0) + (b.bySlug ? 1 : 0);
+        return scoreB - scoreA || b.ts - a.ts;
+      })[0] ??
+      dataRows[dataRows.length - 1]
+        ? {
+            line: dataRows[dataRows.length - 1],
+            ts: dataRows.length - 1,
+            byTicket: false,
+            byVendor: false,
+            bySlug: false,
+            rowTicket: ticketIdx >= 0 ? normalizeText(dataRows[dataRows.length - 1][ticketIdx]) : "",
+            rowRequester: requesterIdx >= 0 ? normalizeText(dataRows[dataRows.length - 1][requesterIdx]) : "",
+            rowStatus: statusIdx >= 0 ? normalizeText(dataRows[dataRows.length - 1][statusIdx]) : "",
+          }
+        : null;
+
+    if (!best) return null;
+
+    const questions = questionIndexes
+      .map((idx) => ({
+        question: normalizeText(header[idx]),
+        answer: normalizeText(best.line[idx]),
+      }))
+      .filter((item) => item.question && item.answer);
+
+    return {
+      requester: best.rowRequester || "-",
+      ticket: best.rowTicket || targetTicket || "-",
+      vendor: normalizeText(best.line[vendorIdx]) || entityName,
+      status: best.rowStatus || (questions.length > 0 ? "Concluído" : "Pendente"),
+      submittedAt: submitDateIdx >= 0 ? normalizeText(best.line[submitDateIdx]) : undefined,
+      source: "google_sheets",
+      questions,
+    };
+  } catch (error) {
+    reportFetchIssueOnce("internal-read-error", `Google Sheets internal questionnaire read failed: ${(error as Error).message}`);
+    return null;
   }
 }
 
@@ -352,26 +601,31 @@ export async function getGoogleSheetsHealth() {
     return { ok: false, message: "GOOGLE_SHEETS_ENABLED=false" };
   }
 
+  const integration = await getGoogleSheetsIntegrationConfig();
+  const configuredSheet = integration?.config.spreadsheets[0];
   const csvUrl = process.env.GOOGLE_SHEETS_CSV_URL;
-  if (!csvUrl) {
-    return { ok: false, message: "GOOGLE_SHEETS_CSV_URL is not set." };
+
+  if (!configuredSheet?.spreadsheet_url && !csvUrl) {
+    return { ok: false, message: "No Google Sheets source configured." };
   }
 
   try {
-    const response = await fetch(csvUrl, { cache: "no-store" });
-    if (!response.ok) {
-      return { ok: false, message: `Fetch failed with status ${response.status}` };
+    const rows =
+      configuredSheet?.spreadsheet_url
+      ? await readWorksheetValuesWithServiceAccount(configuredSheet.spreadsheet_url, configuredSheet.worksheet_name)
+      : csvUrl
+        ? await readRowsFromCsvUrl(csvUrl, "health")
+        : null;
+    if (!rows) {
+      return { ok: false, message: "Unable to read rows from configured Google Sheets source." };
     }
-
-    const text = await response.text();
-    const rows = parseCsv(text);
     if (rows.length === 0) {
       return { ok: false, message: "Sheet is empty." };
     }
 
     return {
       ok: true,
-      message: "Google Sheets connection is healthy.",
+      message: configuredSheet?.spreadsheet_url ? "Google Sheets API connection is healthy." : "Google Sheets CSV connection is healthy.",
       rows: Math.max(rows.length - 1, 0),
       columns: rows[0].map(normalizeHeader),
     };

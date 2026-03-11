@@ -1,6 +1,6 @@
 import { sql } from "@/lib/db";
 import type { DetailTabKey, EntityDetailData, RiskLevel } from "@/lib/entity-detail-data";
-import { readAssessmentQuestionsFromGoogleSheets } from "@/lib/google-sheets";
+import { readAssessmentQuestionsFromGoogleSheets, readInternalQuestionnaireFromGoogleSheets } from "@/lib/google-sheets";
 
 type UiStatus = "pending" | "sent" | "responded" | "in_review" | "completed";
 
@@ -119,6 +119,7 @@ export async function getVendorsList() {
     SELECT
       e.slug,
       e.name,
+      e.jira_issue_key,
       e.domain,
       e.segment,
       e.status,
@@ -170,6 +171,7 @@ export async function getVendorsList() {
   `) as Array<{
     slug: string;
     name: string;
+    jira_issue_key: string | null;
     domain: string | null;
     segment: string | null;
     status: string;
@@ -191,6 +193,7 @@ export async function getVendorsList() {
 
     return {
       id: row.slug,
+      jiraTicket: row.jira_issue_key,
       companyGroup: toCompanyGroup(row.company_group),
       company: row.name,
       domain: row.domain ?? "-",
@@ -403,6 +406,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       e.id,
       e.slug,
       e.name,
+      e.jira_issue_key,
       e.subtitle,
       e.status,
       e.status_label,
@@ -425,6 +429,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     id: string;
     slug: string;
     name: string;
+    jira_issue_key: string | null;
     subtitle: string | null;
     status: string;
     status_label: string | null;
@@ -477,7 +482,18 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     assessmentId: latestAssessment?.id,
     entitySlug: entity.slug,
     entityName: entity.name,
+    entityKind: kind.toUpperCase() === "PARTNER" ? "PARTNER" : "VENDOR",
   });
+
+  const internalQuestionnaire =
+    kind === "vendor"
+      ? await readInternalQuestionnaireFromGoogleSheets({
+          jiraTicket: entity.jira_issue_key,
+          entitySlug: entity.slug,
+          entityName: entity.name,
+          entityKind: "VENDOR",
+        })
+      : null;
 
   const finalQuestions =
     sheetQuestions.length > 0
@@ -555,10 +571,12 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   return {
     id: entity.slug,
     name: entity.name,
+    jiraTicket: entity.jira_issue_key,
     subtitle: entity.subtitle ?? (kind === "vendor" ? "Enterprise Vendor" : "Strategic Partner"),
     statusLabel: entity.status_label ?? "In Progress",
     statusMode,
     riskScore: entity.risk_score ?? 0,
+    internalQuestionnaire,
     questions: finalQuestions,
     overview: {
       category: entity.category ?? "-",

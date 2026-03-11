@@ -33,38 +33,6 @@ export function AppHeader() {
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
-          <button
-            type="button"
-            className="rounded-lg p-2 text-[var(--color-neutral-700)] transition hover:text-[var(--color-primary)]"
-            aria-label="Notificações"
-          >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
-              <path d="M9 17a3 3 0 0 0 6 0" />
-            </svg>
-          </button>
-
-          <button
-            type="button"
-            className="hidden rounded-lg p-2 text-[var(--color-neutral-700)] transition hover:text-[var(--color-primary)] sm:block"
-            aria-label="Ajuda"
-          >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4" />
-              <circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
-            </svg>
-          </button>
-
-          <button
-            type="button"
-            className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-bold text-white transition hover:brightness-95"
-          >
-            Novo caso
-          </button>
-
-          <div className="mx-1 hidden h-8 w-px bg-[var(--color-neutral-200)] sm:block" />
-
           <div className="flex items-center gap-2 rounded-lg border border-[var(--color-neutral-200)] bg-white px-2 py-1.5">
             <div className="hidden text-right md:block">
               <p className="text-sm font-bold text-[var(--color-text)] leading-tight">Jeff Brito</p>

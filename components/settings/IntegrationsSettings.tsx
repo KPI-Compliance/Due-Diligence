@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { SectionCard } from "@/components/ui/SectionCard";
-import type { JiraConfig, SlackConfig, TypeformConfig, TypeformFormItem } from "@/lib/settings-data";
+import type { GoogleSheetsConfig, JiraConfig, SlackConfig, TypeformConfig, TypeformFormItem } from "@/lib/settings-data";
 
-type ModalKey = "typeform" | "jira" | "slack" | null;
+type ModalKey = "typeform" | "jira" | "slack" | "google_sheets" | null;
 
 type IntegrationsSettingsProps = {
   appUrl: string;
@@ -12,6 +12,7 @@ type IntegrationsSettingsProps = {
   typeformForms: TypeformFormItem[];
   jira: { enabled: boolean; config: JiraConfig };
   slack: { enabled: boolean; config: SlackConfig };
+  googleSheets: { enabled: boolean; config: GoogleSheetsConfig };
   typeformSecretConfigured: boolean;
   jiraTokenConfigured: boolean;
   jiraWebhookSecretConfigured: boolean;
@@ -21,6 +22,7 @@ type IntegrationsSettingsProps = {
   deleteTypeformForm: (formData: FormData) => Promise<void>;
   saveJiraSettings: (formData: FormData) => Promise<void>;
   saveSlackSettings: (formData: FormData) => Promise<void>;
+  saveGoogleSheetsSettings: (formData: FormData) => Promise<void>;
 };
 
 function Backdrop({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
@@ -40,6 +42,7 @@ export function IntegrationsSettings({
   typeformForms,
   jira,
   slack,
+  googleSheets,
   typeformSecretConfigured,
   jiraTokenConfigured,
   jiraWebhookSecretConfigured,
@@ -49,9 +52,34 @@ export function IntegrationsSettings({
   deleteTypeformForm,
   saveJiraSettings,
   saveSlackSettings,
+  saveGoogleSheetsSettings,
 }: IntegrationsSettingsProps) {
   const [openModal, setOpenModal] = useState<ModalKey>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [googleServiceAccounts, setGoogleServiceAccounts] = useState<string[]>(
+    googleSheets.config.service_account_emails.length > 0 ? googleSheets.config.service_account_emails : [""],
+  );
+  const [googleSpreadsheets, setGoogleSpreadsheets] = useState<
+    Array<{
+      name: string;
+      entity_kind: "VENDOR" | "PARTNER";
+      workflow: "internal_questionnaire" | "external_questionnaire";
+      spreadsheet_url: string;
+      worksheet_name: string;
+    }>
+  >(
+    googleSheets.config.spreadsheets.length > 0
+      ? googleSheets.config.spreadsheets
+      : [
+          {
+            name: "Mini Questionário Interno",
+            entity_kind: "VENDOR",
+            workflow: "internal_questionnaire",
+            spreadsheet_url: "",
+            worksheet_name: "Página 1",
+          },
+        ],
+  );
 
   async function copyToClipboard(value: string, successMessage: string) {
     try {
@@ -94,10 +122,10 @@ export function IntegrationsSettings({
     <section className="space-y-6">
       <header>
         <h2 className="text-xl font-bold text-[var(--color-text)]">Integracoes</h2>
-        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Configure Typeform, Jira e Slack para automatizar fluxos operacionais.</p>
+        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Configure Typeform, Jira, Slack e Google Sheets para automatizar fluxos operacionais.</p>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SectionCard
           title="Typeform"
           description="Formularios de intake e respostas de questionarios"
@@ -135,6 +163,28 @@ export function IntegrationsSettings({
               Status: <span className={slack.enabled ? "text-emerald-600" : "text-amber-600"}>{slack.enabled ? "Ativado" : "Desativado"}</span>
             </p>
             <button type="button" onClick={() => setOpenModal("slack")} className="w-full rounded-lg border border-[var(--color-primary)] px-3 py-2 text-sm font-bold text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/5">
+              Configurar
+            </button>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Google Sheets"
+          description="Leitura autenticada de planilhas para intake e mini questionario"
+          className={googleSheets.enabled ? "border-emerald-200" : "border-[var(--color-neutral-200)]"}
+        >
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-[var(--color-text)]">
+              Status: <span className={googleSheets.enabled ? "text-emerald-600" : "text-amber-600"}>{googleSheets.enabled ? "Ativado" : "Desativado"}</span>
+            </p>
+            <p className="text-xs text-[var(--color-neutral-600)]">
+              Contas: {googleSheets.config.service_account_emails.length} | Planilhas: {googleSheets.config.spreadsheets.length}
+            </p>
+            <button
+              type="button"
+              onClick={() => setOpenModal("google_sheets")}
+              className="w-full rounded-lg border border-[var(--color-primary)] px-3 py-2 text-sm font-bold text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/5"
+            >
               Configurar
             </button>
           </div>
@@ -453,6 +503,240 @@ export function IntegrationsSettings({
                 Cancelar
               </button>
               <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">Salvar Configuracoes do Slack</button>
+            </div>
+          </form>
+        </Backdrop>
+      ) : null}
+
+      {openModal === "google_sheets" ? (
+        <Backdrop onClose={() => setOpenModal(null)}>
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-bold text-[var(--color-text)]">Configurar Google Sheets</h3>
+              <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                Defina a conta que tera acesso as planilhas do ambiente e os dados basicos da origem.
+              </p>
+            </div>
+            <button type="button" onClick={() => setOpenModal(null)} className="rounded-md px-2 py-1 text-[var(--color-neutral-600)] hover:bg-[var(--color-neutral-100)]">
+              ✕
+            </button>
+          </div>
+
+          <section className="mb-4 rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-4">
+            <p className="text-sm font-bold text-[var(--color-text)]">Acesso recomendado</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-[var(--color-neutral-700)]">
+              <li>Crie ou defina a conta de servico que sera usada para ler as planilhas.</li>
+              <li>Compartilhe a planilha oficial com esse e-mail como leitora.</li>
+              <li>Cadastre abaixo a conta autorizada e a URL base da planilha.</li>
+              <li>Depois, a implementacao autenticada pode consumir os dados sem abrir o arquivo publicamente.</li>
+            </ol>
+          </section>
+
+          <form action={saveGoogleSheetsSettings} className="space-y-4">
+            <input type="hidden" name="service_account_emails_json" value={JSON.stringify(googleServiceAccounts)} />
+            <input type="hidden" name="spreadsheets_json" value={JSON.stringify(googleSpreadsheets)} />
+
+            <div className="space-y-3 rounded-xl border border-[var(--color-neutral-200)] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-bold text-[var(--color-text)]">Contas autorizadas</p>
+                <button
+                  type="button"
+                  onClick={() => setGoogleServiceAccounts((current) => [...current, ""])}
+                  className="rounded-lg border border-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-[var(--color-primary)] hover:bg-[var(--color-primary)]/5"
+                >
+                  Adicionar conta
+                </button>
+              </div>
+
+              {googleServiceAccounts.map((email, index) => (
+                <div key={`service-account-${index}`} className="flex gap-2">
+                  <input
+                    type="email"
+                    placeholder="due-diligence-bot@project-id.iam.gserviceaccount.com"
+                    value={email}
+                    onChange={(event) =>
+                      setGoogleServiceAccounts((current) =>
+                        current.map((item, itemIndex) => (itemIndex === index ? event.target.value : item)),
+                      )
+                    }
+                    className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setGoogleServiceAccounts((current) => (current.length > 1 ? current.filter((_, itemIndex) => itemIndex !== index) : [""]))
+                    }
+                    className="rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
+                  >
+                    Remover
+                  </button>
+                </div>
+              ))}
+
+              <p className="text-xs text-[var(--color-neutral-600)]">
+                Cada e-mail listado aqui deve receber acesso de leitura nas planilhas oficiais da area.
+              </p>
+            </div>
+
+            <div className="space-y-3 rounded-xl border border-[var(--color-neutral-200)] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-bold text-[var(--color-text)]">Planilhas configuradas</p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setGoogleSpreadsheets((current) => [
+                      ...current,
+                      {
+                        name: `Planilha ${current.length + 1}`,
+                        entity_kind: "VENDOR",
+                        workflow: "internal_questionnaire",
+                        spreadsheet_url: "",
+                        worksheet_name: "Página 1",
+                      },
+                    ])
+                  }
+                  className="rounded-lg border border-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-[var(--color-primary)] hover:bg-[var(--color-primary)]/5"
+                >
+                  Adicionar planilha
+                </button>
+              </div>
+
+              {googleSpreadsheets.map((sheet, index) => (
+                <div key={`spreadsheet-${index}`} className="space-y-3 rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Planilha {index + 1}</p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setGoogleSpreadsheets((current) =>
+                          current.length > 1
+                            ? current.filter((_, itemIndex) => itemIndex !== index)
+                            : [
+                                {
+                                  name: "Mini Questionário Interno",
+                                  entity_kind: "VENDOR",
+                                  workflow: "internal_questionnaire",
+                                  spreadsheet_url: "",
+                                  worksheet_name: "Página 1",
+                                },
+                              ],
+                        )
+                      }
+                      className="rounded border border-red-200 px-2 py-1 text-[10px] font-bold text-red-600 hover:bg-red-50"
+                    >
+                      Remover
+                    </button>
+                  </div>
+
+                  <input
+                    type="text"
+                    placeholder="Nome interno da planilha"
+                    value={sheet.name}
+                    onChange={(event) =>
+                      setGoogleSpreadsheets((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, name: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                  />
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <select
+                      value={sheet.entity_kind}
+                      onChange={(event) =>
+                        setGoogleSpreadsheets((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? {
+                                  ...item,
+                                  entity_kind: event.target.value === "PARTNER" ? "PARTNER" : "VENDOR",
+                                  workflow:
+                                    event.target.value === "PARTNER" ? "external_questionnaire" : item.workflow,
+                                }
+                              : item,
+                          ),
+                        )
+                      }
+                      className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="VENDOR">Vendor</option>
+                      <option value="PARTNER">Partner</option>
+                    </select>
+                    <select
+                      value={sheet.entity_kind === "PARTNER" ? "external_questionnaire" : sheet.workflow}
+                      onChange={(event) =>
+                        setGoogleSpreadsheets((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? {
+                                  ...item,
+                                  workflow:
+                                    item.entity_kind === "PARTNER"
+                                      ? "external_questionnaire"
+                                      : event.target.value === "external_questionnaire"
+                                        ? "external_questionnaire"
+                                        : "internal_questionnaire",
+                                }
+                              : item,
+                          ),
+                        )
+                      }
+                      disabled={sheet.entity_kind === "PARTNER"}
+                      className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm disabled:bg-[var(--color-neutral-100)]"
+                    >
+                      {sheet.entity_kind === "VENDOR" ? (
+                        <>
+                          <option value="internal_questionnaire">Internal Questionnaire</option>
+                          <option value="external_questionnaire">External Questionnaire</option>
+                        </>
+                      ) : (
+                        <option value="external_questionnaire">External Questionnaire</option>
+                      )}
+                    </select>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                    value={sheet.spreadsheet_url}
+                    onChange={(event) =>
+                      setGoogleSpreadsheets((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, spreadsheet_url: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Página 1"
+                    value={sheet.worksheet_name}
+                    onChange={(event) =>
+                      setGoogleSpreadsheets((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, worksheet_name: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <label className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm font-medium text-[var(--color-text)]">
+              <input name="enabled" type="checkbox" defaultChecked={googleSheets.enabled} className="h-4 w-4 accent-[var(--color-primary)]" />
+              Ativar integracao com Google Sheets
+            </label>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={() => setOpenModal(null)} className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-4 py-2 text-sm font-bold text-[var(--color-neutral-700)]">
+                Cancelar
+              </button>
+              <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">
+                Salvar Configuracoes do Google Sheets
+              </button>
             </div>
           </form>
         </Backdrop>
