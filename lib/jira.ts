@@ -466,7 +466,6 @@ export function extractEntityFromJiraIssue(
       "nome do parceiro",
       "company name",
       "nome da empresa",
-      "name",
     ]) ?? summary;
   const contactEmail =
     findValueInObject(payload, [
@@ -507,12 +506,12 @@ export function extractEntityFromJiraIssue(
       website ??
       domainFromEmail(contactEmail),
   );
+  const kind = forcedKind ?? payloadKind ?? inferKind(fields, description);
   const segment =
     findValueInObject(payload, ["segment", "segmento", "category", "categoria"]) ??
     findFieldValue(description, ["segment", "segmento", "category", "categoria"]) ??
     languagePreference ??
-    "Vendor assessment";
-  const kind = forcedKind ?? payloadKind ?? inferKind(fields, description);
+    (kind === "PARTNER" ? "Partner assessment" : "Vendor assessment");
   const companyGroup = companyGroupFromForm ?? inferCompanyGroup(fields, description);
   const status = inferStatus(fields);
   const riskLevel = inferRiskLevel(
