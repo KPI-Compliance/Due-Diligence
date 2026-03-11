@@ -36,7 +36,7 @@ export type GoogleSheetsConfig = {
     entity_kind: "VENDOR" | "PARTNER";
     workflow: "internal_questionnaire" | "external_questionnaire";
     spreadsheet_url: string;
-    worksheet_name: string;
+    worksheet_names: string[];
   }>;
 };
 
@@ -93,7 +93,7 @@ function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraCon
           entity_kind: "VENDOR",
           workflow: "internal_questionnaire",
           spreadsheet_url: "",
-          worksheet_name: "Página 1",
+          worksheet_names: ["Página 1"],
         },
       ],
     };
@@ -136,6 +136,7 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
       service_account_email?: string;
       spreadsheet_url?: string;
       worksheet_name?: string;
+      worksheet_names?: string[];
     };
 
     const serviceAccountEmails = Array.isArray(raw.service_account_emails)
@@ -157,7 +158,9 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
                   ? "external_questionnaire"
                   : "internal_questionnaire",
               spreadsheet_url: String(row.spreadsheet_url ?? "").trim(),
-              worksheet_name: String(row.worksheet_name ?? "Página 1").trim() || "Página 1",
+              worksheet_names: Array.isArray(row.worksheet_names)
+                ? row.worksheet_names.map((item) => String(item).trim()).filter(Boolean)
+                : [String(row.worksheet_name ?? "Página 1").trim() || "Página 1"],
             };
           })
           .filter((item): item is NonNullable<typeof item> => Boolean(item))
@@ -168,7 +171,7 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
               entity_kind: "VENDOR",
               workflow: "internal_questionnaire",
               spreadsheet_url: String(raw.spreadsheet_url).trim(),
-              worksheet_name: String(raw.worksheet_name ?? "Página 1").trim() || "Página 1",
+              worksheet_names: [String(raw.worksheet_name ?? "Página 1").trim() || "Página 1"],
             },
           ]
         : [];
@@ -184,7 +187,7 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
                 entity_kind: "VENDOR",
                 workflow: "internal_questionnaire",
                 spreadsheet_url: "",
-                worksheet_name: "Página 1",
+                worksheet_names: ["Página 1"],
               },
             ],
     } as GoogleSheetsConfig;

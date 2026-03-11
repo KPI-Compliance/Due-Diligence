@@ -217,7 +217,12 @@ async function saveGoogleSheetsSettings(formData: FormData) {
             entity_kind,
             workflow,
             spreadsheet_url: String(row.spreadsheet_url ?? "").trim(),
-            worksheet_name: String(row.worksheet_name ?? "Página 1").trim() || "Página 1",
+            worksheet_names: Array.isArray(row.worksheet_names)
+              ? row.worksheet_names.map((item) => String(item).trim()).filter(Boolean)
+              : String(row.worksheet_name ?? "Página 1")
+                  .split(/\r?\n|,/)
+                  .map((item) => item.trim())
+                  .filter(Boolean),
           };
         })
         .filter((item): item is NonNullable<typeof item> => Boolean(item)) as GoogleSheetsConfig["spreadsheets"];

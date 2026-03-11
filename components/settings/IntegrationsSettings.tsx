@@ -65,7 +65,7 @@ export function IntegrationsSettings({
       entity_kind: "VENDOR" | "PARTNER";
       workflow: "internal_questionnaire" | "external_questionnaire";
       spreadsheet_url: string;
-      worksheet_name: string;
+      worksheet_names: string[];
     }>
   >(
     googleSheets.config.spreadsheets.length > 0
@@ -76,7 +76,7 @@ export function IntegrationsSettings({
             entity_kind: "VENDOR",
             workflow: "internal_questionnaire",
             spreadsheet_url: "",
-            worksheet_name: "Página 1",
+            worksheet_names: ["Página 1"],
           },
         ],
   );
@@ -656,7 +656,7 @@ export function IntegrationsSettings({
                         entity_kind: "VENDOR",
                         workflow: "internal_questionnaire",
                         spreadsheet_url: "",
-                        worksheet_name: "Página 1",
+                        worksheet_names: ["Página 1"],
                       },
                     ])
                   }
@@ -682,7 +682,7 @@ export function IntegrationsSettings({
                                   entity_kind: "VENDOR",
                                   workflow: "internal_questionnaire",
                                   spreadsheet_url: "",
-                                  worksheet_name: "Página 1",
+                                  worksheet_names: ["Página 1"],
                                 },
                               ],
                         )
@@ -773,19 +773,31 @@ export function IntegrationsSettings({
                     }
                     className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
                   />
-                  <input
-                    type="text"
-                    placeholder="Página 1"
-                    value={sheet.worksheet_name}
-                    onChange={(event) =>
-                      setGoogleSpreadsheets((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, worksheet_name: event.target.value } : item,
-                        ),
-                      )
-                    }
-                    className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
-                  />
+                  <label className="space-y-1">
+                    <span className="block text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Abas que devem ser lidas</span>
+                    <textarea
+                      placeholder={"VTEX Partner Assessment EN\nVTEX Partner Assessment PTBR"}
+                      value={sheet.worksheet_names.join("\n")}
+                      onChange={(event) =>
+                        setGoogleSpreadsheets((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? {
+                                  ...item,
+                                  worksheet_names: event.target.value
+                                    .split(/\r?\n|,/)
+                                    .map((value) => value.trim())
+                                    .filter(Boolean),
+                                }
+                              : item,
+                          ),
+                        )
+                      }
+                      rows={3}
+                      className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                    />
+                    <span className="block text-xs text-[var(--color-neutral-600)]">Informe uma aba por linha. O sistema tenta cada aba ate encontrar a resposta correta.</span>
+                  </label>
                 </div>
               ))}
             </div>

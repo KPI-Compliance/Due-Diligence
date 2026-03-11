@@ -236,16 +236,23 @@ async function readConfiguredSheetRows(
 
   const results: string[][][] = [];
   for (const spreadsheet of spreadsheets) {
-    try {
-      const rows = await readWorksheetValuesWithServiceAccount(spreadsheet.spreadsheet_url, spreadsheet.worksheet_name);
-      if (rows) {
-        results.push(rows);
+    const worksheetNames =
+      Array.isArray(spreadsheet.worksheet_names) && spreadsheet.worksheet_names.length > 0
+        ? spreadsheet.worksheet_names
+        : ["Página 1"];
+
+    for (const worksheetName of worksheetNames) {
+      try {
+        const rows = await readWorksheetValuesWithServiceAccount(spreadsheet.spreadsheet_url, worksheetName);
+        if (rows) {
+          results.push(rows);
+        }
+      } catch (error) {
+        reportFetchIssueOnce(
+          `google-sheets-auth-read-${entityKind}-${workflow}-${spreadsheet.spreadsheet_url}-${worksheetName}`,
+          `Google Sheets API read failed for ${entityKind}/${workflow}/${worksheetName}: ${(error as Error).message}`,
+        );
       }
-    } catch (error) {
-      reportFetchIssueOnce(
-        `google-sheets-auth-read-${entityKind}-${workflow}-${spreadsheet.spreadsheet_url}-${spreadsheet.worksheet_name}`,
-        `Google Sheets API read failed for ${entityKind}/${workflow}/${spreadsheet.worksheet_name}: ${(error as Error).message}`,
-      );
     }
   }
 
@@ -641,9 +648,13 @@ export async function getGoogleSheetsHealth() {
   }
 
   try {
+    const worksheetName =
+      configuredSheet?.worksheet_names && configuredSheet.worksheet_names.length > 0
+        ? configuredSheet.worksheet_names[0]
+        : "Página 1";
     const rows =
       configuredSheet?.spreadsheet_url
-      ? await readWorksheetValuesWithServiceAccount(configuredSheet.spreadsheet_url, configuredSheet.worksheet_name)
+      ? await readWorksheetValuesWithServiceAccount(configuredSheet.spreadsheet_url, worksheetName)
       : csvUrl
         ? await readRowsFromCsvUrl(csvUrl, "health")
         : null;
