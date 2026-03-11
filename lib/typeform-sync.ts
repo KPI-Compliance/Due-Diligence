@@ -1,4 +1,6 @@
 import { sql } from "@/lib/db";
+import { fetchJiraIssueCreatedAt } from "@/lib/jira";
+import { getIntegrationSettings, type JiraConfig } from "@/lib/settings-data";
 import { extractCompanyNameFromTypeformAnswers, normalizeTypeformAnswers, type TypeformAnswer } from "@/lib/typeform";
 
 type TypeformResponseItem = {
@@ -23,7 +25,49 @@ function getTypeformToken() {
   return process.env.TYPEFORM_API_TOKEN ?? process.env.TYPEFORM_ACCESS_TOKEN ?? null;
 }
 
-export async function syncPartnerExternalQuestionnaire(entityId: string, entityName: string) {
+async function getJiraCreatedAt(issueKey: string | null | undefined) {
+  if (!issueKey) return null;
+
+  const settings = await getIntegrationSettings();
+  const jiraSetting = settings.find((item) => item.provider === "JIRA");
+  if (!jiraSetting?.enabled) return null;
+
+  const config = jiraSetting.config as JiraConfig;
+  const baseUrl = config.base_url?.trim();
+  const email = config.api_email?.trim() || process.env.JIRA_API_EMAIL || "";
+  const token = config.api_token?.trim() || process.env.JIRA_API_TOKEN || "";
+
+  if (!baseUrl || !email || !token) return null;
+
+  try {
+    return await fetchJiraIssueCreatedAt({
+      baseUrl,
+      email,
+      token,
+      issueKey,
+    });
+  } catch (error) {
+    console.warn(`Jira issue created_at fetch failed for ${issueKey}: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+function toTimestamp(value: string | undefined | null) {
+  if (!value) return Number.NaN;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.NaN : parsed;
+}
+
+function compareResponseDistance(candidate: TypeformResponseItem, referenceTimestamp: number) {
+  const submittedAt = toTimestamp(candidate.submitted_at);
+  if (Number.isNaN(submittedAt) || Number.isNaN(referenceTimestamp)) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  return Math.abs(submittedAt - referenceTimestamp);
+}
+
+export async function syncPartnerExternalQuestionnaire(entityId: string, entityName: string, jiraIssueKey?: string | null) {
   const token = getTypeformToken();
   if (!token) return;
 
@@ -58,6 +102,8 @@ export async function syncPartnerExternalQuestionnaire(entityId: string, entityN
   if (!assessment) return;
 
   const targetName = normalizeComparable(entityName);
+  const jiraCreatedAt = await getJiraCreatedAt(jiraIssueKey);
+  const jiraCreatedTimestamp = toTimestamp(jiraCreatedAt);
   let matchedResponse: (TypeformResponseItem & { form_id: string }) | null = null;
 
   for (const form of formMappings) {
@@ -77,11 +123,24 @@ export async function syncPartnerExternalQuestionnaire(entityId: string, entityN
     const candidate =
       payload.items
         ?.filter((item) => normalizeComparable(extractCompanyNameFromTypeformAnswers(item.answers) ?? undefined) === targetName)
-        .sort((a, b) => Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? ""))[0] ?? null;
+        .sort((a, b) => {
+          if (!Number.isNaN(jiraCreatedTimestamp)) {
+            return compareResponseDistance(a, jiraCreatedTimestamp) - compareResponseDistance(b, jiraCreatedTimestamp);
+          }
+
+          return Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? "");
+        })[0] ?? null;
 
     if (!candidate) continue;
 
-    if (!matchedResponse || Date.parse(candidate.submitted_at ?? "") > Date.parse(matchedResponse.submitted_at ?? "")) {
+    if (
+      !matchedResponse ||
+      (!Number.isNaN(jiraCreatedTimestamp) &&
+        compareResponseDistance(candidate, jiraCreatedTimestamp) <
+          compareResponseDistance(matchedResponse, jiraCreatedTimestamp)) ||
+      (Number.isNaN(jiraCreatedTimestamp) &&
+        Date.parse(candidate.submitted_at ?? "") > Date.parse(matchedResponse.submitted_at ?? ""))
+    ) {
       matchedResponse = {
         ...candidate,
         form_id: form.form_id,

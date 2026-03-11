@@ -3,6 +3,7 @@ import { EntityWorkspace } from "@/components/ui/EntityWorkspace";
 import { getPartnersList } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
+const MAX_PARTNER_ROWS = 25;
 
 const filters = [
   { label: "Partner", kind: "text" as const, placeholder: "Filter by partner name" },
@@ -38,6 +39,7 @@ export default async function PartnersPage({
   searchParams?: Promise<{ updated?: string }>;
 }) {
   const partners = await getPartnersList();
+  const visiblePartners = partners.slice(0, MAX_PARTNER_ROWS);
 
   return (
     <div className="space-y-4">
@@ -60,7 +62,7 @@ export default async function PartnersPage({
           "Final Risk",
           "Last Review",
         ]}
-        tableFooterText={`Showing 1 to ${partners.length} of ${partners.length} partners`}
+        tableFooterText={`Showing 1 to ${visiblePartners.length} of ${partners.length} partners`}
         summary={[
           {
             label: "Pending",
@@ -81,7 +83,7 @@ export default async function PartnersPage({
             tone: "danger",
           },
         ]}
-        rows={partners.map((item) => (
+        rows={visiblePartners.map((item) => (
           <tr key={item.id} className="hover:bg-[var(--color-neutral-100)]/40 transition-colors">
             <td className="px-6 py-4">
               <Link href={`/partners/${item.id}`} className="block">

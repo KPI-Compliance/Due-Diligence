@@ -67,6 +67,12 @@ type JiraJqlMatchResponse = {
   }>;
 };
 
+type JiraIssueDetailResponse = {
+  fields?: {
+    created?: string | null;
+  };
+};
+
 function adfToText(node: JiraPrimitive | JiraAdfNode): string {
   if (typeof node === "string") {
     return node;
@@ -309,6 +315,21 @@ async function issueMatchesJql(baseUrl: string, email: string, token: string, is
   );
 
   return payload.matches?.[0]?.matchedIssues?.includes(issueId) ?? false;
+}
+
+export async function fetchJiraIssueCreatedAt(input: {
+  baseUrl: string;
+  email: string;
+  token: string;
+  issueKey: string;
+}) {
+  const payload = await fetchJiraJson<JiraIssueDetailResponse>(
+    `${input.baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}?fields=created`,
+    input.email,
+    input.token,
+  );
+
+  return payload.fields?.created?.trim() || null;
 }
 
 export async function resolveKindFromJiraQueues(input: {

@@ -115,6 +115,23 @@ function mapDecisionRisk(level: string | null) {
   return level ? mapRisk(level) : null;
 }
 
+function resolvePartnerFinalRisk(
+  status: string | null,
+  securityLevel: string | null,
+  privacyLevel: string | null,
+  complianceLevel: string | null,
+  fallbackRisk: string | null,
+) {
+  const workflowStatus = toWorkflowStatus(status);
+  const hasAnyDecision = Boolean(securityLevel || privacyLevel || complianceLevel);
+
+  if (!hasAnyDecision && (!workflowStatus || workflowStatus === "pending" || workflowStatus === "sent" || workflowStatus === "responded")) {
+    return null;
+  }
+
+  return maxRisk(securityLevel, privacyLevel, complianceLevel, fallbackRisk);
+}
+
 export async function getVendorsList() {
   const rows = (await sql`
     SELECT
@@ -287,8 +304,14 @@ export async function getPartnersList() {
   }>;
 
   return rows.map((row) => {
-    const finalRisk = maxRisk(row.latest_security_level, row.latest_privacy_level, row.latest_compliance_level, row.risk_level);
-    const riskUi = riskClasses(finalRisk);
+    const finalRisk = resolvePartnerFinalRisk(
+      row.latest_assessment_status,
+      row.latest_security_level,
+      row.latest_privacy_level,
+      row.latest_compliance_level,
+      row.risk_level,
+    );
+    const riskUi = finalRisk ? riskClasses(finalRisk) : null;
 
     return {
       id: row.slug,
@@ -300,11 +323,12 @@ export async function getPartnersList() {
       status: mapStatus(row.status),
       assessmentStatus: mapPartnerAssessmentStatus(row.latest_assessment_status),
       technicalReviewStatus: mapTechnicalReviewStatus(row.latest_assessment_status),
-      risk: finalRisk,
+      risk: finalRisk ?? "Pending",
       privacyRisk: mapDecisionRisk(row.latest_privacy_level),
       securityRisk: mapDecisionRisk(row.latest_security_level),
       complianceRisk: mapDecisionRisk(row.latest_compliance_level),
-      ...riskUi,
+      riskClass: riskUi?.riskClass ?? "text-[var(--color-neutral-600)]",
+      riskDot: riskUi?.riskDot ?? "bg-[var(--color-neutral-400)]",
       openAssessments: row.open_assessments,
       owner: row.owner,
       lastReview: formatDate(row.last_review_at),
@@ -454,11 +478,11 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   if (!entity) return null;
 
   if (kind === "partner") {
-    await syncPartnerExternalQuestionnaire(entity.id, entity.name);
+    await syncPartnerExternalQuestionnaire(entity.id, entity.name, entity.jira_issue_key);
   }
 
   const assessments = (await sql`
-    SELECT id, status, risk_level, created_at
+    SELECT id, status, risk_level, created_at, typeform_response_token
     FROM assessments
     WHERE entity_id = ${entity.id}
     ORDER BY created_at DESC
@@ -468,6 +492,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     status: string;
     risk_level: string | null;
     created_at: string;
+    typeform_response_token: string | null;
   }>;
 
   const latestAssessment = assessments[0];
@@ -491,6 +516,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     entitySlug: entity.slug,
     entityName: entity.name,
     entityKind: kind.toUpperCase() === "PARTNER" ? "PARTNER" : "VENDOR",
+    typeformResponseToken: latestAssessment?.typeform_response_token,
   });
 
   const internalQuestionnaire =

@@ -30,6 +30,7 @@ type ReadParams = {
   entityName: string;
   jiraTicket?: string | null;
   entityKind?: "VENDOR" | "PARTNER";
+  typeformResponseToken?: string | null;
 };
 
 const reportedFetchIssues = new Set<string>();
@@ -219,11 +220,11 @@ async function readConfiguredSheetRows(
   const integration = await getGoogleSheetsIntegrationConfig();
   if (!integration?.enabled) return null;
 
-  const spreadsheet = integration.config.spreadsheets.find(
+  const spreadsheets = integration.config.spreadsheets.filter(
     (item) => item.entity_kind === entityKind && item.workflow === workflow && item.spreadsheet_url.trim(),
   );
 
-  if (!spreadsheet) return null;
+  if (spreadsheets.length === 0) return null;
 
   if (!hasServiceAccountCredentials()) {
     reportFetchIssueOnce(
@@ -233,15 +234,22 @@ async function readConfiguredSheetRows(
     return null;
   }
 
-  try {
-    return await readWorksheetValuesWithServiceAccount(spreadsheet.spreadsheet_url, spreadsheet.worksheet_name);
-  } catch (error) {
-    reportFetchIssueOnce(
-      `google-sheets-auth-read-${entityKind}-${workflow}`,
-      `Google Sheets API read failed for ${entityKind}/${workflow}: ${(error as Error).message}`,
-    );
-    return null;
+  const results: string[][][] = [];
+  for (const spreadsheet of spreadsheets) {
+    try {
+      const rows = await readWorksheetValuesWithServiceAccount(spreadsheet.spreadsheet_url, spreadsheet.worksheet_name);
+      if (rows) {
+        results.push(rows);
+      }
+    } catch (error) {
+      reportFetchIssueOnce(
+        `google-sheets-auth-read-${entityKind}-${workflow}-${spreadsheet.spreadsheet_url}-${spreadsheet.worksheet_name}`,
+        `Google Sheets API read failed for ${entityKind}/${workflow}/${spreadsheet.worksheet_name}: ${(error as Error).message}`,
+      );
+    }
   }
+
+  return results.length > 0 ? results : null;
 }
 
 async function readRowsFromCsvUrl(csvUrl: string, issuePrefix: string) {
@@ -343,6 +351,12 @@ function parseWideTypeformExport(
   const entityNameIdx = normalized.findIndex(
     (h) => h === normalizeComparable(process.env.GOOGLE_SHEETS_COLUMN_ENTITY_NAME ?? "entity_name"),
   );
+  const tokenIdx = normalized.findIndex(
+    (h) =>
+      h === normalizeComparable(process.env.GOOGLE_SHEETS_COLUMN_TYPEFORM_TOKEN ?? "token") ||
+      h === "response_token" ||
+      h === "typeform_token",
+  );
 
   const companyHeaderCandidates = [
     "olá! qual é o nome da empresa?",
@@ -381,6 +395,7 @@ function parseWideTypeformExport(
   const targetEntity = normalizeComparable(params.entityName);
   const targetSlug = normalizeComparable(params.entitySlug);
   const targetAssessmentId = normalizeText(params.assessmentId ?? "");
+  const targetToken = normalizeText(params.typeformResponseToken ?? "");
   const isStrict = strictMatchEnabled();
 
   const candidates = rows
@@ -389,16 +404,18 @@ function parseWideTypeformExport(
       const rowEntitySlug = entitySlugIdx >= 0 ? normalizeComparable(line[entitySlugIdx]) : "";
       const rowEntityName = entityNameIdx >= 0 ? normalizeComparable(line[entityNameIdx]) : "";
       const rowCompanyName = companyIdx >= 0 ? normalizeComparable(line[companyIdx]) : "";
+      const rowToken = tokenIdx >= 0 ? normalizeText(line[tokenIdx]) : "";
       const ts = submitDateIdx >= 0 ? toTimestamp(line[submitDateIdx]) : Number.MIN_SAFE_INTEGER;
 
+      const byToken = Boolean(targetToken) && Boolean(rowToken) && rowToken === targetToken;
       const byAssessmentId = Boolean(targetAssessmentId) && Boolean(rowAssessmentId) && rowAssessmentId === targetAssessmentId;
       const byEntitySlug = Boolean(targetSlug) && Boolean(rowEntitySlug) && rowEntitySlug === targetSlug;
       const byEntityName = Boolean(targetEntity) && Boolean(rowEntityName) && rowEntityName === targetEntity;
       const byCompanyName = Boolean(targetEntity) && Boolean(rowCompanyName) && rowCompanyName === targetEntity;
 
-      return { line, ts, byAssessmentId, byEntitySlug, byEntityName, byCompanyName };
+      return { line, ts, byToken, byAssessmentId, byEntitySlug, byEntityName, byCompanyName };
     })
-    .filter((r) => r.byAssessmentId || r.byEntitySlug || r.byEntityName || r.byCompanyName);
+    .filter((r) => r.byToken || r.byAssessmentId || r.byEntitySlug || r.byEntityName || r.byCompanyName);
 
   if (isStrict && candidates.length === 0) {
     console.warn("Google Sheets strict match enabled and no matching row was found.");
@@ -408,9 +425,9 @@ function parseWideTypeformExport(
   const prioritized = candidates
     .sort((a, b) => {
       const scoreA =
-        (a.byAssessmentId ? 8 : 0) + (a.byEntitySlug ? 4 : 0) + (a.byEntityName ? 2 : 0) + (a.byCompanyName ? 1 : 0);
+        (a.byToken ? 16 : 0) + (a.byAssessmentId ? 8 : 0) + (a.byEntitySlug ? 4 : 0) + (a.byEntityName ? 2 : 0) + (a.byCompanyName ? 1 : 0);
       const scoreB =
-        (b.byAssessmentId ? 8 : 0) + (b.byEntitySlug ? 4 : 0) + (b.byEntityName ? 2 : 0) + (b.byCompanyName ? 1 : 0);
+        (b.byToken ? 16 : 0) + (b.byAssessmentId ? 8 : 0) + (b.byEntitySlug ? 4 : 0) + (b.byEntityName ? 2 : 0) + (b.byCompanyName ? 1 : 0);
       return scoreB - scoreA || b.ts - a.ts;
     });
 
@@ -443,30 +460,37 @@ export async function readAssessmentQuestionsFromGoogleSheets({
   entitySlug,
   entityName,
   entityKind,
+  typeformResponseToken,
 }: ReadParams): Promise<GoogleSheetsQuestion[]> {
   if (!isEnabled()) return [];
 
   try {
-    const configuredRows =
+    const configuredSheets =
       entityKind ? await readConfiguredSheetRows(entityKind, "external_questionnaire") : null;
     const csvUrl = process.env.GOOGLE_SHEETS_CSV_URL;
-    const rows = configuredRows ?? (csvUrl ? await readRowsFromCsvUrl(csvUrl, "assessment") : null);
-    if (!rows) return [];
-    if (rows.length < 2) return [];
+    const candidateSheets = configuredSheets ?? (csvUrl ? [await readRowsFromCsvUrl(csvUrl, "assessment")] : []);
 
-    const rawHeader = rows[0];
-    const dataRows = rows.slice(1);
-    const normalizedHeader = rawHeader.map(normalizeHeader);
+    for (const rows of candidateSheets) {
+      if (!rows || rows.length < 2) continue;
 
-    const hasRowBasedShape =
-      normalizedHeader.includes(normalizeHeader(process.env.GOOGLE_SHEETS_COLUMN_QUESTION ?? "question_text")) &&
-      normalizedHeader.includes(normalizeHeader(process.env.GOOGLE_SHEETS_COLUMN_ANSWER ?? "answer_text"));
+      const rawHeader = rows[0];
+      const dataRows = rows.slice(1);
+      const normalizedHeader = rawHeader.map(normalizeHeader);
 
-    if (hasRowBasedShape) {
-      return parseRowBased(normalizedHeader, dataRows, { assessmentId, entitySlug, entityName });
+      const hasRowBasedShape =
+        normalizedHeader.includes(normalizeHeader(process.env.GOOGLE_SHEETS_COLUMN_QUESTION ?? "question_text")) &&
+        normalizedHeader.includes(normalizeHeader(process.env.GOOGLE_SHEETS_COLUMN_ANSWER ?? "answer_text"));
+
+      const parsed = hasRowBasedShape
+        ? parseRowBased(normalizedHeader, dataRows, { assessmentId, entitySlug, entityName, typeformResponseToken })
+        : parseWideTypeformExport(rawHeader, dataRows, { assessmentId, entitySlug, entityName, typeformResponseToken });
+
+      if (parsed.length > 0) {
+        return parsed;
+      }
     }
 
-    return parseWideTypeformExport(rawHeader, dataRows, { assessmentId, entitySlug, entityName });
+    return [];
   } catch (error) {
     reportFetchIssueOnce("assessment-read-error", `Google Sheets questionnaire read failed: ${(error as Error).message}`);
     return [];
@@ -482,114 +506,121 @@ export async function readInternalQuestionnaireFromGoogleSheets({
   if (!isEnabled()) return null;
 
   try {
-    const configuredRows =
+    const configuredSheets =
       entityKind ? await readConfiguredSheetRows(entityKind, "internal_questionnaire") : null;
     const csvUrl = process.env.GOOGLE_SHEETS_INTERNAL_CSV_URL ?? process.env.GOOGLE_SHEETS_CSV_URL;
-    const rows = configuredRows ?? (csvUrl ? await readRowsFromCsvUrl(csvUrl, "internal") : null);
-    if (!rows) return null;
-    if (rows.length < 2) return null;
+    const candidateSheets = configuredSheets ?? (csvUrl ? [await readRowsFromCsvUrl(csvUrl, "internal")] : []);
 
-    const header = rows[0].map((value) => value.trim());
-    const dataRows = rows.slice(1);
+    for (const rows of candidateSheets) {
+      if (!rows || rows.length < 2) continue;
 
-    const vendorIdx = findComparableHeaderIndex(header, [
-      process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_VENDOR ?? "vendor",
-      "company_name",
-      "nome da empresa",
-    ]);
-    const ticketIdx = findComparableHeaderIndex(header, [
-      process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_TICKET ?? "ticket",
-      "jira ticket",
-      "id do ticket do jira",
-    ]);
-    const requesterIdx = findComparableHeaderIndex(header, [
-      process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_REQUESTER ?? "solicitado por",
-      "requested by",
-      "ponto focal vtex",
-      "quem e o ponto focal vtex (para quem enviar o questionario)?",
-      "quem é o ponto focal vtex (para quem enviar o questionário)?",
-    ]);
-    const statusIdx = findComparableHeaderIndex(header, [
-      process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_STATUS ?? "status mini questionario",
-      "status mini questionário",
-      "status",
-    ]);
-    const submitDateIdx = findComparableHeaderIndex(header, [
-      "submit date (utc)",
-      "submit_date_(utc)",
-      "data de envio",
-      "submitted_at",
-    ]);
+      const header = rows[0].map((value) => value.trim());
+      const dataRows = rows.slice(1);
 
-    if (vendorIdx < 0) return null;
+      const vendorIdx = findComparableHeaderIndex(header, [
+        process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_VENDOR ?? "vendor",
+        "company_name",
+        "nome da empresa",
+      ]);
+      const ticketIdx = findComparableHeaderIndex(header, [
+        process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_TICKET ?? "ticket",
+        "jira ticket",
+        "id do ticket do jira",
+      ]);
+      const requesterIdx = findComparableHeaderIndex(header, [
+        process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_REQUESTER ?? "solicitado por",
+        "requested by",
+        "ponto focal vtex",
+        "quem e o ponto focal vtex (para quem enviar o questionario)?",
+        "quem é o ponto focal vtex (para quem enviar o questionário)?",
+      ]);
+      const statusIdx = findComparableHeaderIndex(header, [
+        process.env.GOOGLE_SHEETS_INTERNAL_COLUMN_STATUS ?? "status mini questionario",
+        "status mini questionário",
+        "status",
+      ]);
+      const submitDateIdx = findComparableHeaderIndex(header, [
+        "submit date (utc)",
+        "submit_date_(utc)",
+        "data de envio",
+        "submitted_at",
+      ]);
 
-    const questionIndexes = header
-      .map((_, idx) => idx)
-      .filter((idx) => ![vendorIdx, ticketIdx, requesterIdx, statusIdx, submitDateIdx].includes(idx));
+      if (vendorIdx < 0) continue;
 
-    const targetEntity = normalizeComparable(entityName);
-    const targetSlug = normalizeComparable(entitySlug);
-    const targetTicket = normalizeText(jiraTicket ?? "");
-    const isStrict = strictMatchEnabled();
+      const questionIndexes = header
+        .map((_, idx) => idx)
+        .filter((idx) => ![vendorIdx, ticketIdx, requesterIdx, statusIdx, submitDateIdx].includes(idx));
 
-    const candidates = dataRows
-      .map((line, index) => {
-        const rowVendor = normalizeComparable(line[vendorIdx]);
-        const rowTicket = ticketIdx >= 0 ? normalizeText(line[ticketIdx]) : "";
-        const rowRequester = requesterIdx >= 0 ? normalizeText(line[requesterIdx]) : "";
-        const rowStatus = statusIdx >= 0 ? normalizeText(line[statusIdx]) : "";
-        const ts = submitDateIdx >= 0 ? toTimestamp(line[submitDateIdx]) : index;
+      const targetEntity = normalizeComparable(entityName);
+      const targetSlug = normalizeComparable(entitySlug);
+      const targetTicket = normalizeText(jiraTicket ?? "");
+      const isStrict = strictMatchEnabled();
 
-        const byTicket = Boolean(targetTicket) && Boolean(rowTicket) && rowTicket === targetTicket;
-        const byVendor = Boolean(targetEntity) && rowVendor === targetEntity;
-        const bySlug = Boolean(targetSlug) && rowVendor === targetSlug;
+      const candidates = dataRows
+        .map((line, index) => {
+          const rowVendor = normalizeComparable(line[vendorIdx]);
+          const rowTicket = ticketIdx >= 0 ? normalizeText(line[ticketIdx]) : "";
+          const rowRequester = requesterIdx >= 0 ? normalizeText(line[requesterIdx]) : "";
+          const rowStatus = statusIdx >= 0 ? normalizeText(line[statusIdx]) : "";
+          const ts = submitDateIdx >= 0 ? toTimestamp(line[submitDateIdx]) : index;
 
-        return { line, ts, byTicket, byVendor, bySlug, rowTicket, rowRequester, rowStatus };
-      })
-      .filter((item) => item.byTicket || item.byVendor || item.bySlug);
+          const byTicket = Boolean(targetTicket) && Boolean(rowTicket) && rowTicket === targetTicket;
+          const byVendor = Boolean(targetEntity) && rowVendor === targetEntity;
+          const bySlug = Boolean(targetSlug) && rowVendor === targetSlug;
 
-    if (isStrict && candidates.length === 0) {
-      console.warn("Google Sheets strict match enabled and no matching internal questionnaire row was found.");
-      return null;
+          return { line, ts, byTicket, byVendor, bySlug, rowTicket, rowRequester, rowStatus };
+        })
+        .filter((item) => item.byTicket || item.byVendor || item.bySlug);
+
+      if (isStrict && candidates.length === 0) {
+        continue;
+      }
+
+      const best =
+        candidates.sort((a, b) => {
+          const scoreA = (a.byTicket ? 4 : 0) + (a.byVendor ? 2 : 0) + (a.bySlug ? 1 : 0);
+          const scoreB = (b.byTicket ? 4 : 0) + (b.byVendor ? 2 : 0) + (b.bySlug ? 1 : 0);
+          return scoreB - scoreA || b.ts - a.ts;
+        })[0] ??
+        dataRows[dataRows.length - 1]
+          ? {
+              line: dataRows[dataRows.length - 1],
+              ts: dataRows.length - 1,
+              byTicket: false,
+              byVendor: false,
+              bySlug: false,
+              rowTicket: ticketIdx >= 0 ? normalizeText(dataRows[dataRows.length - 1][ticketIdx]) : "",
+              rowRequester: requesterIdx >= 0 ? normalizeText(dataRows[dataRows.length - 1][requesterIdx]) : "",
+              rowStatus: statusIdx >= 0 ? normalizeText(dataRows[dataRows.length - 1][statusIdx]) : "",
+            }
+          : null;
+
+      if (!best) continue;
+
+      const questions = questionIndexes
+        .map((idx) => ({
+          question: normalizeText(header[idx]),
+          answer: normalizeText(best.line[idx]),
+        }))
+        .filter((item) => item.question && item.answer);
+
+      return {
+        requester: best.rowRequester || "-",
+        ticket: best.rowTicket || targetTicket || "-",
+        vendor: normalizeText(best.line[vendorIdx]) || entityName,
+        status: best.rowStatus || (questions.length > 0 ? "Concluído" : "Pendente"),
+        submittedAt: submitDateIdx >= 0 ? normalizeText(best.line[submitDateIdx]) : undefined,
+        source: "google_sheets",
+        questions,
+      };
     }
 
-    const best =
-      candidates.sort((a, b) => {
-        const scoreA = (a.byTicket ? 4 : 0) + (a.byVendor ? 2 : 0) + (a.bySlug ? 1 : 0);
-        const scoreB = (b.byTicket ? 4 : 0) + (b.byVendor ? 2 : 0) + (b.bySlug ? 1 : 0);
-        return scoreB - scoreA || b.ts - a.ts;
-      })[0] ??
-      dataRows[dataRows.length - 1]
-        ? {
-            line: dataRows[dataRows.length - 1],
-            ts: dataRows.length - 1,
-            byTicket: false,
-            byVendor: false,
-            bySlug: false,
-            rowTicket: ticketIdx >= 0 ? normalizeText(dataRows[dataRows.length - 1][ticketIdx]) : "",
-            rowRequester: requesterIdx >= 0 ? normalizeText(dataRows[dataRows.length - 1][requesterIdx]) : "",
-            rowStatus: statusIdx >= 0 ? normalizeText(dataRows[dataRows.length - 1][statusIdx]) : "",
-          }
-        : null;
+    if (strictMatchEnabled()) {
+      console.warn("Google Sheets strict match enabled and no matching internal questionnaire row was found.");
+    }
 
-    if (!best) return null;
-
-    const questions = questionIndexes
-      .map((idx) => ({
-        question: normalizeText(header[idx]),
-        answer: normalizeText(best.line[idx]),
-      }))
-      .filter((item) => item.question && item.answer);
-
-    return {
-      requester: best.rowRequester || "-",
-      ticket: best.rowTicket || targetTicket || "-",
-      vendor: normalizeText(best.line[vendorIdx]) || entityName,
-      status: best.rowStatus || (questions.length > 0 ? "Concluído" : "Pendente"),
-      submittedAt: submitDateIdx >= 0 ? normalizeText(best.line[submitDateIdx]) : undefined,
-      source: "google_sheets",
-      questions,
-    };
+    return null;
   } catch (error) {
     reportFetchIssueOnce("internal-read-error", `Google Sheets internal questionnaire read failed: ${(error as Error).message}`);
     return null;
