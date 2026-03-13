@@ -1,10 +1,19 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { SectionCard } from "@/components/ui/SectionCard";
 import type { GoogleSheetsConfig, JiraConfig, SlackConfig, TypeformConfig, TypeformFormItem } from "@/lib/settings-data";
 
-type ModalKey = "typeform" | "jira" | "slack" | "google_sheets" | null;
+type ModalKey = "typeform" | "typeform_forms" | "jira" | "slack" | "google_sheets" | null;
+
+const modalPanelClass = "overflow-hidden rounded-xl border border-[var(--color-neutral-200)] bg-white shadow-sm";
+const modalInputClass =
+  "w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-4 py-2.5 text-sm text-[var(--color-text)] outline-none transition focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/15";
+const modalReadOnlyInputClass =
+  "w-full rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-4 py-2.5 text-sm text-[var(--color-text)]";
+const modalLabelClass = "text-sm font-bold text-[var(--color-neutral-700)]";
+const modalHintClass = "block text-xs text-[var(--color-neutral-600)]";
 
 type IntegrationsSettingsProps = {
   appUrl: string;
@@ -14,6 +23,7 @@ type IntegrationsSettingsProps = {
   slack: { enabled: boolean; config: SlackConfig };
   googleSheets: { enabled: boolean; config: GoogleSheetsConfig };
   typeformSecretConfigured: boolean;
+  typeformApiTokenConfigured: boolean;
   jiraTokenConfigured: boolean;
   jiraWebhookSecretConfigured: boolean;
   slackTokenConfigured: boolean;
@@ -25,11 +35,19 @@ type IntegrationsSettingsProps = {
   saveGoogleSheetsSettings: (formData: FormData) => Promise<void>;
 };
 
-function Backdrop({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+function Backdrop({
+  onClose,
+  children,
+  maxWidthClass = "max-w-3xl",
+}: {
+  onClose: () => void;
+  children: React.ReactNode;
+  maxWidthClass?: string;
+}) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-text)]/45 p-4">
       <button aria-label="Fechar modal" className="absolute inset-0 cursor-default" onClick={onClose} type="button" />
-      <div className="relative z-10 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[var(--color-neutral-200)] bg-white p-6 shadow-2xl">
+      <div className={`relative z-10 max-h-[90vh] w-full overflow-y-auto rounded-2xl border border-[var(--color-neutral-200)] bg-white p-6 shadow-2xl ${maxWidthClass}`}>
         {children}
       </div>
     </div>
@@ -44,6 +62,7 @@ export function IntegrationsSettings({
   slack,
   googleSheets,
   typeformSecretConfigured,
+  typeformApiTokenConfigured,
   jiraTokenConfigured,
   jiraWebhookSecretConfigured,
   slackTokenConfigured,
@@ -78,7 +97,10 @@ export function IntegrationsSettings({
             spreadsheet_url: "",
             worksheet_names: ["Página 1"],
           },
-        ],
+      ],
+  );
+  const [googleWorksheetDrafts, setGoogleWorksheetDrafts] = useState<string[]>(
+    googleSheets.config.spreadsheets.length > 0 ? googleSheets.config.spreadsheets.map(() => "") : [""],
   );
 
   async function copyToClipboard(value: string, successMessage: string) {
@@ -125,7 +147,7 @@ export function IntegrationsSettings({
         <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Configure Typeform, Jira, Slack e Google Sheets para automatizar fluxos operacionais.</p>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <SectionCard
           title="Typeform"
           description="Formularios de intake e respostas de questionarios"
@@ -143,6 +165,27 @@ export function IntegrationsSettings({
             >
               Configurar
             </button>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Typeform Forms"
+          description="Catalogo e mapeamento dos formularios cadastrados"
+          className={typeformForms.length > 0 ? "border-emerald-200" : "border-[var(--color-neutral-200)]"}
+        >
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-[var(--color-text)]">
+              Status: <span className={typeformForms.length > 0 ? "text-emerald-600" : "text-amber-600"}>{typeformForms.length > 0 ? "Configurado" : "Sem formularios"}</span>
+            </p>
+            <p className="text-xs text-[var(--color-neutral-600)]">
+              Total: {typeformForms.length} | Partners: {typeformForms.filter((form) => form.entity_kind === "PARTNER").length}
+            </p>
+            <Link
+              href="/settings/typeform-forms"
+              className="block w-full rounded-lg border border-[var(--color-primary)] px-3 py-2 text-center text-sm font-bold text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/5"
+            >
+              Configurar
+            </Link>
           </div>
         </SectionCard>
 
@@ -253,6 +296,32 @@ export function IntegrationsSettings({
               </label>
             </div>
 
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="space-y-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Usuario da API</span>
+                <input
+                  name="api_user"
+                  type="email"
+                  defaultValue={typeform.config.api_user}
+                  placeholder="seu.usuario@vtex.com"
+                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                />
+                <span className="block text-xs text-[var(--color-neutral-600)]">Conta usada para administrar ou auditar a integracao do Typeform.</span>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Typeform API Token</span>
+                <input
+                  name="api_token"
+                  type="password"
+                  defaultValue={typeform.config.api_token}
+                  placeholder={typeformApiTokenConfigured ? "Configurado no ambiente ou sobrescreva aqui" : "Cole aqui o TYPEFORM_API_TOKEN"}
+                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                />
+                <span className="block text-xs text-[var(--color-neutral-600)]">Se preenchido aqui, o sistema usa este token antes do `TYPEFORM_API_TOKEN` do ambiente.</span>
+              </label>
+            </div>
+
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <label className="space-y-1 md:col-span-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome do Hidden Field Padrao</span>
@@ -285,110 +354,320 @@ export function IntegrationsSettings({
             </div>
           </form>
 
-          <div className="mt-4 space-y-3 rounded-xl border border-[var(--color-neutral-200)] p-4">
-            <p className="text-sm font-bold text-[var(--color-text)]">Formularios Configurados</p>
-            {typeformForms.length === 0 ? (
-              <p className="text-sm text-[var(--color-neutral-600)]">Nenhum formulario configurado ainda.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[700px] text-left">
-                  <thead>
-                    <tr className="border-b border-[var(--color-neutral-200)] text-xs uppercase tracking-wider text-[var(--color-neutral-600)]">
-                      <th className="py-2">Nome</th>
-                      <th className="py-2">Form ID</th>
-                      <th className="py-2">Entidade</th>
-                      <th className="py-2">Workflow</th>
-                      <th className="py-2">Campo Hidden</th>
-                      <th className="py-2">Status</th>
-                      <th className="py-2 text-right">Acao</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {typeformForms.map((form) => (
-                      <tr key={form.id} className="border-b border-[var(--color-neutral-100)] text-sm">
-                        <td className="py-2 font-medium text-[var(--color-text)]">{form.name}</td>
-                        <td className="py-2 text-[var(--color-neutral-700)]">{form.form_id}</td>
-                        <td className="py-2 text-[var(--color-neutral-700)]">{form.entity_kind}</td>
-                        <td className="py-2 text-[var(--color-neutral-700)]">{form.workflow}</td>
-                        <td className="py-2 text-[var(--color-neutral-700)]">{form.hidden_assessment_field}</td>
-                        <td className="py-2">
-                          <span className={form.enabled ? "text-emerald-600 font-semibold" : "text-amber-600 font-semibold"}>
-                            {form.enabled ? "Ativado" : "Desativado"}
-                          </span>
-                        </td>
-                        <td className="py-2 text-right">
-                          <form action={deleteTypeformForm}>
-                            <input type="hidden" name="id" value={form.id} />
-                            <button type="submit" className="rounded border border-red-200 px-2 py-1 text-xs font-bold text-red-600 hover:bg-red-50">
-                              Remover
-                            </button>
-                          </form>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        </Backdrop>
+      ) : null}
+
+      {openModal === "typeform_forms" ? (
+        <Backdrop onClose={() => setOpenModal(null)} maxWidthClass="max-w-7xl">
+          <div className="space-y-8">
+            <div className="flex flex-col gap-4 border-b border-[var(--color-neutral-100)] pb-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--color-text)] text-white shadow-lg shadow-[var(--color-text)]/10">
+                    <svg className="h-6 w-6 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm1-13h-2v4H7v2h4v4h2v-4h4v-2h-4V7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.24em] text-[var(--color-neutral-500)]">Typeform Forms</p>
+                    <h3 className="text-3xl font-extrabold tracking-tight text-[var(--color-text)]">Integração Typeform</h3>
+                  </div>
+                </div>
+                <p className="text-base leading-relaxed text-[var(--color-neutral-600)]">
+                  Gerencie o catálogo de formulários ativos do Typeform e defina, por formulário, como as respostas devem ser roteadas para Vendors ou Partners, incluindo o intervalo manual de perguntas para Compliance, Privacy e Security.
+                </p>
               </div>
-            )}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="rounded-full bg-[var(--color-primary)]/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[var(--color-primary)]">
+                  {typeformForms.length} integrados
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOpenModal("typeform")}
+                  className="rounded-lg bg-[var(--color-primary)] px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-[var(--color-primary)]/20 transition hover:brightness-95"
+                >
+                  Conectar Conta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpenModal(null)}
+                  className="rounded-lg border border-[var(--color-neutral-200)] px-4 py-2.5 text-sm font-bold text-[var(--color-neutral-700)] hover:bg-[var(--color-neutral-100)]"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,2fr)_360px]">
+              <div className="space-y-8">
+                <section className={modalPanelClass}>
+                  <div className="flex items-center justify-between border-b border-[var(--color-neutral-100)] px-6 py-4">
+                    <h4 className="font-bold text-[var(--color-text)]">Formulários Ativos</h4>
+                    <span className="rounded-full bg-[var(--color-primary)]/10 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-[var(--color-primary)]">
+                      {typeformForms.length} Integrados
+                    </span>
+                  </div>
+                  {typeformForms.length === 0 ? (
+                    <div className="px-6 py-10 text-center text-sm text-[var(--color-neutral-600)]">
+                      Nenhum formulário configurado ainda.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[860px] text-left">
+                        <thead>
+                          <tr className="bg-[var(--color-neutral-100)]/60 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+                            <th className="px-6 py-3">Nome do Formulário</th>
+                            <th className="px-6 py-3">ID</th>
+                            <th className="px-6 py-3">Entidade / Workflow</th>
+                            <th className="px-6 py-3">Mapeamento</th>
+                            <th className="px-6 py-3">Status</th>
+                            <th className="px-6 py-3 text-right">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--color-neutral-100)]">
+                          {typeformForms.map((form) => (
+                            <tr key={form.id} className="text-sm transition-colors hover:bg-[var(--color-neutral-100)]/30">
+                              <td className="px-6 py-4 font-semibold text-[var(--color-text)]">{form.name}</td>
+                              <td className="px-6 py-4 font-mono text-xs text-[var(--color-neutral-600)]">{form.form_id}</td>
+                              <td className="px-6 py-4">
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-xs font-medium text-[var(--color-neutral-700)]">
+                                    {form.entity_kind === "ANY" ? "Qualquer" : form.entity_kind === "PARTNER" ? "Partner" : "Vendor"}
+                                  </span>
+                                  <span className="w-fit rounded bg-[var(--color-neutral-100)] px-2 py-0.5 text-xs capitalize text-[var(--color-neutral-700)]">
+                                    {form.workflow.replaceAll("_", " ")}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="space-y-1 text-xs text-[var(--color-neutral-700)]">
+                                  <div>C: {form.section_rules.compliance.start ? "Configurado" : "-"}</div>
+                                  <div>P: {form.section_rules.privacy.start ? "Configurado" : "-"}</div>
+                                  <div>S: {form.section_rules.security.start ? "Configurado" : "-"}</div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span
+                                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
+                                    form.enabled
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-[var(--color-neutral-100)] text-[var(--color-neutral-600)]"
+                                  }`}
+                                >
+                                  <span className={`h-1.5 w-1.5 rounded-full ${form.enabled ? "bg-emerald-600" : "bg-[var(--color-neutral-400)]"}`} />
+                                  {form.enabled ? "Ativo" : "Inativo"}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    className="rounded-lg p-1.5 text-[var(--color-neutral-400)] transition-colors hover:bg-[var(--color-neutral-100)] hover:text-[var(--color-primary)]"
+                                  >
+                                    <span className="text-xl">✎</span>
+                                  </button>
+                                  <form action={deleteTypeformForm}>
+                                    <input type="hidden" name="id" value={form.id} />
+                                    <button
+                                      type="submit"
+                                      className="rounded-lg p-1.5 text-[var(--color-neutral-400)] transition-colors hover:bg-red-50 hover:text-red-600"
+                                    >
+                                      <span className="text-xl">🗑</span>
+                                    </button>
+                                  </form>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+
+                <section className={modalPanelClass}>
+                  <div className="border-b border-[var(--color-neutral-100)] px-6 py-5">
+                    <h4 className="text-lg font-bold text-[var(--color-text)]">Adicionar Novo Mapeamento</h4>
+                    <p className="text-sm text-[var(--color-neutral-600)]">Defina como os dados do Typeform serão processados pelo sistema.</p>
+                  </div>
+                  <form action={saveTypeformForm} className="space-y-6 p-6">
+                    <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                      <label className="space-y-2">
+                        <span className={modalLabelClass}>Display Name</span>
+                        <input name="name" type="text" placeholder="Ex: Assessment Global 2024" className={modalInputClass} required />
+                      </label>
+                      <label className="space-y-2">
+                        <span className={modalLabelClass}>Typeform Form ID <span className="text-[var(--color-primary)]">*</span></span>
+                        <input name="form_id" type="text" placeholder="Ex: ABCdef123" className={`${modalInputClass} border-[var(--color-primary)]/30 font-mono`} required />
+                      </label>
+                      <label className="space-y-2">
+                        <span className={modalLabelClass}>Entity Type</span>
+                        <select name="entity_kind" defaultValue="ANY" className={modalInputClass}>
+                          <option value="ANY">Qualquer</option>
+                          <option value="VENDOR">Vendor</option>
+                          <option value="PARTNER">Partner</option>
+                        </select>
+                      </label>
+                      <label className="space-y-2">
+                        <span className={modalLabelClass}>Workflow Destination</span>
+                        <select name="workflow" defaultValue="security_review" className={modalInputClass}>
+                          <option value="security_review">Security Review</option>
+                          <option value="privacy_review">Privacy Review</option>
+                          <option value="decision">Decision</option>
+                          <option value="internal_questionnaire">Internal Questionnaire</option>
+                          <option value="external_questionnaire">External Questionnaire</option>
+                        </select>
+                      </label>
+                      <label className="space-y-2 md:col-span-2">
+                        <span className={modalLabelClass}>Hidden Field Name (Primary Identifier)</span>
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                          <input name="hidden_assessment_field" type="text" defaultValue="assessment_id" className={modalInputClass} required />
+                          <p className="max-w-xs text-xs text-[var(--color-neutral-600)]">
+                            Utilizado para vincular a resposta à entidade correta no sistema.
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="border-t border-[var(--color-neutral-100)] pt-8">
+                      <div className="mb-6">
+                        <h5 className="flex items-center gap-2 font-bold text-[var(--color-text)]">
+                          <span className="text-[var(--color-primary)]">◌</span>
+                          Question Range Mapping
+                        </h5>
+                        <p className="text-sm text-[var(--color-neutral-600)]">Especifique o intervalo de perguntas para cada análise técnica.</p>
+                      </div>
+                      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                        {[
+                          { key: "compliance", label: "Compliance", accent: "text-[var(--color-neutral-500)]", ring: "border-[var(--color-neutral-200)]" },
+                          { key: "privacy", label: "Privacy & GDPR", accent: "text-indigo-500", ring: "border-indigo-100" },
+                          { key: "security", label: "Cybersecurity", accent: "text-[var(--color-primary)]", ring: "border-[var(--color-primary)]/10" },
+                        ].map((section) => (
+                          <div key={section.key} className={`space-y-4 rounded-xl border bg-[var(--color-neutral-100)]/60 p-4 ${section.ring}`}>
+                            <h6 className={`text-xs font-black uppercase tracking-widest ${section.accent}`}>{section.label}</h6>
+                            <label className="space-y-1">
+                              <span className="text-[10px] font-bold uppercase text-[var(--color-neutral-600)]">First Question</span>
+                              <textarea
+                                name={`${section.key}_start`}
+                                rows={3}
+                                placeholder="Cole aqui a primeira pergunta"
+                                className={`${modalInputClass} min-h-[92px] px-3 py-2 text-xs`}
+                              />
+                            </label>
+                            <label className="space-y-1">
+                              <span className="text-[10px] font-bold uppercase text-[var(--color-neutral-600)]">Last Question</span>
+                              <textarea
+                                name={`${section.key}_end`}
+                                rows={3}
+                                placeholder="Cole aqui a última pergunta"
+                                className={`${modalInputClass} min-h-[92px] px-3 py-2 text-xs`}
+                              />
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 border-t border-[var(--color-neutral-100)] pt-6">
+                      <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text)]">
+                        <input name="enabled" type="checkbox" defaultChecked className="h-4 w-4 accent-[var(--color-primary)]" />
+                        Ativar este mapeamento
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => setOpenModal(null)} className="rounded-lg px-5 py-2.5 text-sm font-bold text-[var(--color-neutral-600)] hover:bg-[var(--color-neutral-100)]">
+                          Descartar
+                        </button>
+                        <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-8 py-2.5 text-sm font-bold text-white shadow-lg shadow-[var(--color-primary)]/20 transition hover:brightness-95">
+                          Salvar Configurações
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                </section>
+              </div>
+
+              <aside className="space-y-6">
+                <section className={`${modalPanelClass} p-6`}>
+                  <h4 className="mb-4 font-bold text-[var(--color-text)]">Status da API</h4>
+                  <div className={`flex items-center gap-4 rounded-lg border p-4 ${typeform.enabled ? "border-emerald-100 bg-emerald-50" : "border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)]"}`}>
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-full text-white ${typeform.enabled ? "bg-emerald-500" : "bg-[var(--color-neutral-400)]"}`}>
+                      ⇄
+                    </div>
+                    <div>
+                      <p className={`text-sm font-bold ${typeform.enabled ? "text-emerald-700" : "text-[var(--color-neutral-700)]"}`}>
+                        {typeform.enabled ? "Conectado com Sucesso" : "Integração desativada"}
+                      </p>
+                      <p className={`text-xs ${typeform.enabled ? "text-emerald-700/80" : "text-[var(--color-neutral-600)]"}`}>
+                        {typeformApiTokenConfigured || typeform.config.api_token ? "Token de API disponível para sincronização." : "Configure o token de API para sincronizar respostas."}
+                      </p>
+                    </div>
+                  </div>
+                  <dl className="mt-4 space-y-3 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="text-[var(--color-neutral-600)]">Usuário da API</dt>
+                      <dd className="max-w-[180px] truncate font-semibold text-[var(--color-text)]">{typeform.config.api_user || "Não informado"}</dd>
+                    </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="text-[var(--color-neutral-600)]">Webhook mode</dt>
+                      <dd className="font-semibold text-[var(--color-text)]">{typeform.config.webhook_mode === "signed" ? "Assinado" : "Sem assinatura"}</dd>
+                    </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="text-[var(--color-neutral-600)]">Hidden field padrão</dt>
+                      <dd className="font-mono text-xs font-semibold text-[var(--color-text)]">{typeform.config.default_hidden_assessment_field || "assessment_id"}</dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <section className="group relative overflow-hidden rounded-xl bg-[var(--color-text)] p-6 text-white shadow-sm">
+                  <div className="relative z-10">
+                    <h4 className="mb-3 flex items-center gap-2 font-bold">
+                      <span className="text-[var(--color-primary)]">✦</span>
+                      Dica de Integração
+                    </h4>
+                    <p className="mb-4 text-sm leading-relaxed text-white/70">
+                      Cadastre aqui o mapeamento manual das seções para que as respostas do parceiro sejam distribuídas corretamente entre Compliance, Privacy e Security.
+                    </p>
+                    <button type="button" onClick={() => copyToClipboard(`${appUrl}/api/typeform/webhook`, "Endpoint de webhook copiado.")} className="text-sm font-bold text-[var(--color-primary)] hover:underline">
+                      Copiar Webhook
+                    </button>
+                  </div>
+                  <div className="absolute -bottom-5 -right-3 text-[110px] text-white/10 transition-opacity group-hover:text-white/20">
+                    ⌘
+                  </div>
+                </section>
+
+                <section className={`${modalPanelClass} p-6`}>
+                  <h4 className="mb-3 font-bold text-[var(--color-text)]">Sua URL de Webhook</h4>
+                  <div className="relative">
+                    <input
+                      className={`${modalReadOnlyInputClass} pr-10 font-mono text-[10px]`}
+                      readOnly
+                      value={`${appUrl}/api/typeform/webhook`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(`${appUrl}/api/typeform/webhook`, "Endpoint de webhook copiado.")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--color-neutral-400)] transition-colors hover:text-[var(--color-primary)]"
+                    >
+                      ⧉
+                    </button>
+                  </div>
+                  <p className="mt-2 text-[10px] text-[var(--color-neutral-600)]">
+                    Copie e cole este link nas configurações de Webhook do Typeform.
+                  </p>
+                </section>
+
+                <section className={`${modalPanelClass} p-6`}>
+                  <h4 className="mb-3 font-bold text-[var(--color-text)]">Orientação de Mapeamento</h4>
+                  <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-[var(--color-neutral-700)]">
+                    <li>Cadastre o `form_id` exato do Typeform para evitar respostas misturadas entre formulários.</li>
+                    <li>Preencha manualmente a primeira e a última pergunta de cada seção para segmentar Compliance, Privacy e Security.</li>
+                    <li>Use nomes amigáveis para identificar rapidamente a versão do formulário no detalhe do Partner ou Vendor.</li>
+                  </ol>
+                </section>
+              </aside>
+            </div>
           </div>
-
-          <form action={saveTypeformForm} className="mt-4 space-y-4 rounded-xl border border-[var(--color-neutral-200)] p-4">
-            <p className="text-sm font-bold text-[var(--color-text)]">Adicionar ou Atualizar Mapeamento de Formulario</p>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <label className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome de Exibicao (interno)</span>
-                <input name="name" type="text" placeholder="Revisao de Seguranca - Vendors" className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" required />
-                <span className="block text-xs text-[var(--color-neutral-600)]">Nome amigavel exibido nesta tabela.</span>
-              </label>
-              <label className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Typeform Form ID (obrigatorio)</span>
-                <input name="form_id" type="text" placeholder="abc123xyz" className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm font-mono" required />
-                <span className="block text-xs text-[var(--color-neutral-600)]">Deve ser exatamente o mesmo form id da URL/API do Typeform.</span>
-              </label>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <label className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Tipo de Entidade</span>
-                <select name="entity_kind" defaultValue="ANY" className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm">
-                  <option value="ANY">Qualquer</option>
-                  <option value="VENDOR">Vendor</option>
-                  <option value="PARTNER">Partner</option>
-                </select>
-                <span className="block text-xs text-[var(--color-neutral-600)]">Para os formularios externos de parceiros, use `Partner`.</span>
-              </label>
-
-              <label className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Workflow</span>
-                <select name="workflow" defaultValue="security_review" className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm">
-                  <option value="security_review">security_review</option>
-                  <option value="privacy_review">privacy_review</option>
-                  <option value="decision">decision</option>
-                  <option value="internal_questionnaire">internal_questionnaire</option>
-                  <option value="external_questionnaire">external_questionnaire</option>
-                </select>
-                <span className="block text-xs text-[var(--color-neutral-600)]">Para esse fluxo, use `external_questionnaire`.</span>
-              </label>
-
-              <label className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome do Hidden Field</span>
-                <input name="hidden_assessment_field" type="text" defaultValue="assessment_id" className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm" required />
-                <span className="block text-xs text-[var(--color-neutral-600)]">Opcional para Partners quando o match vier pelo nome da empresa; mantenha `assessment_id` como padrao.</span>
-              </label>
-            </div>
-
-            <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text)]">
-              <input name="enabled" type="checkbox" defaultChecked className="h-4 w-4 accent-[var(--color-primary)]" />
-              Ativar este mapeamento
-            </label>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setOpenModal(null)} className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-4 py-2 text-sm font-bold text-[var(--color-neutral-700)]">
-                Fechar
-              </button>
-              <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">Salvar Mapeamento</button>
-            </div>
-          </form>
         </Backdrop>
       ) : null}
 
@@ -648,7 +927,7 @@ export function IntegrationsSettings({
                 <p className="text-sm font-bold text-[var(--color-text)]">Planilhas configuradas</p>
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     setGoogleSpreadsheets((current) => [
                       ...current,
                       {
@@ -658,8 +937,9 @@ export function IntegrationsSettings({
                         spreadsheet_url: "",
                         worksheet_names: ["Página 1"],
                       },
-                    ])
-                  }
+                    ]);
+                    setGoogleWorksheetDrafts((current) => [...current, ""]);
+                  }}
                   className="rounded-lg border border-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-[var(--color-primary)] hover:bg-[var(--color-primary)]/5"
                 >
                   Adicionar planilha
@@ -672,7 +952,7 @@ export function IntegrationsSettings({
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Planilha {index + 1}</p>
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
                         setGoogleSpreadsheets((current) =>
                           current.length > 1
                             ? current.filter((_, itemIndex) => itemIndex !== index)
@@ -685,8 +965,11 @@ export function IntegrationsSettings({
                                   worksheet_names: ["Página 1"],
                                 },
                               ],
-                        )
-                      }
+                        );
+                        setGoogleWorksheetDrafts((current) =>
+                          current.length > 1 ? current.filter((_, itemIndex) => itemIndex !== index) : [""],
+                        );
+                      }}
                       className="rounded border border-red-200 px-2 py-1 text-[10px] font-bold text-red-600 hover:bg-red-50"
                     >
                       Remover
@@ -775,28 +1058,73 @@ export function IntegrationsSettings({
                   />
                   <label className="space-y-1">
                     <span className="block text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Abas que devem ser lidas</span>
-                    <textarea
-                      placeholder={"VTEX Partner Assessment EN\nVTEX Partner Assessment PTBR"}
-                      value={sheet.worksheet_names.join("\n")}
-                      onChange={(event) =>
-                        setGoogleSpreadsheets((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? {
-                                  ...item,
-                                  worksheet_names: event.target.value
-                                    .split(/\r?\n|,/)
-                                    .map((value) => value.trim())
-                                    .filter(Boolean),
-                                }
-                              : item,
-                          ),
-                        )
-                      }
-                      rows={3}
-                      className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
-                    />
-                    <span className="block text-xs text-[var(--color-neutral-600)]">Informe uma aba por linha. O sistema tenta cada aba ate encontrar a resposta correta.</span>
+                    <div className="space-y-2 rounded-lg border border-[var(--color-neutral-200)] bg-white p-3">
+                      <div className="flex flex-wrap gap-2">
+                        {sheet.worksheet_names.map((worksheetName, worksheetIndex) => (
+                          <span
+                            key={`worksheet-${index}-${worksheetIndex}`}
+                            className="inline-flex items-center gap-2 rounded-full border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-medium text-[var(--color-text)]"
+                          >
+                            {worksheetName}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setGoogleSpreadsheets((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? {
+                                          ...item,
+                                          worksheet_names: item.worksheet_names.filter((_, currentWorksheetIndex) => currentWorksheetIndex !== worksheetIndex),
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              className="text-[var(--color-neutral-600)] hover:text-red-600"
+                              aria-label={`Remover aba ${worksheetName}`}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Ex.: VTEX Partner Assessment PTBR"
+                          value={googleWorksheetDrafts[index] ?? ""}
+                          onChange={(event) =>
+                            setGoogleWorksheetDrafts((current) =>
+                              current.map((item, itemIndex) => (itemIndex === index ? event.target.value : item)),
+                            )
+                          }
+                          className="flex-1 rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextValue = (googleWorksheetDrafts[index] ?? "").trim();
+                            if (!nextValue) return;
+
+                            setGoogleSpreadsheets((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index && !item.worksheet_names.includes(nextValue)
+                                  ? { ...item, worksheet_names: [...item.worksheet_names, nextValue] }
+                                  : item,
+                              ),
+                            );
+                            setGoogleWorksheetDrafts((current) =>
+                              current.map((item, itemIndex) => (itemIndex === index ? "" : item)),
+                            );
+                          }}
+                          className="rounded-lg border border-[var(--color-primary)] px-3 py-2 text-xs font-bold text-[var(--color-primary)] hover:bg-[var(--color-primary)]/5"
+                        >
+                          Adicionar aba
+                        </button>
+                      </div>
+                    </div>
+                    <span className="block text-xs text-[var(--color-neutral-600)]">Adicione cada aba individualmente. O sistema tenta cada aba ate encontrar a resposta correta.</span>
                   </label>
                 </div>
               ))}

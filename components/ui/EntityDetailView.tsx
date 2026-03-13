@@ -1,12 +1,21 @@
 import Link from "next/link";
+import { savePartnerExternalQuestionnaireSection } from "@/app/(app)/partners/actions";
+import { AnalystEvaluationControl } from "@/components/ui/AnalystEvaluationControl";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import type { DetailTabKey, EntityDetailData, ReviewStatus, RiskLevel } from "@/lib/entity-detail-data";
+import type {
+  AnalystEvaluationStatus,
+  DetailTabKey,
+  EntityDetailData,
+  ReviewStatus,
+  RiskLevel,
+} from "@/lib/entity-detail-data";
 
 type EntityDetailViewProps = {
   kind: "vendor" | "partner";
   basePath: string;
   detail: EntityDetailData;
   activeTab: DetailTabKey;
+  activeQuestionnaireSection?: string;
 };
 
 const tabs: Array<{ key: DetailTabKey; label: string }> = [
@@ -58,6 +67,77 @@ const levelBadgeStyles: Record<RiskLevel, string> = {
   High: "bg-red-100 text-red-700",
 };
 
+type ExternalSection = "Common" | "Compliance" | "Privacy" | "Security";
+
+const externalQuestionnaireTemplates: Array<{
+  sections: Record<Exclude<ExternalSection, "Common">, { start: string; end: string }>;
+}> = [
+  {
+    sections: {
+      Compliance: {
+        start: "Qual é o nome da empresa?",
+        end: "A Empresa Parceira envolverá algum terceiro/subcontratado em sua parceria com a VTEX?",
+      },
+      Privacy: {
+        start: "Os dados pessoais serão compartilhados com terceiros (além da VTEX e do parceiro)?",
+        end: "Os funcionários são informados e treinados sobre suas responsabilidades de manter a conscientização e a conformidade com as políticas, procedimentos, padrões e requisitos regulatórios aplicáveis de segurança e privacidade publicados?",
+      },
+      Security: {
+        start: "Que tipo de informação da VTEX será processada pelo parceiro?",
+        end: "Descreva quais são os procedimentos para notificar a VTEX sobre qualquer problema ou incidente de Segurança da Informação que possa ocorrer, de acordo com seu Plano de Resposta a Incidentes.",
+      },
+    },
+  },
+  {
+    sections: {
+      Compliance: {
+        start: "Hi! What is the Company Name?",
+        end: "Will the Partner Company engage any third party/subcontractor in its partnership with VTEX?",
+      },
+      Privacy: {
+        start: "Will personal data be shared with third parties (other than VTEX and Partner)?",
+        end: "Are employees informed and trained about their responsibilities for maintaining awareness of and compliance with applicable published security and privacy policies, procedures, standards, and regulatory requirements?",
+      },
+      Security: {
+        start: "What kind of VTEX's information will be processed by the partner?",
+        end: "Please describe what are the procedure to notify VTEX about any Information Security issue or incident that may occur, in accordance with your Incident Response Plan.",
+      },
+    },
+  },
+  {
+    sections: {
+      Compliance: {
+        start: "Olá! Qual é o nome da empresa?",
+        end: "A Empresa Parceira contratará algum terceiro/subcontratado em sua parceria com a VTEX?",
+      },
+      Privacy: {
+        start: "Os contratos que sua empresa celebra incluem cláusulas relacionadas à privacidade e à proteção de Dados Pessoais?",
+        end: "Os funcionários são informados e treinados sobre suas responsabilidades de manter a conscientização e a conformidade com as políticas, procedimentos, padrões e requisitos regulatórios de segurança e privacidade publicados aplicáveis?",
+      },
+      Security: {
+        start: "Que tipo de informação da VTEX será processada ou acessada pelo parceiro?",
+        end: "Os registros de segurança são monitorados e mantidos (SIEM, alertas, trilhas de auditoria)?",
+      },
+    },
+  },
+  {
+    sections: {
+      Compliance: {
+        start: "Hi! What is the Company Name?",
+        end: "Will the Partner Company engage any third party/subcontractor in its partnership with VTEX?",
+      },
+      Privacy: {
+        start: "Do the contracts that your company enters into include clauses relating to privacy and the protection of Personal Data?",
+        end: "Are employees informed and trained about their responsibilities for maintaining awareness of and compliance with applicable published security and privacy policies, procedures, standards, and regulatory requirements?",
+      },
+      Security: {
+        start: "What type of VTEX information will be processed or accessed by the partner?",
+        end: "Are security logs monitored and retained (SIEM, alerts, audit trails)?",
+      },
+    },
+  },
+];
+
 function getQuestionnaireStatusClasses(status: string) {
   const normalized = status.trim().toLowerCase();
   if (normalized.includes("concl")) return "bg-emerald-100 text-emerald-700";
@@ -65,9 +145,219 @@ function getQuestionnaireStatusClasses(status: string) {
   return "bg-slate-100 text-slate-700";
 }
 
-export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDetailViewProps) {
+function normalizeQuestionComparable(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’']/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getExternalSection(domain: string) {
+  const commonNormalized = domain.trim().toLowerCase();
+  if (commonNormalized.includes("common")) return "Common";
+  const normalized = domain.trim().toLowerCase();
+  if (normalized.includes("privacy") || normalized.includes("privacidade")) return "Privacy";
+  if (normalized.includes("security") || normalized.includes("seguranca")) return "Security";
+  return "Compliance";
+}
+
+function getExternalQuestionsBySection(
+  questions: EntityDetailData["questions"],
+): Array<{ section: ExternalSection; items: EntityDetailData["questions"] }> {
+  const sectionBackedQuestions = questions.some((item) => item.section && item.section !== "Unclassified");
+  if (sectionBackedQuestions) {
+    return (["Common", "Compliance", "Privacy", "Security"] as ExternalSection[]).map((section) => ({
+      section,
+      items: questions.filter((item) => item.section === section),
+    }));
+  }
+
+  const normalizedQuestions = questions.map((item) => normalizeQuestionComparable(item.question));
+
+  for (const template of externalQuestionnaireTemplates) {
+    const boundaries = {
+      Compliance: {
+        start: normalizedQuestions.indexOf(normalizeQuestionComparable(template.sections.Compliance.start)),
+        end: normalizedQuestions.indexOf(normalizeQuestionComparable(template.sections.Compliance.end)),
+      },
+      Privacy: {
+        start: normalizedQuestions.indexOf(normalizeQuestionComparable(template.sections.Privacy.start)),
+        end: normalizedQuestions.indexOf(normalizeQuestionComparable(template.sections.Privacy.end)),
+      },
+      Security: {
+        start: normalizedQuestions.indexOf(normalizeQuestionComparable(template.sections.Security.start)),
+        end: normalizedQuestions.indexOf(normalizeQuestionComparable(template.sections.Security.end)),
+      },
+    };
+
+    const matchesTemplate = Object.values(boundaries).every(({ start, end }) => start >= 0 && end >= start);
+    if (!matchesTemplate) continue;
+
+    return (["Compliance", "Privacy", "Security"] as Array<Exclude<ExternalSection, "Common">>).map((section) => ({
+      section,
+      items: questions.slice(boundaries[section].start, boundaries[section].end + 1),
+    }));
+  }
+
+  return (["Common", "Compliance", "Privacy", "Security"] as ExternalSection[]).map((section) => ({
+    section,
+    items: questions.filter((item) => getExternalSection(item.domain) === section),
+  }));
+}
+
+function getQuestionSourceLabel(
+  source:
+    | EntityDetailData["questions"][number]["source"]
+    | NonNullable<EntityDetailData["internalQuestionnaire"]>["source"],
+) {
+  return source === "google_sheets" ? "From Google Sheets" : "From Typeform";
+}
+
+function getQuestionCategoryLabel(domain: string, index: number) {
+  const normalized = domain.trim();
+  return normalized.length > 0 ? normalized : `Question ${String(index + 1).padStart(2, "0")}`;
+}
+
+function QuestionnaireHero({
+  title,
+  description,
+  sectionLabel,
+  sectionOptions,
+  sectionHrefBuilder,
+  selectedSection,
+}: {
+  title: string;
+  description: string;
+  sectionLabel: string;
+  sectionOptions?: string[];
+  sectionHrefBuilder?: (section: string) => string;
+  selectedSection?: string;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="inline-flex rounded-xl border border-[var(--color-primary)]/10 bg-white p-1 shadow-sm">
+        {sectionOptions && sectionOptions.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {sectionOptions.map((option, index) => (
+              <Link
+                key={option}
+                href={sectionHrefBuilder ? sectionHrefBuilder(option) : "#"}
+                className={
+                  selectedSection === option || (!selectedSection && index === 0)
+                    ? "rounded-lg bg-[var(--color-primary)] px-6 py-2.5 text-sm font-bold text-white shadow-sm"
+                    : "rounded-lg px-6 py-2.5 text-sm font-bold text-[var(--color-neutral-600)] transition hover:text-[var(--color-text)]"
+                }
+              >
+                {option}
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg bg-[var(--color-primary)] px-6 py-2.5 text-sm font-bold text-white shadow-sm">
+            {sectionLabel}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h2 className="text-2xl font-extrabold tracking-tight text-[var(--color-text)]">{title}</h2>
+        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-[var(--color-neutral-700)]">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function QuestionnaireResponseCard({
+  badge,
+  sourceLabel,
+  question,
+  answer,
+  answerLabel,
+  reviewStatus,
+  cardKey,
+  responseId,
+  analystEvaluation,
+  analystObservations,
+  editable = false,
+}: {
+  badge: string;
+  sourceLabel: string;
+  question: string;
+  answer: string;
+  answerLabel: string;
+  reviewStatus: ReviewStatus;
+  cardKey: string;
+  responseId?: string;
+  analystEvaluation?: AnalystEvaluationStatus;
+  analystObservations?: string;
+  editable?: boolean;
+}) {
+  return (
+    <article className="overflow-hidden rounded-xl border border-[var(--color-primary)]/10 bg-white shadow-sm">
+      <div className="border-b border-[var(--color-neutral-100)] p-6">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <span className="rounded-md bg-[var(--color-neutral-100)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+            {badge}
+          </span>
+          <span className="flex items-center gap-1 text-xs font-bold text-[var(--color-primary)]">
+            <span className="inline-block h-2 w-2 rounded-full bg-[var(--color-primary)]" />
+            {sourceLabel}
+          </span>
+        </div>
+
+        <h3 className="mb-4 text-lg font-semibold leading-snug text-[var(--color-text)]">{question}</h3>
+
+        <div className="rounded-lg border border-[var(--color-neutral-100)] bg-[var(--color-neutral-100)]/60 p-4">
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">{answerLabel}</p>
+          <p className="text-sm font-medium italic leading-relaxed text-[var(--color-neutral-700)]">"{answer}"</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-6 bg-[var(--color-primary)]/5 p-6 md:flex-row">
+        <div className="flex-1">
+          <p className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Analyst Evaluation</p>
+          <AnalystEvaluationControl
+            responseId={responseId}
+            analystEvaluation={analystEvaluation}
+            reviewStatus={reviewStatus}
+            editable={editable}
+          />
+        </div>
+
+        <div className="flex-1">
+          <label className="mb-3 block text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]" htmlFor={`${cardKey}-notes`}>
+            Analyst Observations
+          </label>
+          <textarea
+            id={`${cardKey}-notes`}
+            rows={3}
+            name={responseId ? `observations_${responseId}` : `${cardKey}-notes`}
+            defaultValue={analystObservations ?? ""}
+            readOnly={!editable}
+            placeholder="Registre observacoes, evidencias e condicionantes para este item."
+            className="w-full resize-none rounded-lg border border-[var(--color-primary)]/10 bg-white px-3 py-3 text-sm outline-none"
+          />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+export function EntityDetailView({ kind, basePath, detail, activeTab, activeQuestionnaireSection }: EntityDetailViewProps) {
   const backHref = kind === "vendor" ? "/vendors" : "/partners";
   const questionnaireAnswerCount = detail.questions.length;
+  const externalQuestionsBySection = getExternalQuestionsBySection(detail.questions);
+  const normalizedActiveSection = (
+    activeQuestionnaireSection &&
+    ["Common", "Compliance", "Privacy", "Security"].includes(activeQuestionnaireSection)
+      ? activeQuestionnaireSection
+      : "Common"
+  ) as ExternalSection;
+  const selectedExternalSection =
+    externalQuestionsBySection.find((entry) => entry.section === normalizedActiveSection) ?? externalQuestionsBySection[0];
 
   return (
     <div className="space-y-6">
@@ -105,6 +395,38 @@ export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDe
             </div>
           </div>
         </div>
+
+        {activeTab === "external_questionnaire" ? (
+          <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[var(--color-neutral-100)] pt-4 md:grid-cols-5">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Entidade</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.name}</p>
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Jira Ticket</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">
+                {questionnaireAnswerCount > 0 ? "Questionario recebido" : "Aguardando vinculacao"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Formulario</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">
+                {detail.externalQuestionnaire.formName ?? detail.externalQuestionnaire.formId ?? "-"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Question Count</p>
+              <p className="mt-1 text-2xl font-black text-[var(--color-primary)]">{selectedExternalSection?.items.length ?? 0}</p>
+              <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
+                Itens prontos para revisao na secao {selectedExternalSection?.section ?? "Common"}.
+              </p>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-4 flex items-center justify-between border-t border-[var(--color-neutral-100)] pt-4">
           <div className="flex gap-6 overflow-x-auto">
@@ -262,75 +584,36 @@ export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDe
 
       {activeTab === "internal_questionnaire" ? (
         detail.internalQuestionnaire ? (
+          (() => {
+            const internalQuestionnaire = detail.internalQuestionnaire;
+
+            return (
           <section className="space-y-6">
+            <QuestionnaireHero
+              sectionLabel="Internal Questionnaire"
+              title="Mini Questionario Interno"
+              description="Visualize as respostas recebidas do ponto focal interno e centralize as anotacoes da analise em um layout de revisao mais estruturado."
+            />
+
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-              <div className="space-y-6 lg:col-span-4">
-                <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
-                  <div className="mb-5 flex items-center justify-between gap-3">
-                    <h2 className="text-lg font-bold text-[var(--color-text)]">Resumo da Solicitação</h2>
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-bold ${getQuestionnaireStatusClasses(detail.internalQuestionnaire.status)}`}
-                    >
-                      {detail.internalQuestionnaire.status}
-                    </span>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Solicitante</p>
-                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.internalQuestionnaire.requester}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Ticket Jira</p>
-                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.internalQuestionnaire.ticket || detail.jiraTicket || "-"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Vendor</p>
-                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.internalQuestionnaire.vendor}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Fonte</p>
-                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">Google Sheets</p>
-                    </div>
-                    {detail.internalQuestionnaire.submittedAt ? (
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Data de resposta</p>
-                        <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.internalQuestionnaire.submittedAt}</p>
-                      </div>
-                    ) : null}
-                  </div>
-                </article>
-              </div>
-
-              <div className="space-y-4 lg:col-span-8">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-xl font-bold text-[var(--color-text)]">Perguntas e Respostas</h2>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      Visualizacao do mini questionario interno respondido pelo ponto focal da VTEX.
-                    </p>
-                  </div>
-                  <span className="rounded bg-[var(--color-neutral-100)] px-2 py-1 text-xs font-semibold text-[var(--color-neutral-600)]">
-                    {detail.internalQuestionnaire.questions.length} respostas
-                  </span>
-                </div>
-
-                {detail.internalQuestionnaire.questions.length > 0 ? (
-                  <div className="space-y-4">
-                    {detail.internalQuestionnaire.questions.map((item) => (
-                      <article
-                        key={item.question}
-                        className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-5 shadow-sm"
-                      >
-                        <p className="text-sm font-bold text-[var(--color-text)]">{item.question}</p>
-                        <p className="mt-3 rounded-lg border-l-4 border-[var(--color-primary)]/30 bg-[var(--color-neutral-100)] p-3 text-sm text-[var(--color-neutral-700)]">
-                          {item.answer}
-                        </p>
-                      </article>
+              <div className="space-y-6 lg:col-span-8">
+                {internalQuestionnaire.questions.length > 0 ? (
+                  <div className="space-y-6">
+                    {internalQuestionnaire.questions.map((item, index) => (
+                      <QuestionnaireResponseCard
+                        key={`internal-${index}-${item.question}`}
+                        cardKey={`internal-${index}`}
+                        badge={`Question ${String(index + 1).padStart(2, "0")} • Internal`}
+                        sourceLabel={getQuestionSourceLabel(internalQuestionnaire.source)}
+                        question={item.question}
+                        answer={item.answer}
+                        answerLabel="Internal Response"
+                        reviewStatus="needs_review"
+                      />
                     ))}
                   </div>
                 ) : (
-                  <article className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-8 text-center shadow-sm">
+                  <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-10 text-center shadow-sm">
                     <p className="text-lg font-bold text-[var(--color-text)]">Mini questionario ainda sem respostas</p>
                     <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
                       A solicitacao foi identificada, mas ainda nao ha respostas preenchidas para analise.
@@ -338,8 +621,67 @@ export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDe
                   </article>
                 )}
               </div>
+
+              <aside className="space-y-4 lg:col-span-4">
+                <section className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
+                  <div className="mb-5 flex items-center justify-between gap-3">
+                    <h3 className="text-lg font-bold text-[var(--color-text)]">Resumo da Solicitacao</h3>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-bold ${getQuestionnaireStatusClasses(internalQuestionnaire.status)}`}
+                    >
+                      {internalQuestionnaire.status}
+                    </span>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Solicitante</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{internalQuestionnaire.requester}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Ticket Jira</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{internalQuestionnaire.ticket || detail.jiraTicket || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Entidade</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{internalQuestionnaire.vendor}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Fonte</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{getQuestionSourceLabel(internalQuestionnaire.source)}</p>
+                    </div>
+                    {internalQuestionnaire.submittedAt ? (
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Data de resposta</p>
+                        <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{internalQuestionnaire.submittedAt}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
+                  <p className="text-xs font-bold uppercase tracking-widest text-[var(--color-neutral-600)]">Progress</p>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--color-neutral-200)]">
+                    <div
+                      className="h-full rounded-full bg-[var(--color-primary)]"
+                      style={{
+                        width: `${
+                          internalQuestionnaire.questions.length > 0
+                            ? Math.min(100, Math.max(12, internalQuestionnaire.questions.length * 8))
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  <p className="mt-3 text-sm text-[var(--color-neutral-700)]">
+                    {internalQuestionnaire.questions.length} respostas carregadas para a revisao interna.
+                  </p>
+                </section>
+              </aside>
             </div>
           </section>
+            );
+          })()
         ) : (
           <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-10 text-center shadow-sm">
             <p className="text-lg font-bold text-[var(--color-text)]">Mini questionario interno nao encontrado</p>
@@ -351,69 +693,57 @@ export function EntityDetailView({ kind, basePath, detail, activeTab }: EntityDe
       ) : null}
 
       {activeTab === "external_questionnaire" ? (
-        <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-          <div className="space-y-4 lg:col-span-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-[var(--color-text)]">External Questionnaire Responses</h2>
-                <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                  Respostas importadas do questionario externo para suporte a analise desta entidade.
-                </p>
-              </div>
-              <span className="rounded bg-[var(--color-neutral-100)] px-2 py-1 text-xs font-semibold text-[var(--color-neutral-600)]">
-                {questionnaireAnswerCount} respostas
-              </span>
-            </div>
+        <section className="space-y-6">
+          <QuestionnaireHero
+            sectionLabel="External Questionnaire"
+            title="Questionario Externo"
+            description="Centralize as respostas recebidas do parceiro em um fluxo de revisao visual, com contexto da fonte, resposta original e espaco reservado para a avaliacao do analista."
+            sectionOptions={["Common", "Compliance", "Privacy", "Security"]}
+            selectedSection={selectedExternalSection?.section}
+            sectionHrefBuilder={(section) => `${basePath}?tab=external_questionnaire&section=${section}`}
+          />
 
-            {questionnaireAnswerCount > 0 ? (
-              detail.questions.map((item) => (
-                <article
-                  key={`${item.domain}-${item.question}`}
-                  className={`rounded-xl border bg-white p-5 shadow-sm ${reviewAccent[item.status]}`}
-                >
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <span className="rounded bg-[var(--color-primary)]/5 px-2 py-1 text-xs font-bold uppercase tracking-wide text-[var(--color-primary)]">
-                      {item.domain}
-                    </span>
-                    <span className={`text-xs font-bold ${reviewClasses[item.status]}`}>{reviewLabel[item.status]}</span>
+          <div className="space-y-6">
+            <div className="space-y-6">
+              {questionnaireAnswerCount > 0 ? (
+                <form action={savePartnerExternalQuestionnaireSection} className="space-y-6">
+                  <input type="hidden" name="entity_slug" value={detail.id} />
+                  <input type="hidden" name="response_table" value={detail.externalQuestionnaire.responseTable ?? ""} />
+                  {(selectedExternalSection?.items ?? []).map((item, index) => (
+                    <QuestionnaireResponseCard
+                      key={`external-${selectedExternalSection?.section}-${index}-${item.domain}-${item.question}`}
+                      cardKey={`external-${selectedExternalSection?.section}-${index}`}
+                      badge={`Question ${String(index + 1).padStart(2, "0")} • ${getQuestionCategoryLabel(item.domain, index)}`}
+                      sourceLabel={getQuestionSourceLabel(item.source ?? "database")}
+                      question={item.question}
+                      answer={item.answer}
+                      answerLabel="Partner Response"
+                      reviewStatus={item.status}
+                      responseId={item.responseId}
+                      analystEvaluation={item.analystEvaluation}
+                      analystObservations={item.analystObservations}
+                      editable={kind === "partner" && Boolean(detail.externalQuestionnaire.responseTable)}
+                    />
+                  ))}
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-[var(--color-primary)] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-[var(--color-primary)]/20 transition hover:brightness-95"
+                    >
+                      Salvar avaliacoes de {selectedExternalSection?.section ?? "Common"}
+                    </button>
                   </div>
-                  <h3 className="mb-2 text-sm font-bold text-[var(--color-text)]">{item.question}</h3>
-                  <p className="rounded-lg border-l-4 border-[var(--color-primary)]/30 bg-[var(--color-neutral-100)] p-3 text-sm text-[var(--color-neutral-700)]">
-                    {item.answer}
+                </form>
+              ) : (
+                <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-10 text-center shadow-sm">
+                  <p className="text-lg font-bold text-[var(--color-text)]">Questionario externo ainda nao encontrado</p>
+                  <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                    Nenhuma resposta do Typeform foi vinculada a esta entidade ate o momento.
                   </p>
                 </article>
-              ))
-            ) : (
-              <article className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-10 text-center shadow-sm">
-                <p className="text-lg font-bold text-[var(--color-text)]">Questionario externo ainda nao encontrado</p>
-                <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
-                  Nenhuma resposta do Typeform foi vinculada a esta entidade ate o momento.
-                </p>
-              </article>
-            )}
+              )}
+            </div>
           </div>
-
-          <aside className="space-y-4 lg:col-span-4">
-            <section className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
-              <h3 className="text-lg font-bold text-[var(--color-text)]">Resumo de Vinculo</h3>
-              <div className="mt-5 space-y-4">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Entidade</p>
-                  <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.name}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Jira Ticket</p>
-                  <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status</p>
-                  <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">
-                    {questionnaireAnswerCount > 0 ? "Questionario recebido" : "Aguardando vinculacao"}
-                  </p>
-                </div>
-              </div>
-            </section>
-          </aside>
         </section>
       ) : null}
 

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "backfill:partner-typeform": "node scripts/backfill-partner-typeform-responses.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

@@ -5,6 +5,8 @@ export type IntegrationProvider = "TYPEFORM" | "JIRA" | "SLACK" | "GOOGLE_SHEETS
 export type TypeformConfig = {
   default_hidden_assessment_field: string;
   webhook_mode: "signed" | "unsigned";
+  api_user: string;
+  api_token: string;
 };
 
 export type JiraConfig = {
@@ -47,7 +49,24 @@ export type TypeformFormItem = {
   entity_kind: "ANY" | "VENDOR" | "PARTNER";
   workflow: string;
   hidden_assessment_field: string;
+  section_rules: {
+    compliance: { start: string; end: string };
+    privacy: { start: string; end: string };
+    security: { start: string; end: string };
+  };
   enabled: boolean;
+};
+
+export type TypeformQuestionSection = "COMMON" | "COMPLIANCE" | "PRIVACY" | "SECURITY";
+
+export type TypeformFormQuestionMapping = {
+  id: string;
+  typeform_form_config_id: string;
+  question_key: string;
+  question_ref: string | null;
+  question_text: string;
+  question_order: number;
+  section: TypeformQuestionSection;
 };
 
 export type IntegrationSetting = {
@@ -63,6 +82,8 @@ function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraCon
     return {
       default_hidden_assessment_field: "assessment_id",
       webhook_mode: "signed",
+      api_user: "",
+      api_token: "",
     };
   }
 
@@ -127,6 +148,8 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
         (merged as { hidden_assessment_field?: string }).hidden_assessment_field ||
         "assessment_id",
       webhook_mode: (merged as TypeformConfig).webhook_mode ?? "signed",
+      api_user: String((merged as { api_user?: string }).api_user ?? "").trim(),
+      api_token: String((merged as { api_token?: string }).api_token ?? "").trim(),
       ...(legacyForm ? { form_id: legacyForm } : {}),
     } as TypeformConfig;
   }
@@ -326,7 +349,7 @@ export async function upsertIntegrationSetting(
 export async function getTypeformForms(): Promise<TypeformFormItem[]> {
   try {
     const rows = (await sql`
-      SELECT id::text, name, form_id, entity_kind::text, workflow, hidden_assessment_field, enabled
+      SELECT id::text, name, form_id, entity_kind::text, workflow, hidden_assessment_field, section_rules, enabled
       FROM typeform_forms
       ORDER BY created_at DESC
     `) as Array<{
@@ -336,17 +359,131 @@ export async function getTypeformForms(): Promise<TypeformFormItem[]> {
       entity_kind: "VENDOR" | "PARTNER" | null;
       workflow: string;
       hidden_assessment_field: string;
+      section_rules: unknown;
       enabled: boolean;
     }>;
 
     return rows.map((row) => ({
       ...row,
       entity_kind: row.entity_kind ?? "ANY",
+      section_rules:
+        row.section_rules && typeof row.section_rules === "object"
+          ? {
+              compliance: {
+                start: String((row.section_rules as Record<string, unknown>)?.compliance && typeof (row.section_rules as Record<string, unknown>).compliance === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).compliance?.start ?? "") : ""),
+                end: String((row.section_rules as Record<string, unknown>)?.compliance && typeof (row.section_rules as Record<string, unknown>).compliance === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).compliance?.end ?? "") : ""),
+              },
+              privacy: {
+                start: String((row.section_rules as Record<string, unknown>)?.privacy && typeof (row.section_rules as Record<string, unknown>).privacy === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).privacy?.start ?? "") : ""),
+                end: String((row.section_rules as Record<string, unknown>)?.privacy && typeof (row.section_rules as Record<string, unknown>).privacy === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).privacy?.end ?? "") : ""),
+              },
+              security: {
+                start: String((row.section_rules as Record<string, unknown>)?.security && typeof (row.section_rules as Record<string, unknown>).security === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).security?.start ?? "") : ""),
+                end: String((row.section_rules as Record<string, unknown>)?.security && typeof (row.section_rules as Record<string, unknown>).security === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).security?.end ?? "") : ""),
+              },
+            }
+          : {
+              compliance: { start: "", end: "" },
+              privacy: { start: "", end: "" },
+              security: { start: "", end: "" },
+            },
     }));
   } catch (error) {
     const code = (error as { code?: string })?.code;
     if (code === "42P01") {
       return [];
+    }
+    throw error;
+  }
+}
+
+export async function getTypeformFormById(id: string): Promise<TypeformFormItem | null> {
+  const forms = await getTypeformForms();
+  return forms.find((item) => item.id === id) ?? null;
+}
+
+export async function getTypeformFormQuestionMappings(formConfigId: string): Promise<TypeformFormQuestionMapping[]> {
+  try {
+    const rows = (await sql`
+      SELECT
+        id::text,
+        typeform_form_config_id::text,
+        question_key,
+        question_ref,
+        question_text,
+        question_order,
+        section::text
+      FROM typeform_form_question_mappings
+      WHERE typeform_form_config_id = ${formConfigId}::uuid
+      ORDER BY question_order ASC, created_at ASC
+    `) as Array<{
+      id: string;
+      typeform_form_config_id: string;
+      question_key: string;
+      question_ref: string | null;
+      question_text: string;
+      question_order: number;
+      section: string;
+    }>;
+
+    return rows.map((row) => ({
+      ...row,
+      section:
+        row.section === "COMPLIANCE" || row.section === "PRIVACY" || row.section === "SECURITY"
+          ? row.section
+          : "COMMON",
+    }));
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code === "42P01") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function replaceTypeformFormQuestionMappings(
+  formConfigId: string,
+  mappings: Array<{
+    id?: string | null;
+    question_key: string;
+    question_ref?: string | null;
+    question_text: string;
+    question_order: number;
+    section: TypeformQuestionSection;
+  }>,
+) {
+  try {
+    await sql`DELETE FROM typeform_form_question_mappings WHERE typeform_form_config_id = ${formConfigId}::uuid`;
+
+    for (const mapping of mappings) {
+      await sql`
+        INSERT INTO typeform_form_question_mappings (
+          id,
+          typeform_form_config_id,
+          question_key,
+          question_ref,
+          question_text,
+          question_order,
+          section
+        ) VALUES (
+          COALESCE(${mapping.id ?? null}::uuid, gen_random_uuid()),
+          ${formConfigId}::uuid,
+          ${mapping.question_key},
+          ${mapping.question_ref ?? null},
+          ${mapping.question_text},
+          ${mapping.question_order},
+          ${mapping.section}::typeform_question_section
+        )
+      `;
+    }
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code === "42P01") {
+      throw new Error("typeform_form_question_mappings table not found. Run database/011_typeform_form_question_mappings.sql.");
+    }
+    if (code === "42704") {
+      throw new Error("typeform_question_section enum not found. Run database/011_typeform_form_question_mappings.sql.");
     }
     throw error;
   }
@@ -359,6 +496,7 @@ export async function upsertTypeformForm(input: {
   entity_kind: "ANY" | "VENDOR" | "PARTNER";
   workflow: string;
   hidden_assessment_field: string;
+  section_rules: TypeformFormItem["section_rules"];
   enabled: boolean;
 }) {
   const entityKind = input.entity_kind === "ANY" ? null : input.entity_kind;
@@ -373,6 +511,7 @@ export async function upsertTypeformForm(input: {
           entity_kind,
           workflow,
           hidden_assessment_field,
+          section_rules,
           enabled
         )
         VALUES (
@@ -382,6 +521,7 @@ export async function upsertTypeformForm(input: {
           ${entityKind}::entity_kind,
           ${input.workflow},
           ${input.hidden_assessment_field},
+          ${JSON.stringify(input.section_rules)}::jsonb,
           ${input.enabled}
         )
         ON CONFLICT (id)
@@ -391,6 +531,7 @@ export async function upsertTypeformForm(input: {
           entity_kind = EXCLUDED.entity_kind,
           workflow = EXCLUDED.workflow,
           hidden_assessment_field = EXCLUDED.hidden_assessment_field,
+          section_rules = EXCLUDED.section_rules,
           enabled = EXCLUDED.enabled
       `;
       return;
@@ -403,6 +544,7 @@ export async function upsertTypeformForm(input: {
         entity_kind,
         workflow,
         hidden_assessment_field,
+        section_rules,
         enabled
       )
       VALUES (
@@ -411,6 +553,7 @@ export async function upsertTypeformForm(input: {
         ${entityKind}::entity_kind,
         ${input.workflow},
         ${input.hidden_assessment_field},
+        ${JSON.stringify(input.section_rules)}::jsonb,
         ${input.enabled}
       )
       ON CONFLICT (form_id)
@@ -419,6 +562,7 @@ export async function upsertTypeformForm(input: {
         entity_kind = EXCLUDED.entity_kind,
         workflow = EXCLUDED.workflow,
         hidden_assessment_field = EXCLUDED.hidden_assessment_field,
+        section_rules = EXCLUDED.section_rules,
         enabled = EXCLUDED.enabled
     `;
   } catch (error) {

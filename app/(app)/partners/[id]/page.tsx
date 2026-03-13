@@ -4,7 +4,7 @@ import { getEntityDetailBySlug, normalizeTab } from "@/lib/data";
 
 type PartnerDetailPageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; section?: string }>;
 };
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,16 @@ export default async function PartnerDetailPage({ params, searchParams }: Partne
     notFound();
   }
 
-  const tab = normalizeTab((await searchParams).tab);
+  const resolvedSearchParams = await searchParams;
+  const tab = normalizeTab(resolvedSearchParams.tab);
 
-  return <EntityDetailView kind="partner" basePath={`/partners/${id}`} detail={detail} activeTab={tab} />;
+  return (
+    <EntityDetailView
+      kind="partner"
+      basePath={`/partners/${id}`}
+      detail={detail}
+      activeTab={tab}
+      activeQuestionnaireSection={resolvedSearchParams.section}
+    />
+  );
 }

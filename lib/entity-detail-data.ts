@@ -1,4 +1,5 @@
 export type ReviewStatus = "compliant" | "needs_review";
+export type AnalystEvaluationStatus = "NOT_EVALUATED" | "NA" | "DOES_NOT_MEET" | "PARTIALLY" | "FULLY";
 
 export type RiskLevel = "Low" | "Medium" | "High";
 
@@ -15,6 +16,13 @@ export type EntityDetailData = {
   id: string;
   name: string;
   jiraTicket: string | null;
+  externalQuestionnaire: {
+    formId: string | null;
+    formName: string | null;
+    responseTable?: string | null;
+    source: "typeform" | "google_sheets" | "database";
+    submittedAt?: string;
+  };
   subtitle: string;
   statusLabel: string;
   statusMode: "pending" | "in_review" | "completed";
@@ -32,8 +40,12 @@ export type EntityDetailData = {
     }>;
   } | null;
   questions: Array<{
+    responseId?: string;
     domain: string;
+    section?: "Common" | "Compliance" | "Privacy" | "Security" | "Unclassified";
     status: ReviewStatus;
+    analystEvaluation?: AnalystEvaluationStatus;
+    analystObservations?: string;
     question: string;
     answer: string;
     evidenceUrl?: string;

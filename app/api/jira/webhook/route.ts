@@ -64,8 +64,14 @@ export async function POST(request: Request) {
     const jiraApiEmail = jiraSetting.config?.api_email || process.env.JIRA_API_EMAIL || "";
     const jiraApiToken = jiraSetting.config?.api_token || process.env.JIRA_API_TOKEN || "";
     let resolvedKind: "VENDOR" | "PARTNER" | null = null;
+    const queueResolutionConfigured = Boolean(
+      jiraSetting.config?.base_url &&
+        jiraApiEmail &&
+        jiraApiToken &&
+        (jiraSetting.config?.vendors.queue_url || jiraSetting.config?.partners.queue_url),
+    );
 
-    if (jiraSetting.config?.base_url && jiraApiEmail && jiraApiToken) {
+    if (queueResolutionConfigured && jiraSetting.config?.base_url) {
       try {
         resolvedKind = await resolveKindFromJiraQueues({
           baseUrl: jiraSetting.config.base_url,
@@ -80,6 +86,14 @@ export async function POST(request: Request) {
       } catch (error) {
         console.warn("Jira queue kind resolution failed:", error instanceof Error ? error.message : String(error));
       }
+    }
+
+    if (queueResolutionConfigured && !resolvedKind) {
+      return NextResponse.json({
+        ok: true,
+        message: "Issue ignored because it does not belong to any configured Jira queue.",
+        issue_key: payload.issue?.key ?? null,
+      });
     }
 
     const entity = extractEntityFromJiraIssue(payload, resolvedKind);

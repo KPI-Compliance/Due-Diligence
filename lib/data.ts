@@ -1,7 +1,6 @@
 import { sql } from "@/lib/db";
 import type { DetailTabKey, EntityDetailData, RiskLevel } from "@/lib/entity-detail-data";
-import { readAssessmentQuestionsFromGoogleSheets, readInternalQuestionnaireFromGoogleSheets } from "@/lib/google-sheets";
-import { syncPartnerExternalQuestionnaire } from "@/lib/typeform-sync";
+import { readInternalQuestionnaireFromGoogleSheets } from "@/lib/google-sheets";
 
 type UiStatus = "pending" | "sent" | "responded" | "in_review" | "completed";
 
@@ -130,6 +129,392 @@ function resolvePartnerFinalRisk(
   }
 
   return maxRisk(securityLevel, privacyLevel, complianceLevel, fallbackRisk);
+}
+
+function mapPartnerQuestionSection(section: string | null | undefined): "Common" | "Compliance" | "Privacy" | "Security" | "Unclassified" {
+  const normalized = (section ?? "").trim().toUpperCase();
+  if (normalized === "COMMON") return "Common";
+  if (normalized === "COMPLIANCE") return "Compliance";
+  if (normalized === "PRIVACY") return "Privacy";
+  if (normalized === "SECURITY") return "Security";
+  return "Unclassified";
+}
+
+function resolvePartnerFormResponseTable(formName: string | null | undefined) {
+  const normalized = (formName ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  switch (normalized) {
+    case "vtex partner assessment ptbr":
+      return "partner_typeform_assessment_ptbr_responses";
+    case "vtex partner assessment en":
+      return "partner_typeform_assessment_en_responses";
+    case "vtex partner assessment pt (v2)":
+      return "partner_typeform_assessment_pt_v2_responses";
+    case "vtex partner assessment en (v2)":
+      return "partner_typeform_assessment_en_v2_responses";
+    default:
+      return null;
+  }
+}
+
+const partnerResponseTables = [
+  "partner_typeform_assessment_ptbr_responses",
+  "partner_typeform_assessment_en_responses",
+  "partner_typeform_assessment_pt_v2_responses",
+  "partner_typeform_assessment_en_v2_responses",
+] as const;
+
+type PartnerResponseTableName = (typeof partnerResponseTables)[number];
+
+function getPartnerFormNameFromTable(tableName: PartnerResponseTableName) {
+  switch (tableName) {
+    case "partner_typeform_assessment_ptbr_responses":
+      return "VTEX Partner Assessment PTBR";
+    case "partner_typeform_assessment_en_responses":
+      return "VTEX Partner Assessment EN";
+    case "partner_typeform_assessment_pt_v2_responses":
+      return "VTEX Partner Assessment PT (V2)";
+    case "partner_typeform_assessment_en_v2_responses":
+      return "VTEX Partner Assessment EN (V2)";
+  }
+}
+
+async function getTypeformQuestionSectionOverrides(typeformFormId: string | null | undefined) {
+  if (!typeformFormId) {
+    return new Map<string, string>();
+  }
+
+  try {
+    const rows = (await sql`
+      SELECT
+        m.question_key,
+        m.question_text,
+        m.section::text
+      FROM typeform_form_question_mappings m
+      JOIN typeform_forms f
+        ON f.id = m.typeform_form_config_id
+      WHERE f.form_id = ${typeformFormId}
+    `) as Array<{
+      question_key: string;
+      question_text: string;
+      section: string;
+    }>;
+
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      if (row.question_key) {
+        map.set(`key:${row.question_key}`, row.section);
+      }
+      if (row.question_text) {
+        map.set(`text:${row.question_text.trim().toLowerCase()}`, row.section);
+      }
+    }
+    return map;
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code === "42P01" || code === "42704") {
+      return new Map<string, string>();
+    }
+    throw error;
+  }
+}
+
+async function getPartnerFormQuestionRows(tableName: string, assessmentId: string) {
+  if (tableName === "partner_typeform_assessment_ptbr_responses") {
+    return (await sql`
+      SELECT
+        id::text,
+        typeform_form_id,
+        section::text,
+        question_key,
+        question_text,
+        answer_text,
+        analyst_evaluation::text,
+        analyst_observations
+      FROM partner_typeform_assessment_ptbr_responses
+      WHERE assessment_id = ${assessmentId}::uuid
+      ORDER BY question_order ASC, created_at ASC
+    `) as Array<{
+      id: string;
+      typeform_form_id: string | null;
+      section: string | null;
+      question_key: string | null;
+      question_text: string;
+      answer_text: string | null;
+      analyst_evaluation: string | null;
+      analyst_observations: string | null;
+    }>;
+  }
+
+  if (tableName === "partner_typeform_assessment_en_responses") {
+    return (await sql`
+      SELECT
+        id::text,
+        typeform_form_id,
+        section::text,
+        question_key,
+        question_text,
+        answer_text,
+        analyst_evaluation::text,
+        analyst_observations
+      FROM partner_typeform_assessment_en_responses
+      WHERE assessment_id = ${assessmentId}::uuid
+      ORDER BY question_order ASC, created_at ASC
+    `) as Array<{
+      id: string;
+      typeform_form_id: string | null;
+      section: string | null;
+      question_key: string | null;
+      question_text: string;
+      answer_text: string | null;
+      analyst_evaluation: string | null;
+      analyst_observations: string | null;
+    }>;
+  }
+
+  if (tableName === "partner_typeform_assessment_en_v2_responses") {
+    return (await sql`
+      SELECT
+        id::text,
+        typeform_form_id,
+        section::text,
+        question_key,
+        question_text,
+        answer_text,
+        analyst_evaluation::text,
+        analyst_observations
+      FROM partner_typeform_assessment_en_v2_responses
+      WHERE assessment_id = ${assessmentId}::uuid
+      ORDER BY question_order ASC, created_at ASC
+    `) as Array<{
+      id: string;
+      typeform_form_id: string | null;
+      section: string | null;
+      question_key: string | null;
+      question_text: string;
+      answer_text: string | null;
+      analyst_evaluation: string | null;
+      analyst_observations: string | null;
+    }>;
+  }
+
+  return (await sql`
+    SELECT
+      id::text,
+      typeform_form_id,
+      section::text,
+      question_key,
+      question_text,
+      answer_text,
+      analyst_evaluation::text,
+      analyst_observations
+    FROM partner_typeform_assessment_pt_v2_responses
+    WHERE assessment_id = ${assessmentId}::uuid
+    ORDER BY question_order ASC, created_at ASC
+  `) as Array<{
+    id: string;
+    typeform_form_id: string | null;
+    section: string | null;
+    question_key: string | null;
+    question_text: string;
+    answer_text: string | null;
+    analyst_evaluation: string | null;
+    analyst_observations: string | null;
+  }>;
+}
+
+async function getPartnerExistingResponseSource(input: {
+  assessmentId?: string | null;
+  responseToken?: string | null;
+  companyName: string;
+}) {
+  for (const tableName of partnerResponseTables) {
+    let rows: Awaited<ReturnType<typeof getPartnerFormQuestionRows>> = [];
+
+    if (input.assessmentId) {
+      rows = await getPartnerFormQuestionRows(tableName, input.assessmentId);
+    }
+    if (rows.length === 0 && input.responseToken) {
+      rows = await getPartnerFormQuestionRowsByToken(tableName, input.responseToken);
+    }
+    if (rows.length === 0) {
+      rows = await getPartnerFormQuestionRowsByCompany(tableName, input.companyName);
+    }
+
+    if (rows.length > 0) {
+      const firstWithForm = rows.find((row) => row.typeform_form_id);
+      const resolvedFormId = firstWithForm?.typeform_form_id ?? null;
+      let resolvedFormName = getPartnerFormNameFromTable(tableName);
+
+      if (resolvedFormId) {
+        const formRows = (await sql`
+          SELECT name
+          FROM typeform_forms
+          WHERE form_id = ${resolvedFormId}
+          LIMIT 1
+        `) as Array<{ name: string }>;
+        resolvedFormName = formRows[0]?.name ?? resolvedFormName;
+      }
+
+      return {
+        tableName,
+        rows,
+        formId: resolvedFormId,
+        formName: resolvedFormName,
+      };
+    }
+  }
+
+  return null;
+}
+
+async function getPartnerFormQuestionRowsByToken(tableName: string, responseToken: string) {
+  if (tableName === "partner_typeform_assessment_ptbr_responses") {
+    return (await sql`
+      SELECT id::text, typeform_form_id, section::text, question_key, question_text, answer_text, analyst_evaluation::text, analyst_observations
+      FROM partner_typeform_assessment_ptbr_responses
+      WHERE typeform_response_token = ${responseToken}
+      ORDER BY question_order ASC, created_at ASC
+    `) as Array<{
+      id: string;
+      typeform_form_id: string | null;
+      section: string | null;
+      question_key: string | null;
+      question_text: string;
+      answer_text: string | null;
+      analyst_evaluation: string | null;
+      analyst_observations: string | null;
+    }>;
+  }
+
+  if (tableName === "partner_typeform_assessment_en_responses") {
+    return (await sql`
+      SELECT id::text, typeform_form_id, section::text, question_key, question_text, answer_text, analyst_evaluation::text, analyst_observations
+      FROM partner_typeform_assessment_en_responses
+      WHERE typeform_response_token = ${responseToken}
+      ORDER BY question_order ASC, created_at ASC
+    `) as Array<{
+      id: string;
+      typeform_form_id: string | null;
+      section: string | null;
+      question_key: string | null;
+      question_text: string;
+      answer_text: string | null;
+      analyst_evaluation: string | null;
+      analyst_observations: string | null;
+    }>;
+  }
+
+  if (tableName === "partner_typeform_assessment_en_v2_responses") {
+    return (await sql`
+      SELECT id::text, typeform_form_id, section::text, question_key, question_text, answer_text, analyst_evaluation::text, analyst_observations
+      FROM partner_typeform_assessment_en_v2_responses
+      WHERE typeform_response_token = ${responseToken}
+      ORDER BY question_order ASC, created_at ASC
+    `) as Array<{
+      id: string;
+      typeform_form_id: string | null;
+      section: string | null;
+      question_key: string | null;
+      question_text: string;
+      answer_text: string | null;
+      analyst_evaluation: string | null;
+      analyst_observations: string | null;
+    }>;
+  }
+
+  return (await sql`
+    SELECT id::text, typeform_form_id, section::text, question_key, question_text, answer_text, analyst_evaluation::text, analyst_observations
+    FROM partner_typeform_assessment_pt_v2_responses
+    WHERE typeform_response_token = ${responseToken}
+    ORDER BY question_order ASC, created_at ASC
+  `) as Array<{
+    id: string;
+    typeform_form_id: string | null;
+    section: string | null;
+    question_key: string | null;
+    question_text: string;
+    answer_text: string | null;
+    analyst_evaluation: string | null;
+    analyst_observations: string | null;
+  }>;
+}
+
+async function getPartnerFormQuestionRowsByCompany(tableName: string, companyName: string) {
+  if (tableName === "partner_typeform_assessment_ptbr_responses") {
+    return (await sql`
+      SELECT id::text, typeform_form_id, section::text, question_key, question_text, answer_text, analyst_evaluation::text, analyst_observations
+      FROM partner_typeform_assessment_ptbr_responses
+      WHERE lower(company_name) = lower(${companyName})
+      ORDER BY response_submitted_at DESC NULLS LAST, question_order ASC, created_at ASC
+    `) as Array<{
+      id: string;
+      typeform_form_id: string | null;
+      section: string | null;
+      question_key: string | null;
+      question_text: string;
+      answer_text: string | null;
+      analyst_evaluation: string | null;
+      analyst_observations: string | null;
+    }>;
+  }
+
+  if (tableName === "partner_typeform_assessment_en_responses") {
+    return (await sql`
+      SELECT id::text, typeform_form_id, section::text, question_key, question_text, answer_text, analyst_evaluation::text, analyst_observations
+      FROM partner_typeform_assessment_en_responses
+      WHERE lower(company_name) = lower(${companyName})
+      ORDER BY response_submitted_at DESC NULLS LAST, question_order ASC, created_at ASC
+    `) as Array<{
+      id: string;
+      typeform_form_id: string | null;
+      section: string | null;
+      question_key: string | null;
+      question_text: string;
+      answer_text: string | null;
+      analyst_evaluation: string | null;
+      analyst_observations: string | null;
+    }>;
+  }
+
+  if (tableName === "partner_typeform_assessment_en_v2_responses") {
+    return (await sql`
+      SELECT id::text, typeform_form_id, section::text, question_key, question_text, answer_text, analyst_evaluation::text, analyst_observations
+      FROM partner_typeform_assessment_en_v2_responses
+      WHERE lower(company_name) = lower(${companyName})
+      ORDER BY response_submitted_at DESC NULLS LAST, question_order ASC, created_at ASC
+    `) as Array<{
+      id: string;
+      typeform_form_id: string | null;
+      section: string | null;
+      question_key: string | null;
+      question_text: string;
+      answer_text: string | null;
+      analyst_evaluation: string | null;
+      analyst_observations: string | null;
+    }>;
+  }
+
+  return (await sql`
+    SELECT id::text, typeform_form_id, section::text, question_key, question_text, answer_text, analyst_evaluation::text, analyst_observations
+    FROM partner_typeform_assessment_pt_v2_responses
+    WHERE lower(company_name) = lower(${companyName})
+    ORDER BY response_submitted_at DESC NULLS LAST, question_order ASC, created_at ASC
+  `) as Array<{
+    id: string;
+    typeform_form_id: string | null;
+    section: string | null;
+    question_key: string | null;
+    question_text: string;
+    answer_text: string | null;
+    analyst_evaluation: string | null;
+    analyst_observations: string | null;
+  }>;
 }
 
 export async function getVendorsList() {
@@ -477,12 +862,8 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   const entity = entityRows[0];
   if (!entity) return null;
 
-  if (kind === "partner") {
-    await syncPartnerExternalQuestionnaire(entity.id, entity.name, entity.jira_issue_key);
-  }
-
   const assessments = (await sql`
-    SELECT id, status, risk_level, created_at, typeform_response_token
+    SELECT id, status, risk_level, created_at, typeform_response_token, typeform_form_id, typeform_submitted_at
     FROM assessments
     WHERE entity_id = ${entity.id}
     ORDER BY created_at DESC
@@ -493,31 +874,22 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     risk_level: string | null;
     created_at: string;
     typeform_response_token: string | null;
+    typeform_form_id: string | null;
+    typeform_submitted_at: string | null;
   }>;
 
   const latestAssessment = assessments[0];
-
-  const questions = latestAssessment
-    ? ((await sql`
-        SELECT domain, question_text, answer_text, review_status
-        FROM assessment_question_responses
-        WHERE assessment_id = ${latestAssessment.id}
-        ORDER BY created_at ASC
-      `) as Array<{
-        domain: string;
-        question_text: string;
-        answer_text: string | null;
-        review_status: string;
-      }>)
-    : [];
-
-  const sheetQuestions = await readAssessmentQuestionsFromGoogleSheets({
-    assessmentId: latestAssessment?.id,
-    entitySlug: entity.slug,
-    entityName: entity.name,
-    entityKind: kind.toUpperCase() === "PARTNER" ? "PARTNER" : "VENDOR",
-    typeformResponseToken: latestAssessment?.typeform_response_token,
-  });
+  const initialTypeformFormRows =
+    latestAssessment?.typeform_form_id
+      ? ((await sql`
+          SELECT name
+          FROM typeform_forms
+          WHERE form_id = ${latestAssessment.typeform_form_id}
+          LIMIT 1
+        `) as Array<{ name: string }>)
+      : [];
+  let resolvedTypeformFormId = latestAssessment?.typeform_form_id ?? null;
+  let resolvedTypeformFormName = initialTypeformFormRows[0]?.name ?? null;
 
   const internalQuestionnaire =
     kind === "vendor"
@@ -529,16 +901,91 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
         })
       : null;
 
-  const finalQuestions =
-    sheetQuestions.length > 0
-      ? sheetQuestions
-      : questions.map((q) => ({
-          domain: q.domain,
-          status: q.review_status.toLowerCase() === "needs_review" ? ("needs_review" as const) : ("compliant" as const),
-          question: q.question_text,
-          answer: q.answer_text ?? "No answer provided.",
-          source: "database" as const,
-        }));
+  let finalQuestions: EntityDetailData["questions"] = [];
+  let partnerFormTable =
+    kind === "partner" ? resolvePartnerFormResponseTable(resolvedTypeformFormName ?? resolvedTypeformFormId ?? null) : null;
+
+  if (kind === "partner" && latestAssessment) {
+    let partnerQuestionRows:
+      | Awaited<ReturnType<typeof getPartnerFormQuestionRows>>
+      | null = null;
+
+    if (partnerFormTable) {
+      partnerQuestionRows = await getPartnerFormQuestionRows(partnerFormTable, latestAssessment.id);
+      if (partnerQuestionRows.length === 0 && latestAssessment.typeform_response_token) {
+        partnerQuestionRows = await getPartnerFormQuestionRowsByToken(partnerFormTable, latestAssessment.typeform_response_token);
+      }
+      if (partnerQuestionRows.length === 0) {
+        partnerQuestionRows = await getPartnerFormQuestionRowsByCompany(partnerFormTable, entity.name);
+      }
+    }
+
+    if (!partnerQuestionRows || partnerQuestionRows.length === 0) {
+      const existingSource = await getPartnerExistingResponseSource({
+        assessmentId: latestAssessment.id,
+        responseToken: latestAssessment.typeform_response_token,
+        companyName: entity.name,
+      });
+
+      if (existingSource) {
+        partnerFormTable = existingSource.tableName;
+        partnerQuestionRows = existingSource.rows;
+        resolvedTypeformFormId = existingSource.formId ?? resolvedTypeformFormId;
+        resolvedTypeformFormName = existingSource.formName ?? resolvedTypeformFormName;
+      }
+    }
+
+    const sectionOverrides = await getTypeformQuestionSectionOverrides(resolvedTypeformFormId);
+
+    finalQuestions = (partnerQuestionRows ?? []).map((q) => ({
+      responseId: q.id,
+      domain:
+        sectionOverrides.get(`key:${q.question_key ?? ""}`) ??
+        sectionOverrides.get(`text:${q.question_text.trim().toLowerCase()}`) ??
+        q.section ??
+        "UNCLASSIFIED",
+      section: mapPartnerQuestionSection(
+        sectionOverrides.get(`key:${q.question_key ?? ""}`) ??
+          sectionOverrides.get(`text:${q.question_text.trim().toLowerCase()}`) ??
+          q.section,
+      ),
+      status: q.analyst_evaluation && q.analyst_evaluation !== "NOT_EVALUATED" ? "compliant" : "needs_review",
+      analystEvaluation:
+        q.analyst_evaluation === "NA" ||
+        q.analyst_evaluation === "DOES_NOT_MEET" ||
+        q.analyst_evaluation === "PARTIALLY" ||
+        q.analyst_evaluation === "FULLY" ||
+        q.analyst_evaluation === "NOT_EVALUATED"
+          ? q.analyst_evaluation
+          : "NOT_EVALUATED",
+      analystObservations: q.analyst_observations ?? "",
+      question: q.question_text,
+      answer: q.answer_text ?? "No answer provided.",
+      source: "database" as const,
+    }));
+  } else {
+    const questions = latestAssessment
+      ? ((await sql`
+          SELECT domain, question_text, answer_text, review_status
+          FROM assessment_question_responses
+          WHERE assessment_id = ${latestAssessment.id}
+          ORDER BY created_at ASC
+        `) as Array<{
+          domain: string;
+          question_text: string;
+          answer_text: string | null;
+          review_status: string;
+        }>)
+      : [];
+
+    finalQuestions = questions.map((q) => ({
+      domain: q.domain,
+      status: q.review_status.toLowerCase() === "needs_review" ? ("needs_review" as const) : ("compliant" as const),
+      question: q.question_text,
+      answer: q.answer_text ?? "No answer provided.",
+      source: "database" as const,
+    }));
+  }
 
   const breakdownRows = (await sql`
     SELECT dimension, score, level
@@ -606,6 +1053,15 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     id: entity.slug,
     name: entity.name,
     jiraTicket: entity.jira_issue_key,
+    externalQuestionnaire: {
+      formId: resolvedTypeformFormId,
+      formName: resolvedTypeformFormName,
+      responseTable: partnerFormTable,
+      source: resolvedTypeformFormId ? "typeform" : "database",
+      submittedAt: latestAssessment?.typeform_submitted_at
+        ? formatDate(latestAssessment.typeform_submitted_at)
+        : undefined,
+    },
     subtitle: entity.subtitle ?? (kind === "vendor" ? "Enterprise Vendor" : "Strategic Partner"),
     statusLabel: entity.status_label ?? "In Progress",
     statusMode,

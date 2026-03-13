@@ -66,6 +66,7 @@ const appUrl =
   process.env.NEXT_PUBLIC_APP_URL ??
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://due-diligence-eight.vercel.app");
 const typeformSecretConfigured = Boolean(process.env.TYPEFORM_WEBHOOK_SECRET);
+const typeformApiTokenConfigured = Boolean(process.env.TYPEFORM_API_TOKEN ?? process.env.TYPEFORM_ACCESS_TOKEN);
 const jiraTokenConfigured = Boolean(process.env.JIRA_API_TOKEN);
 const jiraWebhookSecretConfigured = Boolean(process.env.JIRA_WEBHOOK_SECRET);
 const slackTokenConfigured = Boolean(process.env.SLACK_BOT_TOKEN);
@@ -96,6 +97,8 @@ async function saveTypeformSettings(formData: FormData) {
     default_hidden_assessment_field:
       String(formData.get("default_hidden_assessment_field") ?? "assessment_id").trim() || "assessment_id",
     webhook_mode: formData.get("webhook_mode") === "unsigned" ? "unsigned" : "signed",
+    api_user: String(formData.get("api_user") ?? "").trim(),
+    api_token: String(formData.get("api_token") ?? "").trim(),
   };
 
   await upsertIntegrationSetting("TYPEFORM", enabled, config);
@@ -117,6 +120,20 @@ async function saveTypeformForm(formData: FormData) {
     workflow: String(formData.get("workflow") ?? "security_review").trim() || "security_review",
     hidden_assessment_field:
       String(formData.get("hidden_assessment_field") ?? "assessment_id").trim() || "assessment_id",
+    section_rules: {
+      compliance: {
+        start: String(formData.get("compliance_start") ?? "").trim(),
+        end: String(formData.get("compliance_end") ?? "").trim(),
+      },
+      privacy: {
+        start: String(formData.get("privacy_start") ?? "").trim(),
+        end: String(formData.get("privacy_end") ?? "").trim(),
+      },
+      security: {
+        start: String(formData.get("security_start") ?? "").trim(),
+        end: String(formData.get("security_end") ?? "").trim(),
+      },
+    },
     enabled: formData.get("enabled") === "on",
   });
 
@@ -642,6 +659,7 @@ export default async function SettingsPage({
           slack={slack}
           googleSheets={googleSheets}
           typeformSecretConfigured={typeformSecretConfigured}
+          typeformApiTokenConfigured={typeformApiTokenConfigured}
           jiraTokenConfigured={jiraTokenConfigured}
           jiraWebhookSecretConfigured={jiraWebhookSecretConfigured}
           slackTokenConfigured={slackTokenConfigured}
