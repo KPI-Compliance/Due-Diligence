@@ -50,6 +50,16 @@ function formatDate(value: string | null): string {
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).format(date);
 }
 
+function formatDateNumeric(value: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
 function toTitleCase(value: string) {
   const lower = value.toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
@@ -138,6 +148,163 @@ function mapPartnerQuestionSection(section: string | null | undefined): "Common"
   if (normalized === "PRIVACY") return "Privacy";
   if (normalized === "SECURITY") return "Security";
   return "Unclassified";
+}
+
+function normalizePartnerQuestionLookup(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function cleanOverviewValue(value: string | null | undefined) {
+  const normalized = (value ?? "").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function cleanOverviewWebsite(value: string | null | undefined) {
+  const normalized = cleanOverviewValue(value);
+  if (!normalized) return null;
+  return normalized.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+}
+
+function normalizeDecimal(value: number | string | null | undefined) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function findCommonAnswerValue(
+  questions: Array<{ question: string; answer: string; questionKey?: string | null }>,
+  aliases: string[],
+) {
+  const normalizedAliases = aliases.map((alias) => normalizePartnerQuestionLookup(alias));
+
+  for (const item of questions) {
+    const questionText = normalizePartnerQuestionLookup(item.question);
+    const questionKey = normalizePartnerQuestionLookup(item.questionKey);
+    const matches = normalizedAliases.some(
+      (alias) =>
+        questionText === alias ||
+        questionKey === alias ||
+        questionText.includes(alias) ||
+        questionKey.includes(alias),
+    );
+
+    if (!matches) continue;
+
+    const answer = cleanOverviewValue(item.answer);
+    if (answer) return answer;
+  }
+
+  return null;
+}
+
+function derivePartnerOverviewFromCommonQuestions(
+  questions: Array<{ question: string; answer: string; questionKey?: string | null }>,
+) {
+  const firstName = findCommonAnswerValue(questions, [
+    "first name",
+    "contact first name",
+    "partner first name",
+    "nome",
+    "primeiro nome",
+    "nome do contato",
+  ]);
+  const lastName = findCommonAnswerValue(questions, [
+    "last name",
+    "contact last name",
+    "partner last name",
+    "sobrenome",
+    "ultimo nome",
+    "apelido",
+  ]);
+  const phoneNumber = findCommonAnswerValue(questions, [
+    "phone number",
+    "contact phone number",
+    "partner phone number",
+    "phone",
+    "telefone",
+    "telefone de contato",
+    "celular",
+    "mobile",
+  ]);
+  const email = findCommonAnswerValue(questions, [
+    "email",
+    "contact email",
+    "company email",
+    "partner email",
+    "business email",
+    "email de contato",
+    "e mail de contato",
+    "e mail",
+  ]);
+
+  const fullName = [firstName, lastName].filter(Boolean).join(" ").trim() || null;
+  return {
+    contactName: fullName,
+    contactPhone: phoneNumber,
+    contactEmail: email,
+    category: findCommonAnswerValue(questions, [
+      "category",
+      "company category",
+      "partner category",
+      "segment",
+      "segmento",
+      "categoria",
+      "industry",
+      "industry segment",
+      "market segment",
+      "partner type",
+      "tipo de parceiro",
+    ]),
+    hqLocation: findCommonAnswerValue(questions, [
+      "hq location",
+      "headquarter",
+      "headquarters",
+      "company headquarters",
+      "where is your company headquartered",
+      "hq country",
+      "localizacao da sede",
+      "localizacao da matriz",
+      "sede da empresa",
+      "pais da sede",
+    ]),
+    website: cleanOverviewWebsite(
+      findCommonAnswerValue(questions, [
+        "website",
+        "company website",
+        "website url",
+        "company url",
+        "site",
+        "site da empresa",
+        "website da empresa",
+        "url",
+      ]),
+    ),
+    contact: [fullName, phoneNumber, email].filter(Boolean).join(" | ") || null,
+    description: findCommonAnswerValue(questions, [
+      "company description",
+      "description",
+      "about the company",
+      "company overview",
+      "describe your company",
+      "what does the company do",
+      "descricao da empresa",
+      "sobre a empresa",
+      "fale sobre a empresa",
+      "o que a empresa faz",
+    ]),
+  };
 }
 
 function resolvePartnerFormResponseTable(formName: string | null | undefined) {
@@ -615,7 +782,7 @@ export async function getVendorsList() {
       ...riskUi,
       openAssessments: row.open_assessments,
       owner: row.owner,
-      lastReview: formatDate(row.last_review_at),
+      lastReview: formatDateNumeric(row.last_review_at),
       activeAssessmentId: row.latest_assessment_id,
       activeAssessmentStatus: mapStatusNullable(row.latest_assessment_status),
     };
@@ -633,7 +800,11 @@ export async function getPartnersList() {
       e.status,
       e.risk_level,
       e.company_group,
-      e.last_review_at,
+      COALESCE(
+        latest_partner_review.reviewed_at,
+        latest_decision.updated_at,
+        e.last_review_at
+      ) AS last_review_at,
       COALESCE(u.full_name, 'Unassigned') AS owner,
       latest_assessment.id AS latest_assessment_id,
       latest_assessment.status AS latest_assessment_status,
@@ -647,27 +818,105 @@ export async function getPartnersList() {
     LEFT JOIN users u ON u.id = e.owner_user_id
     LEFT JOIN assessments a ON a.entity_id = e.id
     LEFT JOIN LATERAL (
-      SELECT aa.id, aa.status
+      SELECT aa.id, aa.status, aa.typeform_response_token, aa.typeform_form_id
       FROM assessments aa
       WHERE aa.entity_id = e.id
       ORDER BY aa.created_at DESC
       LIMIT 1
     ) latest_assessment ON true
     LEFT JOIN LATERAL (
-      SELECT security_level, privacy_level, compliance_level
+      SELECT security_level, privacy_level, compliance_level, updated_at
       FROM assessment_decisions ad
       WHERE ad.assessment_id = latest_assessment.id
       LIMIT 1
     ) latest_decision ON true
+    LEFT JOIN LATERAL (
+      SELECT MAX(reviewed_at) AS reviewed_at
+      FROM (
+        SELECT analyzed_at AS reviewed_at
+        FROM partner_typeform_assessment_ptbr_responses
+        WHERE
+          (latest_assessment.id IS NOT NULL AND assessment_id = latest_assessment.id)
+          OR (
+            latest_assessment.typeform_response_token IS NOT NULL
+            AND typeform_response_token = latest_assessment.typeform_response_token
+          )
+          OR (
+            lower(company_name) = lower(e.name)
+            AND (
+              latest_assessment.typeform_form_id IS NULL
+              OR typeform_form_id = latest_assessment.typeform_form_id
+            )
+          )
+
+        UNION ALL
+
+        SELECT analyzed_at AS reviewed_at
+        FROM partner_typeform_assessment_en_responses
+        WHERE
+          (latest_assessment.id IS NOT NULL AND assessment_id = latest_assessment.id)
+          OR (
+            latest_assessment.typeform_response_token IS NOT NULL
+            AND typeform_response_token = latest_assessment.typeform_response_token
+          )
+          OR (
+            lower(company_name) = lower(e.name)
+            AND (
+              latest_assessment.typeform_form_id IS NULL
+              OR typeform_form_id = latest_assessment.typeform_form_id
+            )
+          )
+
+        UNION ALL
+
+        SELECT analyzed_at AS reviewed_at
+        FROM partner_typeform_assessment_pt_v2_responses
+        WHERE
+          (latest_assessment.id IS NOT NULL AND assessment_id = latest_assessment.id)
+          OR (
+            latest_assessment.typeform_response_token IS NOT NULL
+            AND typeform_response_token = latest_assessment.typeform_response_token
+          )
+          OR (
+            lower(company_name) = lower(e.name)
+            AND (
+              latest_assessment.typeform_form_id IS NULL
+              OR typeform_form_id = latest_assessment.typeform_form_id
+            )
+          )
+
+        UNION ALL
+
+        SELECT analyzed_at AS reviewed_at
+        FROM partner_typeform_assessment_en_v2_responses
+        WHERE
+          (latest_assessment.id IS NOT NULL AND assessment_id = latest_assessment.id)
+          OR (
+            latest_assessment.typeform_response_token IS NOT NULL
+            AND typeform_response_token = latest_assessment.typeform_response_token
+          )
+          OR (
+            lower(company_name) = lower(e.name)
+            AND (
+              latest_assessment.typeform_form_id IS NULL
+              OR typeform_form_id = latest_assessment.typeform_form_id
+            )
+          )
+      ) partner_reviews
+    ) latest_partner_review ON true
     WHERE e.kind = 'PARTNER'
     GROUP BY
       e.id,
       u.full_name,
       latest_assessment.id,
       latest_assessment.status,
+      latest_assessment.typeform_response_token,
+      latest_assessment.typeform_form_id,
       latest_decision.security_level,
       latest_decision.privacy_level,
-      latest_decision.compliance_level
+      latest_decision.compliance_level,
+      latest_decision.updated_at,
+      latest_partner_review.reviewed_at
     ORDER BY e.created_at DESC, e.name ASC
   `) as Array<{
     slug: string;
@@ -716,7 +965,7 @@ export async function getPartnersList() {
       riskDot: riskUi?.riskDot ?? "bg-[var(--color-neutral-400)]",
       openAssessments: row.open_assessments,
       owner: row.owner,
-      lastReview: formatDate(row.last_review_at),
+      lastReview: formatDateNumeric(row.last_review_at),
       activeAssessmentId: row.latest_assessment_id,
       activeAssessmentStatus: mapStatusNullable(row.latest_assessment_status),
     };
@@ -904,6 +1153,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   let finalQuestions: EntityDetailData["questions"] = [];
   let partnerFormTable =
     kind === "partner" ? resolvePartnerFormResponseTable(resolvedTypeformFormName ?? resolvedTypeformFormId ?? null) : null;
+  let partnerOverviewFromCommon: ReturnType<typeof derivePartnerOverviewFromCommonQuestions> | null = null;
 
   if (kind === "partner" && latestAssessment) {
     let partnerQuestionRows:
@@ -936,6 +1186,24 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     }
 
     const sectionOverrides = await getTypeformQuestionSectionOverrides(resolvedTypeformFormId);
+
+    const commonQuestionAnswers = (partnerQuestionRows ?? [])
+      .map((q) => {
+        const resolvedSection =
+          sectionOverrides.get(`key:${q.question_key ?? ""}`) ??
+          sectionOverrides.get(`text:${q.question_text.trim().toLowerCase()}`) ??
+          q.section;
+
+        return {
+          question: q.question_text,
+          answer: q.answer_text ?? "",
+          questionKey: q.question_key,
+          section: mapPartnerQuestionSection(resolvedSection),
+        };
+      })
+      .filter((item) => item.section === "Common");
+
+    partnerOverviewFromCommon = derivePartnerOverviewFromCommonQuestions(commonQuestionAnswers);
 
     finalQuestions = (partnerQuestionRows ?? []).map((q) => ({
       responseId: q.id,
@@ -1001,13 +1269,31 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     ORDER BY sort_order ASC
   `) as Array<{ title: string; note: string | null; event_at: string | null; is_current: boolean }>;
 
-  const decisionRows = latestAssessment
-    ? ((await sql`
+  let decisionRows: Array<{
+    security_score: number | string | null;
+    security_level: string | null;
+    security_note: string | null;
+    privacy_score: number | string | null;
+    privacy_level: string | null;
+    privacy_note: string | null;
+    compliance_score: number | string | null;
+    compliance_level: string | null;
+    compliance_note: string | null;
+    combined_score: number | string | null;
+    classification: string | null;
+  }> = [];
+
+  if (latestAssessment) {
+    try {
+      decisionRows = (await sql`
         SELECT
+          security_score,
           security_level,
           security_note,
+          privacy_score,
           privacy_level,
           privacy_note,
+          compliance_score,
           compliance_level,
           compliance_note,
           combined_score,
@@ -1015,19 +1301,38 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
         FROM assessment_decisions
         WHERE assessment_id = ${latestAssessment.id}
         LIMIT 1
-      `) as Array<{
-        security_level: string | null;
-        security_note: string | null;
-        privacy_level: string | null;
-        privacy_note: string | null;
-        compliance_level: string | null;
-        compliance_note: string | null;
-        combined_score: number | null;
-        classification: string | null;
-      }>)
-    : [];
+      `) as typeof decisionRows;
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === "42703") {
+        decisionRows = (await sql`
+          SELECT
+            NULL::numeric AS security_score,
+            security_level,
+            security_note,
+            NULL::numeric AS privacy_score,
+            privacy_level,
+            privacy_note,
+            NULL::numeric AS compliance_score,
+            compliance_level,
+            compliance_note,
+            combined_score,
+            classification
+          FROM assessment_decisions
+          WHERE assessment_id = ${latestAssessment.id}
+          LIMIT 1
+        `) as typeof decisionRows;
+      } else {
+        throw error;
+      }
+    }
+  }
 
   const decision = decisionRows[0];
+  const securityScore = normalizeDecimal(decision?.security_score);
+  const privacyScore = normalizeDecimal(decision?.privacy_score);
+  const complianceScore = normalizeDecimal(decision?.compliance_score);
+  const combinedScore = normalizeDecimal(decision?.combined_score);
 
   const statusMode: EntityDetailData["statusMode"] =
     mapStatus(entity.status) === "completed"
@@ -1043,6 +1348,18 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     return ui as RiskLevel;
   };
 
+  const riskLevelToDecision = (level: string | null, score: number | null): RiskLevel => {
+    if (score === null || !level) return "Pending";
+    return riskLevelToOverview(level);
+  };
+
+  const headerRiskScore =
+    kind === "partner"
+      ? combinedScore !== null
+        ? Math.round(combinedScore * 10)
+        : (entity.risk_score ?? 0)
+      : (entity.risk_score ?? 0);
+
   const riskBreakdown = breakdownRows.map((item) => ({
     label: toTitleCase(item.dimension) as "Security" | "Privacy" | "Financial" | "Operational",
     score: item.score,
@@ -1054,6 +1371,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     name: entity.name,
     jiraTicket: entity.jira_issue_key,
     externalQuestionnaire: {
+      assessmentId: latestAssessment?.id ?? null,
       formId: resolvedTypeformFormId,
       formName: resolvedTypeformFormName,
       responseTable: partnerFormTable,
@@ -1065,14 +1383,17 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     subtitle: entity.subtitle ?? (kind === "vendor" ? "Enterprise Vendor" : "Strategic Partner"),
     statusLabel: entity.status_label ?? "In Progress",
     statusMode,
-    riskScore: entity.risk_score ?? 0,
+    riskScore: headerRiskScore,
     internalQuestionnaire,
     questions: finalQuestions,
     overview: {
-      category: entity.category ?? "-",
-      hqLocation: entity.hq_location ?? "-",
-      website: entity.website ?? "-",
-      contact: entity.contact_email ?? "-",
+      category: kind === "partner" ? (partnerOverviewFromCommon?.category ?? "-") : (entity.category ?? "-"),
+      hqLocation: kind === "partner" ? (partnerOverviewFromCommon?.hqLocation ?? "-") : (entity.hq_location ?? "-"),
+      website: kind === "partner" ? (partnerOverviewFromCommon?.website ?? "-") : (entity.website ?? "-"),
+      contact: kind === "partner" ? (partnerOverviewFromCommon?.contact ?? "-") : (entity.contact_email ?? "-"),
+      contactName: kind === "partner" ? (partnerOverviewFromCommon?.contactName ?? "-") : "-",
+      contactPhone: kind === "partner" ? (partnerOverviewFromCommon?.contactPhone ?? "-") : "-",
+      contactEmail: kind === "partner" ? (partnerOverviewFromCommon?.contactEmail ?? "-") : "-",
       internalFocalPoint: {
         name: entity.focal_name ?? "-",
         role: entity.focal_role ?? "-",
@@ -1080,7 +1401,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
         email: entity.focal_email ?? "-",
         phone: entity.focal_phone ?? "-",
       },
-      description: entity.description ?? "No description available.",
+      description:
+        kind === "partner"
+          ? (partnerOverviewFromCommon?.description ?? "No description available.")
+          : (entity.description ?? "No description available."),
       riskBreakdown:
         riskBreakdown.length > 0
           ? riskBreakdown
@@ -1109,18 +1433,21 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     },
     decision: {
       security: {
-        level: riskLevelToOverview(decision?.security_level ?? "LOW"),
+        level: riskLevelToDecision(decision?.security_level ?? null, securityScore),
         note: decision?.security_note ?? "No security decision note.",
+        score: securityScore?.toFixed(1) ?? "-",
       },
       privacy: {
-        level: riskLevelToOverview(decision?.privacy_level ?? "LOW"),
+        level: riskLevelToDecision(decision?.privacy_level ?? null, privacyScore),
         note: decision?.privacy_note ?? "No privacy decision note.",
+        score: privacyScore?.toFixed(1) ?? "-",
       },
       compliance: {
-        level: riskLevelToOverview(decision?.compliance_level ?? "LOW"),
+        level: riskLevelToDecision(decision?.compliance_level ?? null, complianceScore),
         note: decision?.compliance_note ?? "No compliance decision note.",
+        score: complianceScore?.toFixed(1) ?? "-",
       },
-      combinedScore: decision?.combined_score?.toString() ?? "0.0",
+      combinedScore: combinedScore?.toFixed(1) ?? "0.0",
       classification: decision?.classification ?? "Not classified",
     },
   };
@@ -1136,6 +1463,12 @@ export function normalizeTab(tab?: string): DetailTabKey {
     "privacy_review",
     "decision",
   ];
+
+  return validTabs.includes(tab as DetailTabKey) ? (tab as DetailTabKey) : "overview";
+}
+
+export function normalizePartnerTab(tab?: string): DetailTabKey {
+  const validTabs: DetailTabKey[] = ["overview", "external_questionnaire", "decision"];
 
   return validTabs.includes(tab as DetailTabKey) ? (tab as DetailTabKey) : "overview";
 }

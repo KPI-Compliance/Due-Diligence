@@ -17,10 +17,11 @@ export type RiskScoringSettings = {
   security_weight: number;
   privacy_weight: number;
   compliance_weight: number;
-  low_min: number;
-  medium_min: number;
-  high_min: number;
-  critical_min: number;
+  fully_score: number;
+  partially_score: number;
+  does_not_meet_score: number;
+  low_max: number;
+  medium_max: number;
 };
 
 export type NotificationSettings = {
@@ -50,10 +51,11 @@ function fallbackSettings(key: PlatformSettingsKey) {
       security_weight: 50,
       privacy_weight: 30,
       compliance_weight: 20,
-      low_min: 80,
-      medium_min: 60,
-      high_min: 40,
-      critical_min: 0,
+      fully_score: 0,
+      partially_score: 5,
+      does_not_meet_score: 10,
+      low_max: 3,
+      medium_max: 6,
     } satisfies RiskScoringSettings;
   }
 
@@ -102,10 +104,21 @@ export function normalizeRiskScoringSettings(raw: unknown): RiskScoringSettings 
     security_weight: clampNumber(source.security_weight, 0, 100, base.security_weight),
     privacy_weight: clampNumber(source.privacy_weight, 0, 100, base.privacy_weight),
     compliance_weight: clampNumber(source.compliance_weight, 0, 100, base.compliance_weight),
-    low_min: clampNumber(source.low_min, 0, 100, base.low_min),
-    medium_min: clampNumber(source.medium_min, 0, 100, base.medium_min),
-    high_min: clampNumber(source.high_min, 0, 100, base.high_min),
-    critical_min: clampNumber(source.critical_min, 0, 100, base.critical_min),
+    fully_score: clampNumber(source.fully_score, 0, 10, base.fully_score),
+    partially_score: clampNumber(source.partially_score, 0, 10, base.partially_score),
+    does_not_meet_score: clampNumber(source.does_not_meet_score, 0, 10, base.does_not_meet_score),
+    low_max: clampNumber(
+      source.low_max,
+      0,
+      10,
+      typeof source.low_min === "number" ? Math.round((100 - source.low_min) / 10) : base.low_max,
+    ),
+    medium_max: clampNumber(
+      source.medium_max,
+      0,
+      10,
+      typeof source.medium_min === "number" ? Math.round((100 - source.medium_min) / 10) : base.medium_max,
+    ),
   };
 }
 

@@ -33,10 +33,8 @@ export function AppSidebar() {
   return (
     <aside className="hidden h-screen w-64 shrink-0 border-r border-[var(--color-primary)]/10 bg-white lg:fixed lg:inset-y-0 lg:flex lg:flex-col">
       <div className="flex items-center gap-3 px-6 py-6">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-primary)] text-white">
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 3l7 4v5c0 5-3 8-7 9-4-1-7-4-7-9V7l7-4z" />
-          </svg>
+        <div className="flex h-10 w-10 items-center justify-center">
+          <img src="/VTEX-Logo.png" alt="VTEX" className="h-full w-full object-contain" />
         </div>
         <div>
           <h1 className="text-base font-extrabold leading-tight tracking-[-0.02em] text-[var(--color-text)]">

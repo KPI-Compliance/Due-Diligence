@@ -14,6 +14,12 @@ import {
   type TypeformConfig,
   upsertTypeformForm,
 } from "@/lib/settings-data";
+import {
+  getPlatformSettings,
+  normalizeRiskScoringSettings,
+  type RiskScoringSettings,
+} from "@/lib/platform-settings";
+import { recalculatePartnerAssessmentDecisionsForForm } from "@/lib/partner-risk-scoring";
 import { fetchTypeformFormFields } from "@/lib/typeform-admin";
 import { flattenTypeformFieldDefinitions } from "@/lib/typeform";
 
@@ -26,11 +32,57 @@ const typeformApiTokenConfigured = Boolean(process.env.TYPEFORM_API_TOKEN ?? pro
 
 export const dynamic = "force-dynamic";
 
+type FormMappingStatus = {
+  mappedCount: number;
+  totalQuestions: number;
+  tone: string;
+  label: string;
+  detail: string;
+};
+
+const weightOptions: Array<{ value: number; label: string }> = [
+  { value: 0, label: "0 - Sem impacto" },
+  { value: 1, label: "1 - Baixo" },
+  { value: 2, label: "2 - Medio" },
+  { value: 3, label: "3 - Alto" },
+  { value: 5, label: "5 - Critico" },
+];
+
 function getSetting<T>(
   list: Array<{ provider: IntegrationProvider; enabled: boolean; config: unknown }>,
   provider: IntegrationProvider,
 ) {
   return list.find((item) => item.provider === provider) as { provider: IntegrationProvider; enabled: boolean; config: T };
+}
+
+function RiskScoringLegend({ settings }: { settings: RiskScoringSettings }) {
+  return (
+    <div className="rounded-xl border border-[var(--color-primary)]/10 bg-[var(--color-primary)]/5 p-4">
+      <p className="text-sm font-bold text-[var(--color-text)]">Como o score e calculado</p>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-3 text-sm text-[var(--color-neutral-700)]">
+          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Score da avaliacao</p>
+          <p className="mt-2">Totalmente = {settings.fully_score.toFixed(1)}</p>
+          <p>Parcialmente = {settings.partially_score.toFixed(1)}</p>
+          <p>Nao Atende = {settings.does_not_meet_score.toFixed(1)}</p>
+          <p>N/A = fora do calculo</p>
+        </div>
+        <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-3 text-sm text-[var(--color-neutral-700)]">
+          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Peso da pergunta</p>
+          <p className="mt-2">
+            Cada resposta avaliada contribui como <span className="font-semibold">peso x score</span>.
+          </p>
+          <p className="mt-1">Perguntas com peso maior impactam mais a secao.</p>
+        </div>
+        <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-3 text-sm text-[var(--color-neutral-700)]">
+          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Thresholds</p>
+          <p className="mt-2">Low: 0.0 ate {settings.low_max.toFixed(1)}</p>
+          <p>Medium: acima de {settings.low_max.toFixed(1)} ate {settings.medium_max.toFixed(1)}</p>
+          <p>High: acima de {settings.medium_max.toFixed(1)}</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 async function saveTypeformForm(formData: FormData) {
@@ -87,6 +139,7 @@ async function saveQuestionMappings(formData: FormData) {
   const questionTexts = formData.getAll("question_text").map((value) => String(value));
   const questionOrders = formData.getAll("question_order").map((value) => Number.parseInt(String(value), 10));
   const sections = formData.getAll("section").map((value) => String(value).toUpperCase());
+  const weights = formData.getAll("weight").map((value) => Number.parseFloat(String(value)));
 
   await replaceTypeformFormQuestionMappings(
     formConfigId,
@@ -100,8 +153,14 @@ async function saveQuestionMappings(formData: FormData) {
         sections[index] === "COMPLIANCE" || sections[index] === "PRIVACY" || sections[index] === "SECURITY"
           ? sections[index]
           : "COMMON",
+      weight: Number.isFinite(weights[index]) && weights[index] >= 0 ? weights[index] : 1,
     })),
   );
+
+  const selectedForm = await getTypeformFormById(formConfigId);
+  if (selectedForm?.form_id) {
+    await recalculatePartnerAssessmentDecisionsForForm(selectedForm.form_id);
+  }
 
   revalidatePath("/settings/typeform-forms");
   redirect(`/settings/typeform-forms?form=${formConfigId}&saved=mapping`);
@@ -115,8 +174,57 @@ export default async function TypeformFormsSettingsPage({
   const params = await searchParams;
   const selectedFormId = typeof params.form === "string" ? params.form : "";
   const settings = await getIntegrationSettings();
+  const riskScoringSettings = await getPlatformSettings("RISK_SCORING", normalizeRiskScoringSettings);
   const typeform = getSetting<TypeformConfig>(settings, "TYPEFORM");
   const typeformForms = await getTypeformForms();
+  const formMappingStatusEntries = await Promise.all(
+    typeformForms.map(async (form) => {
+      const [mappings, fields] = await Promise.all([
+        getTypeformFormQuestionMappings(form.id),
+        fetchTypeformFormFields(form.form_id).catch(() => []),
+      ]);
+      const questions = flattenTypeformFieldDefinitions(fields).filter((field) => field.title || field.ref);
+      const totalQuestions = questions.length;
+      const mappedCount = mappings.length;
+      const allWeightsValid = mappings.every((item) => item.weight > 0);
+
+      const status: FormMappingStatus =
+        totalQuestions === 0
+          ? {
+              mappedCount,
+              totalQuestions,
+              tone: "bg-slate-100 text-slate-600",
+              label: "Sem leitura API",
+              detail: "Nao foi possivel validar a definicao do form agora.",
+            }
+          : mappedCount === 0
+            ? {
+                mappedCount,
+                totalQuestions,
+                tone: "bg-amber-100 text-amber-700",
+                label: "Pendente",
+                detail: "Nenhuma pergunta mapeada ainda.",
+              }
+            : mappedCount < totalQuestions || !allWeightsValid
+              ? {
+                  mappedCount,
+                  totalQuestions,
+                  tone: "bg-orange-100 text-orange-700",
+                  label: "Parcial",
+                  detail: `${mappedCount}/${totalQuestions} perguntas configuradas.`,
+                }
+              : {
+                  mappedCount,
+                  totalQuestions,
+                  tone: "bg-emerald-100 text-emerald-700",
+                  label: "Completo",
+                  detail: `${mappedCount}/${totalQuestions} perguntas configuradas.`,
+                };
+
+      return [form.id, status] as const;
+    }),
+  );
+  const formMappingStatuses = new Map(formMappingStatusEntries);
   const selectedForm = selectedFormId ? await getTypeformFormById(selectedFormId) : null;
   const existingMappings = selectedForm ? await getTypeformFormQuestionMappings(selectedForm.id) : [];
   const rawFields = selectedForm ? await fetchTypeformFormFields(selectedForm.form_id) : [];
@@ -140,6 +248,7 @@ export default async function TypeformFormsSettingsPage({
             question_text: field.title ?? field.ref ?? `Question ${index + 1}`,
             question_order: index + 1,
             section: saved?.section ?? "COMMON",
+            weight: saved?.weight ?? 1,
             type: field.type ?? "question",
           };
         })
@@ -167,24 +276,60 @@ export default async function TypeformFormsSettingsPage({
               <p className="text-sm text-[var(--color-neutral-600)]">Nenhum formulário cadastrado ainda.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[860px] text-left">
+                <table className="w-full min-w-[920px] text-left">
                   <thead>
                     <tr className="border-b border-[var(--color-neutral-200)] text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
                       <th className="px-3 py-3">Nome</th>
                       <th className="px-3 py-3">ID</th>
                       <th className="px-3 py-3">Entidade</th>
                       <th className="px-3 py-3">Workflow</th>
+                      <th className="px-3 py-3">Mapeamento</th>
                       <th className="px-3 py-3">Status</th>
-                      <th className="px-3 py-3 text-right">Ações</th>
+                      <th className="px-3 py-3 text-right">Remover</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {typeformForms.map((form) => (
+                    {typeformForms.map((form) => {
+                      const mappingStatus = formMappingStatuses.get(form.id);
+
+                      return (
                       <tr key={form.id} className="border-b border-[var(--color-neutral-100)] text-sm">
                         <td className="px-3 py-4 font-semibold text-[var(--color-text)]">{form.name}</td>
                         <td className="px-3 py-4 font-mono text-xs text-[var(--color-neutral-600)]">{form.form_id}</td>
                         <td className="px-3 py-4 text-[var(--color-neutral-700)]">{form.entity_kind === "ANY" ? "Qualquer" : form.entity_kind}</td>
                         <td className="px-3 py-4 capitalize text-[var(--color-neutral-700)]">{form.workflow.replaceAll("_", " ")}</td>
+                        <td className="px-3 py-4">
+                          {mappingStatus ? (
+                            <div className="space-y-1">
+                              <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${mappingStatus.tone}`}>
+                                {mappingStatus.label}
+                              </span>
+                              <p className="text-xs text-[var(--color-neutral-600)]">{mappingStatus.detail}</p>
+                              <div className="pt-2">
+                                <Link
+                                  href={`/settings/typeform-forms?form=${form.id}`}
+                                  className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-primary)]/15 bg-[var(--color-primary)]/5 px-3 py-2 text-xs font-bold text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/10"
+                                  aria-label={`Editar mapeamento de ${form.name}`}
+                                >
+                                  <span aria-hidden="true">✎</span>
+                                  Customizar
+                                </Link>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <span className="text-xs text-[var(--color-neutral-600)]">Aguardando leitura</span>
+                              <Link
+                                href={`/settings/typeform-forms?form=${form.id}`}
+                                className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-primary)]/15 bg-[var(--color-primary)]/5 px-3 py-2 text-xs font-bold text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/10"
+                                aria-label={`Editar mapeamento de ${form.name}`}
+                              >
+                                <span aria-hidden="true">✎</span>
+                                Customizar
+                              </Link>
+                            </div>
+                          )}
+                        </td>
                         <td className="px-3 py-4">
                           <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${form.enabled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
                             {form.enabled ? "Ativo" : "Inativo"}
@@ -192,13 +337,6 @@ export default async function TypeformFormsSettingsPage({
                         </td>
                         <td className="px-3 py-4">
                           <div className="flex justify-end gap-2">
-                            <Link
-                              href={`/settings/typeform-forms?form=${form.id}`}
-                              className="rounded-lg p-2 text-[var(--color-neutral-400)] transition hover:bg-[var(--color-neutral-100)] hover:text-[var(--color-primary)]"
-                              aria-label={`Editar mapeamento de ${form.name}`}
-                            >
-                              ✎
-                            </Link>
                             <form action={removeTypeformForm}>
                               <input type="hidden" name="id" value={form.id} />
                               <button type="submit" className="rounded-lg p-2 text-[var(--color-neutral-400)] transition hover:bg-red-50 hover:text-red-600" aria-label={`Remover ${form.name}`}>
@@ -208,7 +346,7 @@ export default async function TypeformFormsSettingsPage({
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>
@@ -262,7 +400,7 @@ export default async function TypeformFormsSettingsPage({
           {selectedForm ? (
             <SectionCard
               title={`Mapeamento de Perguntas • ${selectedForm.name}`}
-              description="Todas as perguntas do formulário são listadas na ordem original do Typeform. Defina manualmente a seção de cada item."
+              description="Todas as perguntas do formulário são listadas na ordem original do Typeform. Defina a seção e o peso usado no cálculo de risco para cada item."
             >
               {flattenedQuestions.length === 0 ? (
                 <div className="rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-6 text-sm text-[var(--color-neutral-600)]">
@@ -274,6 +412,7 @@ export default async function TypeformFormsSettingsPage({
                   <div className="rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)]/60 px-4 py-3 text-sm text-[var(--color-neutral-700)]">
                     {flattenedQuestions.length} perguntas encontradas. As respostas futuras e históricas passarão a usar este mapeamento por pergunta.
                   </div>
+                  <RiskScoringLegend settings={riskScoringSettings} />
                   <div className="space-y-3">
                     {flattenedQuestions.map((question) => (
                       <article key={question.question_key} className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-4">
@@ -297,15 +436,31 @@ export default async function TypeformFormsSettingsPage({
                               Ref: <span className="font-mono">{question.question_ref || question.question_key}</span>
                             </p>
                           </div>
-                          <label className="min-w-[220px] space-y-2">
-                            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Seção</span>
-                            <select name="section" defaultValue={question.section} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2.5 text-sm font-semibold">
-                              <option value="COMMON">Common</option>
-                              <option value="COMPLIANCE">Compliance</option>
-                              <option value="PRIVACY">Privacy</option>
-                              <option value="SECURITY">Security</option>
-                            </select>
-                          </label>
+                          <div className="grid min-w-[320px] gap-4 lg:grid-cols-[minmax(0,1fr)_120px]">
+                            <label className="space-y-2">
+                              <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Seção</span>
+                              <select name="section" defaultValue={question.section} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2.5 text-sm font-semibold">
+                                <option value="COMMON">Common</option>
+                                <option value="COMPLIANCE">Compliance</option>
+                                <option value="PRIVACY">Privacy</option>
+                                <option value="SECURITY">Security</option>
+                              </select>
+                            </label>
+                            <label className="space-y-2">
+                              <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Peso</span>
+                              <select
+                                name="weight"
+                                defaultValue={question.weight}
+                                className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2.5 text-sm font-semibold"
+                              >
+                                {weightOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
                         </div>
                       </article>
                     ))}
@@ -357,6 +512,7 @@ export default async function TypeformFormsSettingsPage({
               <li>Cadastre o formulário base com o `form_id` exato do Typeform.</li>
               <li>Clique no lápis do formulário para carregar todas as perguntas em ordem.</li>
               <li>Classifique cada pergunta em `Common`, `Compliance`, `Privacy` ou `Security`.</li>
+              <li>Defina o peso de cada pergunta para influenciar o score de risco da seção.</li>
               <li>Salve o mapeamento antes de rodar o backfill ou sincronizar novos tickets.</li>
             </ol>
           </SectionCard>

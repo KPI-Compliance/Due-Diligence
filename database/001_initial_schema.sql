@@ -158,10 +158,13 @@ CREATE INDEX IF NOT EXISTS idx_entity_timeline_events_sort_order ON entity_timel
 CREATE TABLE IF NOT EXISTS assessment_decisions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   assessment_id UUID NOT NULL UNIQUE REFERENCES assessments(id) ON DELETE CASCADE,
+  security_score NUMERIC(4,1),
   security_level risk_level,
   security_note TEXT,
+  privacy_score NUMERIC(4,1),
   privacy_level risk_level,
   privacy_note TEXT,
+  compliance_score NUMERIC(4,1),
   compliance_level risk_level,
   compliance_note TEXT,
   combined_score NUMERIC(4,1),

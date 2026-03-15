@@ -17,10 +17,12 @@ export default function HomePage() {
     <main className="min-h-screen bg-white">
       <div className="grid min-h-screen w-full lg:grid-cols-2">
         <section className="relative hidden overflow-hidden bg-[var(--color-secondary)] px-12 py-12 text-white lg:flex xl:px-20 xl:py-16">
-          <div className="absolute left-12 top-12 z-20 flex items-center gap-3 xl:left-20 xl:top-16">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-primary)] text-lg font-extrabold">V</div>
+          <div className="absolute left-12 top-12 z-20 flex flex-col items-start gap-2 xl:left-20 xl:top-16">
+            <div className="flex h-16 w-40 items-center justify-center">
+              <img src="/Logo_branco.png" alt="VTEX" className="h-full w-full object-contain" />
+            </div>
             <div className="text-2xl font-extrabold tracking-tight">
-              <span>Due Diligence VTEX</span>
+              <span>Due Diligence System</span>
             </div>
           </div>
 
@@ -51,10 +53,12 @@ export default function HomePage() {
 
         <section className="flex w-full items-center justify-center bg-gray-50 px-6 py-8 sm:px-12 lg:bg-white">
           <div className="w-full max-w-md">
-            <div className="mb-10 flex items-center justify-center gap-3 lg:hidden">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-primary)] text-sm font-extrabold text-white">V</div>
+            <div className="mb-10 flex flex-col items-center justify-center gap-2 lg:hidden">
+              <div className="flex h-12 w-32 items-center justify-center">
+                <img src="/Logo_branco.png" alt="VTEX" className="h-full w-full object-contain" />
+              </div>
               <div className="text-xl font-extrabold tracking-tight text-[var(--color-secondary)]">
-                <span>Due Diligence VTEX</span>
+                <span>Due Diligence System</span>
               </div>
             </div>
 

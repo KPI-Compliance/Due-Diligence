@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "backfill:partner-typeform": "node scripts/backfill-partner-typeform-responses.mjs"
+    "backfill:partner-typeform": "node scripts/backfill-partner-typeform-responses.mjs",
+    "backfill:partner-risk-scores": "node scripts/backfill-partner-risk-scores.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

@@ -5,12 +5,12 @@ import { getVendorsList } from "@/lib/data";
 export const dynamic = "force-dynamic";
 
 const filters = [
-  { label: "Vendor", kind: "text" as const, placeholder: "Filter by vendor name" },
-  { label: "Initial Questionnaire", kind: "select" as const, options: ["All", "Pending", "Sent", "Responded", "Reviewed"] },
-  { label: "Main Questionnaire", kind: "select" as const, options: ["All", "Pending", "Responded", "Reviewed"] },
-  { label: "Risk Level", kind: "select" as const, options: ["All Risks", "Low", "Medium", "High", "Critical"] },
-  { label: "Owner", kind: "select" as const, options: ["All Owners"] },
-  { label: "Date Range", kind: "button" as const, buttonText: "Last 90 days", className: "sm:max-w-[220px]" },
+  { name: "vendor", label: "Vendor", kind: "text" as const, placeholder: "Filter by vendor name" },
+  { name: "initial_questionnaire", label: "Initial Questionnaire", kind: "select" as const, options: ["All", "Pending", "Sent", "Responded", "Reviewed"] },
+  { name: "main_questionnaire", label: "Main Questionnaire", kind: "select" as const, options: ["All", "Pending", "Responded", "Reviewed"] },
+  { name: "risk_level", label: "Risk Level", kind: "select" as const, options: ["All Risks", "Low", "Medium", "High", "Critical"] },
+  { name: "owner", label: "Owner", kind: "select" as const, options: ["All Owners"] },
+  { name: "date_range", label: "Date Range", kind: "button" as const, buttonText: "Last 90 days", className: "sm:max-w-[220px]" },
 ];
 
 function renderWorkflowBadge(label: string) {

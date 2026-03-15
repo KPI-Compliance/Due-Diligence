@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import { EntityDetailView } from "@/components/ui/EntityDetailView";
-import { getEntityDetailBySlug, normalizeTab } from "@/lib/data";
+import { getEntityDetailBySlug, normalizePartnerTab } from "@/lib/data";
 
 type PartnerDetailPageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string; section?: string }>;
+  searchParams: Promise<{ tab?: string; section?: string; saved?: string }>;
 };
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export default async function PartnerDetailPage({ params, searchParams }: Partne
   }
 
   const resolvedSearchParams = await searchParams;
-  const tab = normalizeTab(resolvedSearchParams.tab);
+  const tab = normalizePartnerTab(resolvedSearchParams.tab);
 
   return (
     <EntityDetailView
@@ -27,6 +27,7 @@ export default async function PartnerDetailPage({ params, searchParams }: Partne
       detail={detail}
       activeTab={tab}
       activeQuestionnaireSection={resolvedSearchParams.section}
+      saveStatus={resolvedSearchParams.saved}
     />
   );
 }

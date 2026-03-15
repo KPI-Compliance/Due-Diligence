@@ -5,14 +5,6 @@ import { getPartnersList } from "@/lib/data";
 export const dynamic = "force-dynamic";
 const MAX_PARTNER_ROWS = 25;
 
-const filters = [
-  { label: "Partner", kind: "text" as const, placeholder: "Filter by partner name" },
-  { label: "Assessment Status", kind: "select" as const, options: ["All", "Pending", "In Review", "Completed"] },
-  { label: "Risk Level", kind: "select" as const, options: ["All Risks", "Low", "Medium", "High", "Critical"] },
-  { label: "Owner", kind: "select" as const, options: ["All Owners"] },
-  { label: "Date Range", kind: "button" as const, buttonText: "Last 60 days", className: "sm:max-w-[220px]" },
-];
-
 function renderAssessmentBadge(label: string) {
   const normalized = label.toLowerCase();
   const className =
@@ -35,11 +27,75 @@ function renderTechnicalReviewBadge(label: string) {
 }
 
 export default async function PartnersPage({
+  searchParams,
 }: {
-  searchParams?: Promise<{ updated?: string }>;
+  searchParams?: Promise<{
+    partner?: string;
+    assessment_status?: string;
+    risk_level?: string;
+    owner?: string;
+    updated?: string;
+  }>;
 }) {
   const partners = await getPartnersList();
-  const visiblePartners = partners.slice(0, MAX_PARTNER_ROWS);
+  const params = searchParams ? await searchParams : undefined;
+  const partnerQuery = (params?.partner ?? "").trim().toLowerCase();
+  const assessmentStatus = (params?.assessment_status ?? "All").trim();
+  const riskLevel = (params?.risk_level ?? "All Risks").trim();
+  const owner = (params?.owner ?? "All Owners").trim();
+
+  const ownerOptions = ["All Owners", ...Array.from(new Set(partners.map((item) => item.owner).filter(Boolean))).sort((a, b) => a.localeCompare(b))];
+
+  const filters = [
+    {
+      name: "partner",
+      label: "Partner",
+      kind: "text" as const,
+      placeholder: "Filter by partner name",
+      value: params?.partner ?? "",
+    },
+    {
+      name: "assessment_status",
+      label: "Assessment Status",
+      kind: "select" as const,
+      options: ["All", "Pending", "In Review", "Completed"],
+      value: assessmentStatus,
+    },
+    {
+      name: "risk_level",
+      label: "Risk Level",
+      kind: "select" as const,
+      options: ["All Risks", "Pending", "Low", "Medium", "High", "Critical"],
+      value: riskLevel,
+    },
+    {
+      name: "owner",
+      label: "Owner",
+      kind: "select" as const,
+      options: ownerOptions,
+      value: owner,
+    },
+  ];
+
+  const filteredPartners = partners.filter((item) => {
+    const matchesPartner =
+      partnerQuery.length === 0 ||
+      item.company.toLowerCase().includes(partnerQuery) ||
+      (item.jiraTicket ?? "").toLowerCase().includes(partnerQuery);
+
+    const matchesAssessmentStatus =
+      assessmentStatus === "All" || item.assessmentStatus === assessmentStatus;
+
+    const matchesRiskLevel =
+      riskLevel === "All Risks" || item.risk === riskLevel;
+
+    const matchesOwner =
+      owner === "All Owners" || item.owner === owner;
+
+    return matchesPartner && matchesAssessmentStatus && matchesRiskLevel && matchesOwner;
+  });
+
+  const visiblePartners = filteredPartners.slice(0, MAX_PARTNER_ROWS);
 
   return (
     <div className="space-y-4">
@@ -53,32 +109,28 @@ export default async function PartnersPage({
           "Company",
           "Jira Ticket",
           "Empresa",
-          "Segment",
           "Assessment Status",
-          "Privacy",
-          "Security",
-          "Compliance",
           "Redteam",
           "Final Risk",
           "Last Review",
         ]}
-        tableFooterText={`Showing 1 to ${visiblePartners.length} of ${partners.length} partners`}
+        tableFooterText={`Showing 1 to ${visiblePartners.length} of ${filteredPartners.length} partners`}
         summary={[
           {
             label: "Pending",
-            value: partners.filter((v) => v.assessmentStatus === "Pending").length.toString(),
+            value: filteredPartners.filter((v) => v.assessmentStatus === "Pending").length.toString(),
             note: "Partners aguardando avance da avaliacao",
             tone: "primary",
           },
           {
             label: "Completed",
-            value: partners.filter((v) => v.assessmentStatus === "Completed").length.toString(),
+            value: filteredPartners.filter((v) => v.assessmentStatus === "Completed").length.toString(),
             note: "Partners com analise encerrada",
             tone: "success",
           },
           {
             label: "Critical",
-            value: partners.filter((v) => v.risk === "Critical").length.toString(),
+            value: filteredPartners.filter((v) => v.risk === "Critical").length.toString(),
             note: "Risco final consolidado entre as 3 areas",
             tone: "danger",
           },
@@ -100,18 +152,17 @@ export default async function PartnersPage({
             </td>
             <td className="px-6 py-4 text-sm font-semibold text-[var(--color-secondary)]"><Link href={`/partners/${item.id}`} className="block">{item.jiraTicket ?? "-"}</Link></td>
             <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/partners/${item.id}`} className="block">{item.companyGroup}</Link></td>
-            <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]"><Link href={`/partners/${item.id}`} className="block">{item.segment}</Link></td>
             <td className="px-6 py-4"><Link href={`/partners/${item.id}`} className="block">{renderAssessmentBadge(item.assessmentStatus)}</Link></td>
-            <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/partners/${item.id}`} className="block">{item.privacyRisk ?? "-"}</Link></td>
-            <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/partners/${item.id}`} className="block">{item.securityRisk ?? "-"}</Link></td>
-            <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/partners/${item.id}`} className="block">{item.complianceRisk ?? "-"}</Link></td>
             <td className="px-6 py-4"><Link href={`/partners/${item.id}`} className="block">{renderTechnicalReviewBadge(item.technicalReviewStatus)}</Link></td>
             <td className="px-6 py-4">
-              <Link href={`/partners/${item.id}`} className="block">
+              <Link href={`/partners/${item.id}`} className="block space-y-1">
                 <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${item.riskClass}`}>
                   <span className={`h-2 w-2 rounded-full ${item.riskDot}`} />
                   {item.risk}
                 </span>
+                <p className="text-[11px] text-[var(--color-neutral-600)]">Privacy: {item.privacyRisk ?? "-"}</p>
+                <p className="text-[11px] text-[var(--color-neutral-600)]">Security: {item.securityRisk ?? "-"}</p>
+                <p className="text-[11px] text-[var(--color-neutral-600)]">Compliance: {item.complianceRisk ?? "-"}</p>
               </Link>
             </td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]"><Link href={`/partners/${item.id}`} className="block">{item.lastReview}</Link></td>

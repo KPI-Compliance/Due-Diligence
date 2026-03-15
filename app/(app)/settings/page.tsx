@@ -26,6 +26,7 @@ import {
   type RiskScoringSettings,
   upsertPlatformSettings,
 } from "@/lib/platform-settings";
+import { recalculateAllPartnerAssessmentDecisions } from "@/lib/partner-risk-scoring";
 
 type UserRow = {
   initials: string;
@@ -286,17 +287,23 @@ async function saveGeneralSettings(formData: FormData) {
 async function saveRiskScoringSettings(formData: FormData) {
   "use server";
 
+  const lowMax = Math.max(0, Math.min(10, Number(formData.get("low_max") ?? 3) || 3));
+  const mediumMaxInput = Math.max(0, Math.min(10, Number(formData.get("medium_max") ?? 6) || 6));
+  const mediumMax = Math.max(lowMax, mediumMaxInput);
+
   const payload: RiskScoringSettings = {
     security_weight: Math.max(0, Math.min(100, Number(formData.get("security_weight") ?? 50) || 50)),
     privacy_weight: Math.max(0, Math.min(100, Number(formData.get("privacy_weight") ?? 30) || 30)),
     compliance_weight: Math.max(0, Math.min(100, Number(formData.get("compliance_weight") ?? 20) || 20)),
-    low_min: Math.max(0, Math.min(100, Number(formData.get("low_min") ?? 80) || 80)),
-    medium_min: Math.max(0, Math.min(100, Number(formData.get("medium_min") ?? 60) || 60)),
-    high_min: Math.max(0, Math.min(100, Number(formData.get("high_min") ?? 40) || 40)),
-    critical_min: Math.max(0, Math.min(100, Number(formData.get("critical_min") ?? 0) || 0)),
+    fully_score: Math.max(0, Math.min(10, Number(formData.get("fully_score") ?? 0) || 0)),
+    partially_score: Math.max(0, Math.min(10, Number(formData.get("partially_score") ?? 5) || 5)),
+    does_not_meet_score: Math.max(0, Math.min(10, Number(formData.get("does_not_meet_score") ?? 10) || 10)),
+    low_max: lowMax,
+    medium_max: mediumMax,
   };
 
   await upsertPlatformSettings("RISK_SCORING", payload);
+  await recalculateAllPartnerAssessmentDecisions();
   revalidatePath("/settings");
   redirect("/settings?tab=pontuacao&saved=pontuacao");
 }
@@ -484,14 +491,82 @@ function RiskScoringTab({
   saveAction: (formData: FormData) => Promise<void>;
 }) {
   const totalWeight = value.security_weight + value.privacy_weight + value.compliance_weight;
+  const weightedExampleScore =
+    (8 * value.security_weight + 2 * value.privacy_weight + 4 * value.compliance_weight) /
+    Math.max(1, totalWeight);
+  const exampleClassification =
+    weightedExampleScore <= value.low_max
+      ? "Low"
+      : weightedExampleScore <= value.medium_max
+        ? "Medium"
+        : "High";
   return (
     <form action={saveAction} className="space-y-6">
-      <SectionCard title="Pesos de Pontuação" description="Defina como cada domínio afeta a nota final de risco (total deve somar 100%).">
+      <SectionCard title="Como Funciona" description="A fórmula acontece em 3 camadas: pergunta, seção e score final.">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="space-y-4 rounded-xl border border-[var(--color-primary)]/10 bg-[var(--color-primary)]/5 p-5">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-4">
+                <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">1. Pergunta</p>
+                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
+                  Cada pergunta recebe um <span className="font-bold text-[var(--color-text)]">peso</span> no mapeamento do Typeform.
+                </p>
+                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
+                  Quanto maior o peso, maior o impacto da pergunta dentro da seção.
+                </p>
+              </div>
+              <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-4">
+                <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">2. Avaliação</p>
+                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">A escolha do analista vira score numérico:</p>
+                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">Totalmente = {value.fully_score.toFixed(1)}</p>
+                <p className="text-sm text-[var(--color-neutral-700)]">Parcialmente = {value.partially_score.toFixed(1)}</p>
+                <p className="text-sm text-[var(--color-neutral-700)]">Não Atende = {value.does_not_meet_score.toFixed(1)}</p>
+                <p className="text-sm text-[var(--color-neutral-700)]">N/A = fora do cálculo</p>
+              </div>
+              <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-4">
+                <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">3. Score Final</p>
+                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
+                  Primeiro calculamos o score de cada seção por média ponderada das perguntas.
+                </p>
+                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
+                  Depois aplicamos os <span className="font-bold text-[var(--color-text)]">pesos por seção</span> para chegar ao risk score final.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-5">
+            <p className="text-sm font-bold text-[var(--color-text)]">Exemplo prático</p>
+            <div className="mt-4 space-y-3 text-sm text-[var(--color-neutral-700)]">
+              <p>
+                Suponha que os scores por seção ficaram:
+                <span className="font-bold text-[var(--color-text)]"> Security = 8.0</span>,
+                <span className="font-bold text-[var(--color-text)]"> Privacy = 2.0</span> e
+                <span className="font-bold text-[var(--color-text)]"> Compliance = 4.0</span>.
+              </p>
+              <p>
+                Com pesos de seção
+                <span className="font-bold text-[var(--color-text)]"> {value.security_weight}% / {value.privacy_weight}% / {value.compliance_weight}%</span>,
+                o score final ponderado fica:
+              </p>
+              <div className="rounded-lg bg-[var(--color-neutral-100)] px-4 py-3 font-mono text-xs text-[var(--color-text)]">
+                ((8.0 x {value.security_weight}) + (2.0 x {value.privacy_weight}) + (4.0 x {value.compliance_weight})) / {totalWeight || 1} = {weightedExampleScore.toFixed(1)}
+              </div>
+              <p>
+                Com os thresholds atuais, esse resultado seria classificado como
+                <span className="font-bold text-[var(--color-text)]"> {exampleClassification}</span>.
+              </p>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Pesos por Seção" description="Defina como Security, Privacy e Compliance afetam o score final ponderado (total recomendado: 100%).">
         <div className="space-y-8">
           {[
-            { key: "security_weight", label: "Postura de Segurança", icon: "security", value: value.security_weight },
-            { key: "privacy_weight", label: "Privacidade e Dados", icon: "privacy_tip", value: value.privacy_weight },
-            { key: "compliance_weight", label: "Conformidade Regulatória", icon: "verified_user", value: value.compliance_weight },
+            { key: "security_weight", label: "Security", icon: "security", value: value.security_weight },
+            { key: "privacy_weight", label: "Privacy", icon: "privacy_tip", value: value.privacy_weight },
+            { key: "compliance_weight", label: "Compliance", icon: "verified_user", value: value.compliance_weight },
           ].map((item) => (
             <div key={item.label} className="space-y-3">
               <div className="flex items-center justify-between gap-3">
@@ -510,13 +585,28 @@ function RiskScoringTab({
         </div>
       </SectionCard>
 
-      <SectionCard title="Classificação Automática" description="Limiares usados para converter nota numérica em nível de risco.">
-        <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-4">
+      <SectionCard title="Score por Avaliação" description="Régua numérica aplicada quando o analista marca cada resposta do questionário. `N/A` e `Não avaliado` ficam fora do cálculo.">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {[
-            { key: "low_min", label: "Baixo", range: `${value.low_min}-100`, tone: "text-emerald-700 bg-emerald-50 border-emerald-200" },
-            { key: "medium_min", label: "Médio", range: `${value.medium_min}-${value.low_min - 1}`, tone: "text-amber-700 bg-amber-50 border-amber-200" },
-            { key: "high_min", label: "Alto", range: `${value.high_min}-${value.medium_min - 1}`, tone: "text-orange-700 bg-orange-50 border-orange-200" },
-            { key: "critical_min", label: "Crítico", range: `${value.critical_min}-${value.high_min - 1}`, tone: "text-red-700 bg-red-50 border-red-200" },
+            { key: "fully_score", label: "Totalmente", tone: "text-emerald-700 bg-emerald-50 border-emerald-200", value: value.fully_score },
+            { key: "partially_score", label: "Parcialmente", tone: "text-amber-700 bg-amber-50 border-amber-200", value: value.partially_score },
+            { key: "does_not_meet_score", label: "Não Atende", tone: "text-red-700 bg-red-50 border-red-200", value: value.does_not_meet_score },
+          ].map((item) => (
+            <div key={item.label} className={`rounded-xl border p-4 ${item.tone}`}>
+              <p className="text-xs font-bold uppercase tracking-wider">{item.label}</p>
+              <p className="mt-1 text-lg font-black">{item.value.toFixed(1)}</p>
+              <input name={item.key} type="number" min={0} max={10} step="0.1" defaultValue={item.value} className="mt-3 w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm text-[var(--color-text)]" />
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Thresholds de Classificação" description="Faixas de score entre 0 e 10 usadas para classificar cada seção e o risco final.">
+        <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {[
+            { label: "Low", range: `0.0 - ${value.low_max.toFixed(1)}`, tone: "text-emerald-700 bg-emerald-50 border-emerald-200" },
+            { label: "Medium", range: `${value.low_max.toFixed(1)} - ${value.medium_max.toFixed(1)}`, tone: "text-amber-700 bg-amber-50 border-amber-200" },
+            { label: "High", range: `>${value.medium_max.toFixed(1)}`, tone: "text-red-700 bg-red-50 border-red-200" },
           ].map((item) => (
             <div key={item.label} className={`rounded-xl border p-4 ${item.tone}`}>
               <p className="text-xs font-bold uppercase tracking-wider">{item.label}</p>
@@ -524,22 +614,14 @@ function RiskScoringTab({
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <label className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Mínimo Baixo</span>
-            <input name="low_min" type="number" min={0} max={100} defaultValue={value.low_min} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
+            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Máximo Low</span>
+            <input name="low_max" type="number" min={0} max={10} step="0.1" defaultValue={value.low_max} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
           </label>
           <label className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Mínimo Médio</span>
-            <input name="medium_min" type="number" min={0} max={100} defaultValue={value.medium_min} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
-          </label>
-          <label className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Mínimo Alto</span>
-            <input name="high_min" type="number" min={0} max={100} defaultValue={value.high_min} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
-          </label>
-          <label className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Mínimo Crítico</span>
-            <input name="critical_min" type="number" min={0} max={100} defaultValue={value.critical_min} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
+            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Máximo Medium</span>
+            <input name="medium_max" type="number" min={0} max={10} step="0.1" defaultValue={value.medium_max} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
           </label>
         </div>
       </SectionCard>

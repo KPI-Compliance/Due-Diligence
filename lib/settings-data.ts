@@ -67,6 +67,7 @@ export type TypeformFormQuestionMapping = {
   question_text: string;
   question_order: number;
   section: TypeformQuestionSection;
+  weight: number;
 };
 
 export type IntegrationSetting = {
@@ -412,7 +413,8 @@ export async function getTypeformFormQuestionMappings(formConfigId: string): Pro
         question_ref,
         question_text,
         question_order,
-        section::text
+        section::text,
+        weight
       FROM typeform_form_question_mappings
       WHERE typeform_form_config_id = ${formConfigId}::uuid
       ORDER BY question_order ASC, created_at ASC
@@ -424,6 +426,7 @@ export async function getTypeformFormQuestionMappings(formConfigId: string): Pro
       question_text: string;
       question_order: number;
       section: string;
+      weight: string | number;
     }>;
 
     return rows.map((row) => ({
@@ -432,11 +435,44 @@ export async function getTypeformFormQuestionMappings(formConfigId: string): Pro
         row.section === "COMPLIANCE" || row.section === "PRIVACY" || row.section === "SECURITY"
           ? row.section
           : "COMMON",
+      weight: Number(row.weight ?? 1),
     }));
   } catch (error) {
     const code = (error as { code?: string })?.code;
     if (code === "42P01") {
       return [];
+    }
+    if (code === "42703") {
+      const legacyRows = (await sql`
+        SELECT
+          id::text,
+          typeform_form_config_id::text,
+          question_key,
+          question_ref,
+          question_text,
+          question_order,
+          section::text
+        FROM typeform_form_question_mappings
+        WHERE typeform_form_config_id = ${formConfigId}::uuid
+        ORDER BY question_order ASC, created_at ASC
+      `) as Array<{
+        id: string;
+        typeform_form_config_id: string;
+        question_key: string;
+        question_ref: string | null;
+        question_text: string;
+        question_order: number;
+        section: string;
+      }>;
+
+      return legacyRows.map((row) => ({
+        ...row,
+        section:
+          row.section === "COMPLIANCE" || row.section === "PRIVACY" || row.section === "SECURITY"
+            ? row.section
+            : "COMMON",
+        weight: 1,
+      }));
     }
     throw error;
   }
@@ -451,6 +487,7 @@ export async function replaceTypeformFormQuestionMappings(
     question_text: string;
     question_order: number;
     section: TypeformQuestionSection;
+    weight: number;
   }>,
 ) {
   try {
@@ -465,7 +502,8 @@ export async function replaceTypeformFormQuestionMappings(
           question_ref,
           question_text,
           question_order,
-          section
+          section,
+          weight
         ) VALUES (
           COALESCE(${mapping.id ?? null}::uuid, gen_random_uuid()),
           ${formConfigId}::uuid,
@@ -473,7 +511,8 @@ export async function replaceTypeformFormQuestionMappings(
           ${mapping.question_ref ?? null},
           ${mapping.question_text},
           ${mapping.question_order},
-          ${mapping.section}::typeform_question_section
+          ${mapping.section}::typeform_question_section,
+          ${Number.isFinite(mapping.weight) ? mapping.weight : 1}
         )
       `;
     }
@@ -481,6 +520,9 @@ export async function replaceTypeformFormQuestionMappings(
     const code = (error as { code?: string })?.code;
     if (code === "42P01") {
       throw new Error("typeform_form_question_mappings table not found. Run database/011_typeform_form_question_mappings.sql.");
+    }
+    if (code === "42703" || (error as { message?: string })?.message?.includes("weight")) {
+      throw new Error("typeform_form_question_mappings.weight not found. Run database/012_typeform_question_weights.sql.");
     }
     if (code === "42704") {
       throw new Error("typeform_question_section enum not found. Run database/011_typeform_form_question_mappings.sql.");

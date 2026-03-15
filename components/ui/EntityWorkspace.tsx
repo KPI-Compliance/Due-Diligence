@@ -1,14 +1,8 @@
 import { PageContainer } from "@/components/layout/PageContainer";
+import { WorkspaceFilters, type WorkspaceFilterControl } from "@/components/ui/WorkspaceFilters";
 import { cn } from "@/lib/utils";
 
-type FilterControl = {
-  label: string;
-  kind: "text" | "select" | "button";
-  placeholder?: string;
-  options?: string[];
-  buttonText?: string;
-  className?: string;
-};
+type FilterControl = WorkspaceFilterControl;
 
 type SummaryTone = "primary" | "success" | "danger";
 
@@ -101,40 +95,7 @@ export function EntityWorkspace({
         })}
       </section>
 
-      <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap gap-3">
-          {filters.map((filter) => (
-            <div key={filter.label} className={cn("min-w-[180px] flex-1", filter.className)}>
-              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
-                {filter.label}
-              </label>
-              {filter.kind === "text" ? (
-                <input
-                  type="text"
-                  placeholder={filter.placeholder}
-                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm outline-none transition focus:border-[var(--color-primary)]/40 focus:ring-2 focus:ring-[var(--color-primary)]/10"
-                />
-              ) : null}
-              {filter.kind === "select" ? (
-                <select className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm outline-none transition focus:border-[var(--color-primary)]/40 focus:ring-2 focus:ring-[var(--color-primary)]/10">
-                  {filter.options?.map((option) => (
-                    <option key={option}>{option}</option>
-                  ))}
-                </select>
-              ) : null}
-              {filter.kind === "button" ? (
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-left text-sm"
-                >
-                  <span>{filter.buttonText}</span>
-                  <span className="text-[var(--color-neutral-600)]">▾</span>
-                </button>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </section>
+      <WorkspaceFilters filters={filters} />
 
       <section className="overflow-hidden rounded-xl border border-[var(--color-neutral-200)] bg-white shadow-sm">
         <div className="overflow-x-auto">

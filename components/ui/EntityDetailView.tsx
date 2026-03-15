@@ -16,6 +16,7 @@ type EntityDetailViewProps = {
   detail: EntityDetailData;
   activeTab: DetailTabKey;
   activeQuestionnaireSection?: string;
+  saveStatus?: string;
 };
 
 const tabs: Array<{ key: DetailTabKey; label: string }> = [
@@ -25,6 +26,12 @@ const tabs: Array<{ key: DetailTabKey; label: string }> = [
   { key: "evidence", label: "Evidence" },
   { key: "security_review", label: "Security Review" },
   { key: "privacy_review", label: "Privacy Review" },
+  { key: "decision", label: "Decision" },
+];
+
+const partnerTabs: Array<{ key: DetailTabKey; label: string }> = [
+  { key: "overview", label: "Overview" },
+  { key: "external_questionnaire", label: "External Questionnaire" },
   { key: "decision", label: "Decision" },
 ];
 
@@ -59,12 +66,14 @@ const levelStyles: Record<RiskLevel, string> = {
   Low: "text-emerald-600",
   Medium: "text-amber-600",
   High: "text-red-600",
+  Pending: "text-slate-600",
 };
 
 const levelBadgeStyles: Record<RiskLevel, string> = {
   Low: "bg-emerald-100 text-emerald-700",
   Medium: "bg-amber-100 text-amber-700",
   High: "bg-red-100 text-red-700",
+  Pending: "bg-slate-100 text-slate-700",
 };
 
 type ExternalSection = "Common" | "Compliance" | "Privacy" | "Security";
@@ -270,6 +279,119 @@ function QuestionnaireHero({
   );
 }
 
+function DecisionSummaryCard({
+  decision,
+  compact = false,
+}: {
+  decision: EntityDetailData["decision"];
+  compact?: boolean;
+}) {
+  const getLevelLabel = (level: RiskLevel) => {
+    if (level === "Pending") return "Pending";
+    return `${level} Risk`;
+  };
+
+  return (
+    <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
+      <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">Decision Summary</h3>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <article className={`space-y-3 rounded-xl border border-[var(--color-primary)]/10 ${compact ? "bg-[var(--color-neutral-100)] p-4" : "bg-white p-5 shadow-sm"}`}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Security</span>
+            <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${levelBadgeStyles[decision.security.level]}`}>
+              {getLevelLabel(decision.security.level)}
+            </span>
+          </div>
+          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+            Score: <span className="text-[var(--color-text)]">{decision.security.score ?? "0.0"}</span>
+          </p>
+          <p className="text-sm text-[var(--color-neutral-700)]">{decision.security.note}</p>
+        </article>
+
+        <article className={`space-y-3 rounded-xl border border-[var(--color-primary)]/10 ${compact ? "bg-[var(--color-neutral-100)] p-4" : "bg-white p-5 shadow-sm"}`}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Privacy</span>
+            <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${levelBadgeStyles[decision.privacy.level]}`}>
+              {getLevelLabel(decision.privacy.level)}
+            </span>
+          </div>
+          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+            Score: <span className="text-[var(--color-text)]">{decision.privacy.score ?? "0.0"}</span>
+          </p>
+          <p className="text-sm text-[var(--color-neutral-700)]">{decision.privacy.note}</p>
+        </article>
+
+        <article className={`space-y-3 rounded-xl border border-[var(--color-primary)]/10 ${compact ? "bg-[var(--color-neutral-100)] p-4" : "bg-white p-5 shadow-sm"}`}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Compliance</span>
+            <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${levelBadgeStyles[decision.compliance.level]}`}>
+              {getLevelLabel(decision.compliance.level)}
+            </span>
+          </div>
+          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+            Score: <span className="text-[var(--color-text)]">{decision.compliance.score ?? "0.0"}</span>
+          </p>
+          <p className="text-sm text-[var(--color-neutral-700)]">{decision.compliance.note}</p>
+        </article>
+      </div>
+
+      <div className={`mt-4 flex flex-col items-start justify-between gap-4 rounded-2xl border border-[var(--color-primary)]/20 bg-[var(--color-primary)]/5 ${compact ? "p-5" : "p-6"} md:flex-row md:items-center`}>
+        <div className="flex items-center gap-4">
+          <div
+            className={`flex items-center justify-center rounded-full border-4 border-white bg-[var(--color-primary)] font-bold text-white shadow-lg ${
+              compact ? "h-14 w-14 text-xl" : "h-16 w-16 text-2xl"
+            }`}
+          >
+            {decision.combinedScore}
+          </div>
+          <div>
+            <h4 className={`${compact ? "text-base" : "text-lg"} font-bold text-[var(--color-text)]`}>Combined Risk Score</h4>
+            <p className="text-sm text-[var(--color-neutral-700)]">Weighted average based on assessment modules.</p>
+          </div>
+        </div>
+        <div className="rounded-xl border border-[var(--color-primary)]/10 bg-white px-5 py-3">
+          <span className="text-sm font-semibold uppercase tracking-widest text-[var(--color-neutral-600)]">Classification: </span>
+          <span className="text-lg font-extrabold text-[var(--color-primary)]">{decision.classification}</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function getAnswerHref(answer: string) {
+  const normalized = answer.trim().replace(/^"|"$/g, "");
+  if (!/^https?:\/\//i.test(normalized)) return null;
+
+  try {
+    const url = new URL(normalized);
+    const isTypeformFileUrl =
+      url.protocol === "https:" &&
+      url.hostname === "api.typeform.com" &&
+      (/^\/forms\/[^/]+\/responses\/[^/]+\/fields\/[^/]+\/files\/.+/i.test(url.pathname) ||
+        /^\/responses\/files\/.+/i.test(url.pathname));
+
+    if (isTypeformFileUrl) {
+      return `/api/typeform/file?url=${encodeURIComponent(normalized)}`;
+    }
+
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+function getAnswerLinkLabel(answer: string) {
+  const normalized = answer.trim().replace(/^"|"$/g, "");
+
+  try {
+    const url = new URL(normalized);
+    const fileName = decodeURIComponent(url.pathname.split("/").pop() ?? "").trim();
+    return fileName || normalized;
+  } catch {
+    return normalized;
+  }
+}
+
 function QuestionnaireResponseCard({
   badge,
   sourceLabel,
@@ -295,6 +417,9 @@ function QuestionnaireResponseCard({
   analystObservations?: string;
   editable?: boolean;
 }) {
+  const answerHref = getAnswerHref(answer);
+  const answerLinkLabel = getAnswerLinkLabel(answer);
+
   return (
     <article className="overflow-hidden rounded-xl border border-[var(--color-primary)]/10 bg-white shadow-sm">
       <div className="border-b border-[var(--color-neutral-100)] p-6">
@@ -312,7 +437,18 @@ function QuestionnaireResponseCard({
 
         <div className="rounded-lg border border-[var(--color-neutral-100)] bg-[var(--color-neutral-100)]/60 p-4">
           <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">{answerLabel}</p>
-          <p className="text-sm font-medium italic leading-relaxed text-[var(--color-neutral-700)]">"{answer}"</p>
+          {answerHref ? (
+            <a
+              href={answerHref}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-medium leading-relaxed text-[var(--color-primary)] underline-offset-2 hover:underline"
+            >
+              {answerLinkLabel}
+            </a>
+          ) : (
+            <p className="text-sm font-medium italic leading-relaxed text-[var(--color-neutral-700)]">"{answer}"</p>
+          )}
         </div>
       </div>
 
@@ -346,8 +482,9 @@ function QuestionnaireResponseCard({
   );
 }
 
-export function EntityDetailView({ kind, basePath, detail, activeTab, activeQuestionnaireSection }: EntityDetailViewProps) {
+export function EntityDetailView({ kind, basePath, detail, activeTab, activeQuestionnaireSection, saveStatus }: EntityDetailViewProps) {
   const backHref = kind === "vendor" ? "/vendors" : "/partners";
+  const visibleTabs = kind === "partner" ? partnerTabs : tabs;
   const questionnaireAnswerCount = detail.questions.length;
   const externalQuestionsBySection = getExternalQuestionsBySection(detail.questions);
   const normalizedActiveSection = (
@@ -430,7 +567,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
 
         <div className="mt-4 flex items-center justify-between border-t border-[var(--color-neutral-100)] pt-4">
           <div className="flex gap-6 overflow-x-auto">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <Link
                 key={tab.key}
                 href={`${basePath}?tab=${tab.key}`}
@@ -457,27 +594,37 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
               <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
                 <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">Company Details</h3>
                 <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Category</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.overview.category}</p>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+                      {kind === "partner" ? "Contact Name" : "Category"}
+                    </p>
+                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">
+                      {kind === "partner" ? detail.overview.contactName : detail.overview.category}
+                    </p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Jira Ticket</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
+                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
                   </div>
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">HQ Location</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.overview.hqLocation}</p>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+                      {kind === "partner" ? "Phone Number" : "HQ Location"}
+                    </p>
+                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">
+                      {kind === "partner" ? detail.overview.contactPhone : detail.overview.hqLocation}
+                    </p>
                   </div>
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Website</p>
-                    <a className="mt-1 text-sm font-semibold text-[var(--color-primary)] hover:underline" href={`https://${detail.overview.website}`}>
-                      {detail.overview.website}
-                    </a>
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Contact</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.overview.contact}</p>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+                      {kind === "partner" ? "Email" : "Website"}
+                    </p>
+                    {kind === "partner" ? (
+                      <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">{detail.overview.contactEmail}</p>
+                    ) : (
+                      <a className="mt-1 break-all text-sm font-semibold text-[var(--color-primary)] hover:underline" href={`https://${detail.overview.website}`}>
+                        {detail.overview.website}
+                      </a>
+                    )}
                   </div>
                 </div>
                 <p className="mt-8 border-t border-[var(--color-neutral-100)] pt-6 text-sm leading-relaxed text-[var(--color-neutral-700)]">
@@ -488,54 +635,30 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
               <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
                 <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">Ponto Focal Interno</h3>
                 <div className="grid grid-cols-2 gap-6 md:grid-cols-5">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.name}</p>
+                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.name}</p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Cargo</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.role}</p>
+                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.role}</p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Área</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.area}</p>
+                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.area}</p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.email}</p>
+                    <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.email}</p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Telefone</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.phone}</p>
+                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.phone}</p>
                   </div>
                 </div>
               </article>
 
-              <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
-                <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">Risk Classification</h3>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {detail.overview.riskBreakdown.map((risk) => (
-                    <div key={risk.label} className="rounded-lg border border-[var(--color-primary)]/10 bg-[var(--color-neutral-100)] p-4">
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">{risk.label}</span>
-                        <span className={`text-sm font-bold ${levelStyles[risk.level]}`}>{risk.level}</span>
-                      </div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-neutral-200)]">
-                        <div
-                          className={
-                            risk.level === "High"
-                              ? "h-full bg-red-500"
-                              : risk.level === "Medium"
-                                ? "h-full bg-amber-500"
-                                : "h-full bg-emerald-500"
-                          }
-                          style={{ width: `${risk.score}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </article>
+              <DecisionSummaryCard decision={detail.decision} compact />
             </div>
 
             <aside className="lg:col-span-4">
@@ -708,7 +831,15 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
               {questionnaireAnswerCount > 0 ? (
                 <form action={savePartnerExternalQuestionnaireSection} className="space-y-6">
                   <input type="hidden" name="entity_slug" value={detail.id} />
+                  <input type="hidden" name="assessment_id" value={detail.externalQuestionnaire.assessmentId ?? ""} />
                   <input type="hidden" name="response_table" value={detail.externalQuestionnaire.responseTable ?? ""} />
+                  <input type="hidden" name="active_tab" value="external_questionnaire" />
+                  <input type="hidden" name="active_section" value={selectedExternalSection?.section ?? "Common"} />
+                  {saveStatus === "1" ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                      Avaliacoes salvas com sucesso.
+                    </div>
+                  ) : null}
                   {(selectedExternalSection?.items ?? []).map((item, index) => (
                     <QuestionnaireResponseCard
                       key={`external-${selectedExternalSection?.section}-${index}-${item.domain}-${item.question}`}
@@ -873,53 +1004,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <article className="space-y-3 rounded-xl border border-[var(--color-primary)]/10 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Security</span>
-                <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${levelBadgeStyles[detail.decision.security.level]}`}>
-                  {detail.decision.security.level} Risk
-                </span>
-              </div>
-              <p className="text-sm text-[var(--color-neutral-700)]">{detail.decision.security.note}</p>
-            </article>
-
-            <article className="space-y-3 rounded-xl border border-[var(--color-primary)]/10 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Privacy</span>
-                <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${levelBadgeStyles[detail.decision.privacy.level]}`}>
-                  {detail.decision.privacy.level} Risk
-                </span>
-              </div>
-              <p className="text-sm text-[var(--color-neutral-700)]">{detail.decision.privacy.note}</p>
-            </article>
-
-            <article className="space-y-3 rounded-xl border border-[var(--color-primary)]/10 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Compliance</span>
-                <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${levelBadgeStyles[detail.decision.compliance.level]}`}>
-                  {detail.decision.compliance.level} Risk
-                </span>
-              </div>
-              <p className="text-sm text-[var(--color-neutral-700)]">{detail.decision.compliance.note}</p>
-            </article>
-          </div>
-
-          <article className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-[var(--color-primary)]/20 bg-[var(--color-primary)]/5 p-6 md:flex-row md:items-center">
-            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-white bg-[var(--color-primary)] text-2xl font-bold text-white shadow-lg">
-                {detail.decision.combinedScore}
-              </div>
-              <div>
-                <h4 className="text-lg font-bold text-[var(--color-text)]">Combined Risk Score</h4>
-                <p className="text-sm text-[var(--color-neutral-700)]">Weighted average based on assessment modules.</p>
-              </div>
-            </div>
-            <div className="rounded-xl border border-[var(--color-primary)]/10 bg-white px-6 py-3">
-              <span className="text-sm font-semibold uppercase tracking-widest text-[var(--color-neutral-600)]">Classification: </span>
-              <span className="text-lg font-extrabold text-[var(--color-primary)]">{detail.decision.classification}</span>
-            </div>
-          </article>
+          <DecisionSummaryCard decision={detail.decision} />
 
           <section className="space-y-4">
             <h3 className="text-xl font-bold text-[var(--color-text)]">Final Decision Options</h3>

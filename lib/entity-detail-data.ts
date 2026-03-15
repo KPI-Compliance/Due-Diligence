@@ -1,7 +1,7 @@
 export type ReviewStatus = "compliant" | "needs_review";
 export type AnalystEvaluationStatus = "NOT_EVALUATED" | "NA" | "DOES_NOT_MEET" | "PARTIALLY" | "FULLY";
 
-export type RiskLevel = "Low" | "Medium" | "High";
+export type RiskLevel = "Low" | "Medium" | "High" | "Pending";
 
 export type DetailTabKey =
   | "overview"
@@ -17,6 +17,7 @@ export type EntityDetailData = {
   name: string;
   jiraTicket: string | null;
   externalQuestionnaire: {
+    assessmentId?: string | null;
     formId: string | null;
     formName: string | null;
     responseTable?: string | null;
@@ -56,6 +57,9 @@ export type EntityDetailData = {
     hqLocation: string;
     website: string;
     contact: string;
+    contactName?: string;
+    contactPhone?: string;
+    contactEmail?: string;
     internalFocalPoint: {
       name: string;
       role: string;
@@ -77,9 +81,9 @@ export type EntityDetailData = {
     }>;
   };
   decision: {
-    security: { level: RiskLevel; note: string };
-    privacy: { level: RiskLevel; note: string };
-    compliance: { level: RiskLevel; note: string };
+    security: { level: RiskLevel; note: string; score?: string };
+    privacy: { level: RiskLevel; note: string; score?: string };
+    compliance: { level: RiskLevel; note: string; score?: string };
     combinedScore: string;
     classification: string;
   };
