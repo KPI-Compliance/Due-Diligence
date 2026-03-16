@@ -693,14 +693,16 @@ export default async function SettingsPage({
       {activeTab === "pontuacao" ? <RiskScoringTab value={riskScoringSettings} saveAction={saveRiskScoringSettings} /> : null}
       {activeTab === "notificacoes" ? <NotificationsTab value={notificationSettings} saveAction={saveNotificationSettings} /> : null}
 
-      <div className="flex justify-end gap-3 border-t border-[var(--color-neutral-200)] pt-6">
-        <button type="button" className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-6 py-2.5 text-sm font-bold text-[var(--color-neutral-700)]">
-          Restaurar Padrão
-        </button>
-        <button type="button" className="rounded-lg bg-[var(--color-primary)] px-8 py-2.5 text-sm font-bold text-white">
-          Aplicar Configuração
-        </button>
-      </div>
+      {activeTab === "geral" ? (
+        <div className="flex justify-end gap-3 border-t border-[var(--color-neutral-200)] pt-6">
+          <button type="button" className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-6 py-2.5 text-sm font-bold text-[var(--color-neutral-700)]">
+            Restaurar Padrão
+          </button>
+          <button type="button" className="rounded-lg bg-[var(--color-primary)] px-8 py-2.5 text-sm font-bold text-white">
+            Aplicar Configuração
+          </button>
+        </div>
+      ) : null}
     </PageContainer>
   );
 }
