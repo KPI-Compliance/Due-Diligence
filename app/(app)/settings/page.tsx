@@ -24,6 +24,7 @@ import {
   normalizeRiskScoringSettings,
   type GeneralSettings,
   type NotificationSettings,
+  type RiskScoringProfile,
   type RiskScoringSettings,
   upsertPlatformSettings,
 } from "@/lib/platform-settings";

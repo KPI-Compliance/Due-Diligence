@@ -1,5 +1,5 @@
 import { sql } from "@/lib/db";
-import { getPlatformSettings, normalizeRiskScoringSettings, type RiskScoringSettings } from "@/lib/platform-settings";
+import { getPlatformSettings, normalizeRiskScoringSettings, type RiskScoringProfile } from "@/lib/platform-settings";
 
 type PartnerResponseTableName =
   | "partner_typeform_assessment_en_responses"
@@ -54,7 +54,7 @@ function normalizeLookup(value: string | null | undefined) {
 
 function toDecisionLevel(
   score: number | null,
-  settings: RiskScoringSettings,
+  settings: RiskScoringProfile,
 ): DecisionLevel | null {
   if (score === null || Number.isNaN(score)) return null;
   if (score <= settings.low_max) return "LOW";
@@ -64,7 +64,7 @@ function toDecisionLevel(
 
 function getEvaluationScore(
   evaluation: AnalystEvaluation,
-  settings: RiskScoringSettings,
+  settings: RiskScoringProfile,
 ) {
   if (evaluation === "FULLY") return settings.fully_score;
   if (evaluation === "PARTIALLY") return settings.partially_score;
@@ -74,7 +74,7 @@ function getEvaluationScore(
 
 function toClassification(
   score: number | null,
-  settings: RiskScoringSettings,
+  settings: RiskScoringProfile,
 ) {
   const level = toDecisionLevel(score, settings);
   if (!level) return "Not classified";
