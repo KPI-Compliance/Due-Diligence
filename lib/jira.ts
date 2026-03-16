@@ -48,6 +48,15 @@ export type SyncedJiraEntityInput = {
   status: "PENDING" | "IN_REVIEW" | "RESPONDED" | "COMPLETED";
   riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   ownerEmail: string | null;
+  jiraFormData: {
+    vendorEmail: string | null;
+    vtexResponsibleEmail: string | null;
+    languagePreference: string | null;
+    priority: string | null;
+    company: string | null;
+    capNumber: string | null;
+    scope: string | null;
+  };
 };
 
 type JiraServiceDeskResponse = {
@@ -534,14 +543,17 @@ export function extractEntityFromJiraIssue(
     languagePreference ??
     (kind === "PARTNER" ? "Partner assessment" : "Vendor assessment");
   const companyGroup = companyGroupFromForm ?? inferCompanyGroup(fields, description);
+  const priorityLabel =
+    findValueInObject(payload, ["priority", "prioridade"]) ??
+    stringifyUnknown(fields.priority) ??
+    findFieldValue(description, ["priority", "prioridade"]);
   const status = inferStatus(fields);
   const riskLevel = inferRiskLevel(
     {
       ...fields,
       priority: {
         name:
-          findValueInObject(payload, ["priority", "prioridade"]) ??
-          stringifyUnknown(fields.priority) ??
+          priorityLabel ??
           null,
       },
     },
@@ -572,5 +584,14 @@ export function extractEntityFromJiraIssue(
     status,
     riskLevel,
     ownerEmail: vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
+    jiraFormData: {
+      vendorEmail: contactEmail,
+      vtexResponsibleEmail: vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
+      languagePreference,
+      priority: priorityLabel,
+      company: companyGroupFromForm ?? companyGroup,
+      capNumber,
+      scope,
+    },
   };
 }

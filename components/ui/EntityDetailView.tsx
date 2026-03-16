@@ -2,6 +2,7 @@ import Link from "next/link";
 import { savePartnerExternalQuestionnaireSection } from "@/app/(app)/partners/actions";
 import { AnalystEvaluationControl } from "@/components/ui/AnalystEvaluationControl";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { VendorExternalQuestionnaireCard } from "@/components/ui/VendorExternalQuestionnaireCard";
 import type {
   AnalystEvaluationStatus,
   DetailTabKey,
@@ -19,13 +20,10 @@ type EntityDetailViewProps = {
   saveStatus?: string;
 };
 
-const tabs: Array<{ key: DetailTabKey; label: string }> = [
+const vendorTabs: Array<{ key: DetailTabKey; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "internal_questionnaire", label: "Internal Questionnaire" },
   { key: "external_questionnaire", label: "External Questionnaire" },
-  { key: "evidence", label: "Evidence" },
-  { key: "security_review", label: "Security Review" },
-  { key: "privacy_review", label: "Privacy Review" },
   { key: "decision", label: "Decision" },
 ];
 
@@ -70,6 +68,12 @@ const levelBadgeStyles: Record<RiskLevel, string> = {
 };
 
 type ExternalSection = "Common" | "Compliance" | "Privacy" | "Security";
+
+function getAvailableExternalSections(kind: "vendor" | "partner") {
+  return kind === "vendor"
+    ? (["Common", "Privacy", "Security"] as ExternalSection[])
+    : (["Common", "Compliance", "Privacy", "Security"] as ExternalSection[]);
+}
 
 const externalQuestionnaireTemplates: Array<{
   sections: Record<Exclude<ExternalSection, "Common">, { start: string; end: string }>;
@@ -274,20 +278,23 @@ function QuestionnaireHero({
 
 function DecisionSummaryCard({
   decision,
+  kind,
   compact = false,
 }: {
   decision: EntityDetailData["decision"];
+  kind: "vendor" | "partner";
   compact?: boolean;
 }) {
   const getLevelLabel = (level: RiskLevel) => {
     if (level === "Pending") return "Pending";
     return `${level} Risk`;
   };
+  const showCompliance = kind === "partner";
 
   return (
     <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
       <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">Decision Summary</h3>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className={`grid grid-cols-1 gap-4 ${showCompliance ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
         <article className={`space-y-3 rounded-xl border border-[var(--color-primary)]/10 ${compact ? "bg-[var(--color-neutral-100)] p-4" : "bg-white p-5 shadow-sm"}`}>
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Security</span>
@@ -314,18 +321,20 @@ function DecisionSummaryCard({
           <p className="text-sm text-[var(--color-neutral-700)]">{decision.privacy.note}</p>
         </article>
 
-        <article className={`space-y-3 rounded-xl border border-[var(--color-primary)]/10 ${compact ? "bg-[var(--color-neutral-100)] p-4" : "bg-white p-5 shadow-sm"}`}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Compliance</span>
-            <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${levelBadgeStyles[decision.compliance.level]}`}>
-              {getLevelLabel(decision.compliance.level)}
-            </span>
-          </div>
-          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
-            Score: <span className="text-[var(--color-text)]">{decision.compliance.score ?? "0.0"}</span>
-          </p>
-          <p className="text-sm text-[var(--color-neutral-700)]">{decision.compliance.note}</p>
-        </article>
+        {showCompliance ? (
+          <article className={`space-y-3 rounded-xl border border-[var(--color-primary)]/10 ${compact ? "bg-[var(--color-neutral-100)] p-4" : "bg-white p-5 shadow-sm"}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Compliance</span>
+              <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${levelBadgeStyles[decision.compliance.level]}`}>
+                {getLevelLabel(decision.compliance.level)}
+              </span>
+            </div>
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+              Score: <span className="text-[var(--color-text)]">{decision.compliance.score ?? "0.0"}</span>
+            </p>
+            <p className="text-sm text-[var(--color-neutral-700)]">{decision.compliance.note}</p>
+          </article>
+        ) : null}
       </div>
 
       <div className={`mt-4 flex flex-col items-start justify-between gap-4 rounded-2xl border border-[var(--color-primary)]/20 bg-[var(--color-primary)]/5 ${compact ? "p-5" : "p-6"} md:flex-row md:items-center`}>
@@ -477,12 +486,14 @@ function QuestionnaireResponseCard({
 
 export function EntityDetailView({ kind, basePath, detail, activeTab, activeQuestionnaireSection, saveStatus }: EntityDetailViewProps) {
   const backHref = kind === "vendor" ? "/vendors" : "/partners";
-  const visibleTabs = kind === "partner" ? partnerTabs : tabs;
+  const visibleTabs = kind === "partner" ? partnerTabs : vendorTabs;
+  const availableExternalSections = getAvailableExternalSections(kind);
   const questionnaireAnswerCount = detail.questions.length;
-  const externalQuestionsBySection = getExternalQuestionsBySection(detail.questions);
+  const externalQuestionsBySection = getExternalQuestionsBySection(detail.questions).filter((entry) =>
+    availableExternalSections.includes(entry.section),
+  );
   const normalizedActiveSection = (
-    activeQuestionnaireSection &&
-    ["Common", "Compliance", "Privacy", "Security"].includes(activeQuestionnaireSection)
+    activeQuestionnaireSection && availableExternalSections.includes(activeQuestionnaireSection as ExternalSection)
       ? activeQuestionnaireSection
       : "Common"
   ) as ExternalSection;
@@ -539,17 +550,26 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status</p>
               <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">
-                {questionnaireAnswerCount > 0 ? "Questionario recebido" : "Aguardando vinculacao"}
+                {questionnaireAnswerCount > 0 ? "Questionário recebido" : "Aguardando vinculação"}
               </p>
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Formulario</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+                {kind === "vendor" ? "Formulário selecionado" : "Formulário"}
+              </p>
               <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">
-                {detail.externalQuestionnaire.formName ?? detail.externalQuestionnaire.formId ?? "-"}
+                {kind === "vendor"
+                  ? detail.externalQuestionnaire.formName ?? detail.externalQuestionnaire.formId ?? "Nenhum formulário selecionado"
+                  : detail.externalQuestionnaire.formName ?? detail.externalQuestionnaire.formId ?? "-"}
               </p>
+              {kind === "vendor" ? (
+                <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
+                  Este é o formulário atualmente selecionado para envio ao ponto focal externo.
+                </p>
+              ) : null}
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Question Count</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Quantidade de questões</p>
               <p className="mt-1 text-2xl font-black text-[var(--color-primary)]">{selectedExternalSection?.items.length ?? 0}</p>
               <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
                 Itens prontos para revisão na seção {selectedExternalSection?.section ?? "Common"}.
@@ -585,76 +605,128 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
             <div className="space-y-6 lg:col-span-8">
               <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
-                <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">Company Details</h3>
-                <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
-                      {kind === "partner" ? "Contact Name" : "Category"}
+                <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">{kind === "partner" ? "Company Details" : "Detalhes do Ticket"}</h3>
+                {kind === "partner" ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Contact Name</p>
+                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.contactName}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Jira Ticket</p>
+                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Phone Number</p>
+                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.contactPhone}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Email</p>
+                        <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">{detail.overview.contactEmail}</p>
+                      </div>
+                    </div>
+                    <p className="mt-8 border-t border-[var(--color-neutral-100)] pt-6 text-sm leading-relaxed text-[var(--color-neutral-700)]">
+                      {detail.overview.description}
                     </p>
-                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">
-                      {kind === "partner" ? detail.overview.contactName : detail.overview.category}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Jira Ticket</p>
-                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
-                      {kind === "partner" ? "Phone Number" : "HQ Location"}
-                    </p>
-                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">
-                      {kind === "partner" ? detail.overview.contactPhone : detail.overview.hqLocation}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
-                      {kind === "partner" ? "Email" : "Website"}
-                    </p>
-                    {kind === "partner" ? (
-                      <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">{detail.overview.contactEmail}</p>
-                    ) : (
-                      <a className="mt-1 break-all text-sm font-semibold text-[var(--color-primary)] hover:underline" href={`https://${detail.overview.website}`}>
-                        {detail.overview.website}
-                      </a>
-                    )}
-                  </div>
-                </div>
-                <p className="mt-8 border-t border-[var(--color-neutral-100)] pt-6 text-sm leading-relaxed text-[var(--color-neutral-700)]">
-                  {detail.overview.description}
-                </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail do Vendor</p>
+                        <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">{detail.overview.vendorEmail ?? "-"}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Jira Ticket</p>
+                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Empresa</p>
+                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.company ?? "-"}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Idioma</p>
+                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.vendorLanguage ?? "-"}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Website</p>
+                        {detail.overview.website && detail.overview.website !== "-" ? (
+                          <a className="mt-1 break-all text-sm font-semibold text-[var(--color-primary)] hover:underline" href={`https://${detail.overview.website}`}>
+                            {detail.overview.website}
+                          </a>
+                        ) : (
+                          <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">-</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-8 border-t border-[var(--color-neutral-100)] pt-6">
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Escopo</p>
+                      <p className="mt-2 text-sm leading-relaxed text-[var(--color-neutral-700)]">{detail.overview.scope ?? detail.overview.description}</p>
+                    </div>
+                  </>
+                )}
               </article>
 
               <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
                 <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">Ponto Focal Interno</h3>
-                <div className="grid grid-cols-2 gap-6 md:grid-cols-5">
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome</p>
-                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.name}</p>
+                {kind === "vendor" ? (
+                  <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Responsável VTEX</p>
+                      <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">
+                        {detail.overview.vtexResponsibleEmail ?? detail.overview.internalFocalPoint.email}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Prioridade</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.priority ?? "-"}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">CAP Number</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.capNumber ?? "-"}</p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Cargo</p>
-                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.role}</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-6 md:grid-cols-5">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.name}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Cargo</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.role}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Área</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.area}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail</p>
+                      <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.email}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Telefone</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.phone}</p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Área</p>
-                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.area}</p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail</p>
-                    <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.email}</p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Telefone</p>
-                    <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.internalFocalPoint.phone}</p>
-                  </div>
-                </div>
+                )}
               </article>
 
-              <DecisionSummaryCard decision={detail.decision} compact />
+              <DecisionSummaryCard decision={detail.decision} kind={kind} compact />
             </div>
 
-            <aside className="lg:col-span-4">
+            <aside className="space-y-6 lg:col-span-4">
+              {kind === "vendor" ? (
+                <VendorExternalQuestionnaireCard
+                  entitySlug={detail.id}
+                  assessmentId={detail.externalQuestionnaire.assessmentId}
+                  recipientEmail={detail.externalQuestionnaire.recipientEmail}
+                  currentFormId={detail.externalQuestionnaire.formId}
+                  forms={detail.externalQuestionnaire.availableForms ?? []}
+                />
+              ) : null}
+
               <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
                 <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">Timeline</h3>
                 <div className="relative ml-2 space-y-8">
@@ -677,24 +749,6 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
               </article>
             </aside>
           </div>
-
-          <article className="flex flex-col items-start justify-between gap-4 rounded-xl border border-[var(--color-primary)]/20 bg-[var(--color-primary)]/5 p-6 md:flex-row md:items-center">
-            <div className="flex items-start gap-3">
-              <div className="rounded-lg bg-[var(--color-primary)]/10 p-2 text-[var(--color-primary)]">i</div>
-              <div>
-                <p className="text-sm font-bold text-[var(--color-text)]">Analysis Phase In Progress</p>
-                <p className="text-sm text-[var(--color-neutral-700)]">
-                  The security team is reviewing evidence for critical control points.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="rounded-lg bg-[var(--color-primary)] px-5 py-2.5 text-sm font-bold text-white transition hover:brightness-95"
-            >
-              View Review Queue
-            </button>
-          </article>
         </section>
       ) : null}
 
@@ -813,8 +867,12 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
           <QuestionnaireHero
             sectionLabel="External Questionnaire"
             title="Questionario Externo"
-            description="Centralize as respostas recebidas do parceiro em um fluxo de revisão visual, com contexto da fonte, resposta original e espaço reservado para a avaliação do analista."
-            sectionOptions={["Common", "Compliance", "Privacy", "Security"]}
+            description={
+              kind === "partner"
+                ? "Centralize as respostas recebidas do parceiro em um fluxo de revisão visual, com contexto da fonte, resposta original e espaço reservado para a avaliação do analista."
+                : "Centralize as respostas recebidas do vendor em um fluxo de revisão visual, com contexto da fonte, resposta original e espaço reservado para a avaliação do analista."
+            }
+            sectionOptions={availableExternalSections}
             selectedSection={selectedExternalSection?.section}
             sectionHrefBuilder={(section) => `${basePath}?tab=external_questionnaire&section=${section}`}
           />
@@ -822,47 +880,80 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
           <div className="space-y-6">
             <div className="space-y-6">
               {questionnaireAnswerCount > 0 ? (
-                <form action={savePartnerExternalQuestionnaireSection} className="space-y-6">
-                  <input type="hidden" name="entity_slug" value={detail.id} />
-                  <input type="hidden" name="assessment_id" value={detail.externalQuestionnaire.assessmentId ?? ""} />
-                  <input type="hidden" name="response_table" value={detail.externalQuestionnaire.responseTable ?? ""} />
-                  <input type="hidden" name="active_tab" value="external_questionnaire" />
-                  <input type="hidden" name="active_section" value={selectedExternalSection?.section ?? "Common"} />
-                  {saveStatus === "1" ? (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-                      Avaliacoes salvas com sucesso.
+                selectedExternalSection?.section === "Common" ? (
+                  <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-lg font-bold text-[var(--color-text)]">Informações Gerais do Parceiro</h3>
+                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                          Esta seção é apenas informativa e reúne as respostas enviadas no bloco Common do formulário.
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-[var(--color-primary)]/8 px-3 py-1 text-xs font-bold uppercase tracking-wider text-[var(--color-primary)]">
+                        {selectedExternalSection.items.length} itens
+                      </span>
                     </div>
-                  ) : null}
-                  {(selectedExternalSection?.items ?? []).map((item, index) => (
-                    <QuestionnaireResponseCard
-                      key={`external-${selectedExternalSection?.section}-${index}-${item.domain}-${item.question}`}
-                      cardKey={`external-${selectedExternalSection?.section}-${index}`}
-                      badge={`Question ${String(index + 1).padStart(2, "0")} • ${getQuestionCategoryLabel(item.domain, index)}`}
-                      sourceLabel={getQuestionSourceLabel(item.source ?? "database")}
-                      question={item.question}
-                      answer={item.answer}
-                      answerLabel="Partner Response"
-                      reviewStatus={item.status}
-                      responseId={item.responseId}
-                      analystEvaluation={item.analystEvaluation}
-                      analystObservations={item.analystObservations}
-                      editable={kind === "partner" && Boolean(detail.externalQuestionnaire.responseTable)}
-                    />
-                  ))}
-                  <div className="flex justify-end">
-                    <button
-                      type="submit"
-                      className="rounded-lg bg-[var(--color-primary)] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-[var(--color-primary)]/20 transition hover:brightness-95"
-                    >
-                      Salvar avaliacoes de {selectedExternalSection?.section ?? "Common"}
-                    </button>
-                  </div>
-                </form>
+
+                    <div className="mt-6 space-y-4">
+                      {selectedExternalSection.items.map((item, index) => (
+                        <div
+                          key={`external-common-${index}-${item.domain}-${item.question}`}
+                          className="rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)]/50 p-4"
+                        >
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+                            Questão {String(index + 1).padStart(2, "0")}
+                          </p>
+                          <p className="mt-2 text-sm font-semibold leading-relaxed text-[var(--color-text)]">{item.question}</p>
+                          <p className="mt-3 rounded-lg border-l-4 border-[var(--color-primary)]/25 bg-white p-3 text-sm leading-relaxed text-[var(--color-neutral-700)]">
+                            {item.answer}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                ) : (
+                  <form action={savePartnerExternalQuestionnaireSection} className="space-y-6">
+                    <input type="hidden" name="entity_slug" value={detail.id} />
+                    <input type="hidden" name="assessment_id" value={detail.externalQuestionnaire.assessmentId ?? ""} />
+                    <input type="hidden" name="response_table" value={detail.externalQuestionnaire.responseTable ?? ""} />
+                    <input type="hidden" name="active_tab" value="external_questionnaire" />
+                    <input type="hidden" name="active_section" value={selectedExternalSection?.section ?? "Common"} />
+                    {saveStatus === "1" ? (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                        Avaliações salvas com sucesso.
+                      </div>
+                    ) : null}
+                    {(selectedExternalSection?.items ?? []).map((item, index) => (
+                      <QuestionnaireResponseCard
+                        key={`external-${selectedExternalSection?.section}-${index}-${item.domain}-${item.question}`}
+                        cardKey={`external-${selectedExternalSection?.section}-${index}`}
+                        badge={`Question ${String(index + 1).padStart(2, "0")} • ${getQuestionCategoryLabel(item.domain, index)}`}
+                        sourceLabel={getQuestionSourceLabel(item.source ?? "database")}
+                        question={item.question}
+                        answer={item.answer}
+                        answerLabel={kind === "partner" ? "Partner Response" : "Vendor Response"}
+                        reviewStatus={item.status}
+                        responseId={item.responseId}
+                        analystEvaluation={item.analystEvaluation}
+                        analystObservations={item.analystObservations}
+                        editable={kind === "partner" && Boolean(detail.externalQuestionnaire.responseTable)}
+                      />
+                    ))}
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        className="rounded-lg bg-[var(--color-primary)] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-[var(--color-primary)]/20 transition hover:brightness-95"
+                      >
+                        Salvar avaliações de {selectedExternalSection?.section ?? "Common"}
+                      </button>
+                    </div>
+                  </form>
+                )
               ) : (
                 <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-10 text-center shadow-sm">
                   <p className="text-lg font-bold text-[var(--color-text)]">Questionário externo ainda não encontrado</p>
                   <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
-                    Nenhuma resposta do Typeform foi vinculada a esta entidade ate o momento.
+                    Nenhuma resposta do Typeform foi vinculada a esta entidade até o momento.
                   </p>
                 </article>
               )}
@@ -997,7 +1088,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
             </p>
           </div>
 
-          <DecisionSummaryCard decision={detail.decision} />
+          <DecisionSummaryCard decision={detail.decision} kind={kind} />
 
           <section className="space-y-4">
             <h3 className="text-xl font-bold text-[var(--color-text)]">Final Decision Options</h3>

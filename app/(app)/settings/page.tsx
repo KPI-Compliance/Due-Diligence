@@ -144,6 +144,10 @@ async function saveTypeformSettings(formData: FormData) {
     webhook_mode: formData.get("webhook_mode") === "unsigned" ? "unsigned" : "signed",
     api_user: String(formData.get("api_user") ?? "").trim(),
     api_token: String(formData.get("api_token") ?? "").trim(),
+    sender_email: String(formData.get("sender_email") ?? "").trim(),
+    external_questionnaire_email_template:
+      String(formData.get("external_questionnaire_email_template") ?? "").trim() ||
+      "Olá,\n\nCompartilhamos abaixo o link do questionário externo para preenchimento:\n{{form_link}}\n\nFormulário selecionado: {{form_name}} ({{form_id}})\n\nAssim que o envio for concluído, seguiremos com a análise.\n\nObrigado.",
   };
 
   await upsertIntegrationSetting("TYPEFORM", enabled, config);

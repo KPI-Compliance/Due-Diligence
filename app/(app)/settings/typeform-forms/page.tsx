@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { TypeformQuestionMappingModal } from "@/components/settings/TypeformQuestionMappingModal";
 import { SectionCard } from "@/components/ui/SectionCard";
 import {
   deleteTypeformForm,
@@ -470,103 +471,38 @@ export default async function TypeformFormsSettingsPage({
       </div>
 
       {selectedForm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-text)]/45 p-4">
-          <Link href="/settings/typeform-forms" aria-label="Fechar modal" className="absolute inset-0" />
-          <div className="relative z-10 max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-2xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-extrabold tracking-tight text-[var(--color-text)]">
-                  Mapeamento de Perguntas • {selectedForm.name}
-                </h2>
-                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                  Todas as perguntas do formulário são listadas na ordem original do Typeform. Defina a seção e o peso usado no cálculo de risco para cada item.
-                </p>
-              </div>
-              <Link
-                href="/settings/typeform-forms"
-                className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-4 py-2 text-sm font-bold text-[var(--color-neutral-700)] transition hover:bg-[var(--color-neutral-100)]"
-              >
-                Fechar
-              </Link>
-            </div>
-
-            <div className="mt-6">
-              {flattenedQuestions.length === 0 ? (
-                <div className="rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-6 text-sm text-[var(--color-neutral-600)]">
-                  Não foi possível carregar a definição do formulário no Typeform. Verifique o token da API e o `form_id`.
+        flattenedQuestions.length === 0 ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-text)]/45 p-4">
+            <Link href="/settings/typeform-forms" aria-label="Fechar modal" className="absolute inset-0" />
+            <div className="relative z-10 w-full max-w-3xl rounded-2xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-extrabold tracking-tight text-[var(--color-text)]">
+                    Mapeamento de Perguntas • {selectedForm.name}
+                  </h2>
+                  <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
+                    Não foi possível carregar a definição do formulário no Typeform. Verifique o token da API e o `form_id`.
+                  </p>
                 </div>
-              ) : (
-                <form action={saveQuestionMappings} className="space-y-5">
-                  <input type="hidden" name="form_config_id" value={selectedForm.id} />
-                  <div className="rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)]/60 px-4 py-3 text-sm text-[var(--color-neutral-700)]">
-                    {flattenedQuestions.length} perguntas encontradas. As respostas futuras e históricas passarão a usar este mapeamento por pergunta.
-                  </div>
-                  <RiskScoringLegend settings={riskScoringSettings} />
-                  <div className="space-y-3">
-                    {flattenedQuestions.map((question) => (
-                      <article key={question.question_key} className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-4">
-                        <input type="hidden" name="mapping_id" value={question.id} />
-                        <input type="hidden" name="question_key" value={question.question_key} />
-                        <input type="hidden" name="question_ref" value={question.question_ref} />
-                        <input type="hidden" name="question_text" value={question.question_text} />
-                        <input type="hidden" name="question_order" value={question.question_order} />
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                          <div className="space-y-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-md bg-[var(--color-neutral-100)] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
-                                Questão {String(question.question_order).padStart(2, "0")}
-                              </span>
-                              <span className="rounded-md bg-[var(--color-primary)]/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)]">
-                                {question.type}
-                              </span>
-                            </div>
-                            <p className="text-sm font-semibold leading-relaxed text-[var(--color-text)]">{question.question_text}</p>
-                            <p className="text-xs text-[var(--color-neutral-600)]">
-                              Ref: <span className="font-mono">{question.question_ref || question.question_key}</span>
-                            </p>
-                          </div>
-                          <div className="grid min-w-[320px] gap-4 lg:grid-cols-[minmax(0,1fr)_120px]">
-                            <label className="space-y-2">
-                              <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Seção</span>
-                              <select name="section" defaultValue={question.section} className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2.5 text-sm font-semibold">
-                                <option value="COMMON">Common</option>
-                                <option value="COMPLIANCE">Compliance</option>
-                                <option value="PRIVACY">Privacy</option>
-                                <option value="SECURITY">Security</option>
-                              </select>
-                            </label>
-                            <label className="space-y-2">
-                              <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Peso</span>
-                              <select
-                                name="weight"
-                                defaultValue={question.weight}
-                                className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2.5 text-sm font-semibold"
-                              >
-                                {weightOptions.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                  <div className="flex justify-end gap-3 border-t border-[var(--color-neutral-100)] pt-4">
-                    <Link href="/settings/typeform-forms" className="rounded-lg border border-[var(--color-neutral-200)] px-4 py-2 text-sm font-bold text-[var(--color-neutral-700)]">
-                      Cancelar
-                    </Link>
-                    <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-6 py-2.5 text-sm font-bold text-white">
-                      Salvar mapeamento
-                    </button>
-                  </div>
-                </form>
-              )}
+                <Link
+                  href="/settings/typeform-forms"
+                  className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-4 py-2 text-sm font-bold text-[var(--color-neutral-700)] transition hover:bg-[var(--color-neutral-100)]"
+                >
+                  Fechar
+                </Link>
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <TypeformQuestionMappingModal
+            formConfigId={selectedForm.id}
+            formName={selectedForm.name}
+            questions={flattenedQuestions}
+            weightOptions={weightOptions}
+            saveAction={saveQuestionMappings}
+            legend={<RiskScoringLegend settings={riskScoringSettings} />}
+          />
+        )
       ) : null}
 
       {savedFlag === "mapping" ? (

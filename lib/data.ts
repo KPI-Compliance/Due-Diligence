@@ -1,6 +1,7 @@
 import { sql } from "@/lib/db";
 import type { DetailTabKey, EntityDetailData, RiskLevel } from "@/lib/entity-detail-data";
 import { readInternalQuestionnaireFromGoogleSheets } from "@/lib/google-sheets";
+import { getTypeformForms } from "@/lib/settings-data";
 
 type UiStatus = "pending" | "sent" | "responded" | "in_review" | "completed";
 
@@ -178,6 +179,22 @@ function resolvePartnerFinalRisk(
   }
 
   return maxRisk(securityLevel, privacyLevel, complianceLevel, fallbackRisk);
+}
+
+function resolveVendorFinalRisk(
+  status: string | null,
+  securityLevel: string | null,
+  privacyLevel: string | null,
+  fallbackRisk: string | null,
+) {
+  const workflowStatus = toWorkflowStatus(status);
+  const hasAnyDecision = Boolean(securityLevel || privacyLevel || fallbackRisk);
+
+  if (!hasAnyDecision && (!workflowStatus || workflowStatus === "pending" || workflowStatus === "sent" || workflowStatus === "responded")) {
+    return null;
+  }
+
+  return maxRisk(securityLevel, privacyLevel, fallbackRisk);
 }
 
 function mapPartnerQuestionSection(section: string | null | undefined): "Common" | "Compliance" | "Privacy" | "Security" | "Unclassified" {
@@ -847,13 +864,16 @@ export async function getVendorsList() {
       e.status,
       e.risk_level,
       e.company_group,
+      e.created_at,
       e.last_review_at,
       COALESCE(u.full_name, 'Unassigned') AS owner,
       latest_assessment.id AS latest_assessment_id,
       latest_assessment.status AS latest_assessment_status,
+      latest_assessment.created_at AS latest_assessment_created_at,
       latest_assessment.response_count AS latest_response_count,
       latest_decision.security_level AS latest_security_level,
       latest_decision.privacy_level AS latest_privacy_level,
+      latest_decision.updated_at AS latest_decision_updated_at,
       COUNT(a.id) FILTER (
         WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
       )::int AS open_assessments
@@ -864,6 +884,7 @@ export async function getVendorsList() {
       SELECT
         aa.id,
         aa.status,
+        aa.created_at,
         (
           SELECT COUNT(*)
           FROM assessment_question_responses aqr
@@ -875,20 +896,23 @@ export async function getVendorsList() {
       LIMIT 1
     ) latest_assessment ON true
     LEFT JOIN LATERAL (
-      SELECT security_level, privacy_level
+      SELECT security_level, privacy_level, updated_at
       FROM assessment_decisions ad
       WHERE ad.assessment_id = latest_assessment.id
       LIMIT 1
     ) latest_decision ON true
     WHERE e.kind = 'VENDOR'
+      AND e.id::text NOT LIKE '10000000-0000-0000-0000-%'
     GROUP BY
       e.id,
       u.full_name,
       latest_assessment.id,
       latest_assessment.status,
+      latest_assessment.created_at,
       latest_assessment.response_count,
       latest_decision.security_level,
-      latest_decision.privacy_level
+      latest_decision.privacy_level,
+      latest_decision.updated_at
     ORDER BY e.created_at DESC, e.name ASC
   `) as Array<{
     slug: string;
@@ -899,19 +923,37 @@ export async function getVendorsList() {
     status: string;
     risk_level: string | null;
     company_group: string;
+    created_at: string;
     last_review_at: string | null;
     owner: string;
     latest_assessment_id: string | null;
     latest_assessment_status: string | null;
+    latest_assessment_created_at: string | null;
     latest_response_count: number;
     latest_security_level: string | null;
     latest_privacy_level: string | null;
+    latest_decision_updated_at: string | null;
     open_assessments: number;
   }>;
 
   return rows.map((row) => {
-    const finalRisk = maxRisk(row.latest_security_level, row.latest_privacy_level, row.risk_level);
-    const riskUi = riskClasses(finalRisk);
+    const finalRisk = resolveVendorFinalRisk(
+      row.latest_assessment_status,
+      row.latest_security_level,
+      row.latest_privacy_level,
+      row.risk_level,
+    );
+    const riskUi = finalRisk
+      ? riskClasses(finalRisk)
+      : {
+          riskClass: "text-slate-600",
+          riskDot: "bg-slate-400",
+        };
+    const referenceDate =
+      row.last_review_at ??
+      row.latest_decision_updated_at ??
+      row.latest_assessment_created_at ??
+      row.created_at;
 
     return {
       id: row.slug,
@@ -928,13 +970,14 @@ export async function getVendorsList() {
         row.latest_security_level,
       ),
       technicalReviewStatus: mapTechnicalReviewStatus(row.latest_assessment_status),
-      risk: finalRisk,
+      risk: finalRisk ?? "Pending",
       privacyRisk: mapDecisionRisk(row.latest_privacy_level),
       securityRisk: mapDecisionRisk(row.latest_security_level),
       ...riskUi,
       openAssessments: row.open_assessments,
       owner: row.owner,
       lastReview: formatDateNumeric(row.last_review_at),
+      referenceDate,
       activeAssessmentId: row.latest_assessment_id,
       activeAssessmentStatus: mapStatusNullable(row.latest_assessment_status),
     };
@@ -1221,22 +1264,29 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       e.slug,
       e.name,
       e.jira_issue_key,
+      e.company_group,
       e.subtitle,
       e.status,
       e.status_label,
       e.risk_score,
       e.category,
+      e.segment,
       e.hq_location,
       e.website,
       e.contact_email,
       e.description,
+      e.jira_form_data,
       fp.full_name AS focal_name,
       fp.role_title AS focal_role,
       fp.area AS focal_area,
       fp.email AS focal_email,
-      fp.phone AS focal_phone
+      fp.phone AS focal_phone,
+      owner.full_name AS owner_name,
+      owner.email AS owner_email,
+      owner.role_title AS owner_role
     FROM entities e
     LEFT JOIN internal_focal_points fp ON fp.entity_id = e.id
+    LEFT JOIN users owner ON owner.id = e.owner_user_id
     WHERE e.slug = ${slug} AND e.kind = ${kind.toUpperCase()}
     LIMIT 1
   `) as Array<{
@@ -1244,24 +1294,55 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     slug: string;
     name: string;
     jira_issue_key: string | null;
+    company_group: "VTEX" | "WENI";
     subtitle: string | null;
     status: string;
     status_label: string | null;
     risk_score: number | null;
     category: string | null;
+    segment: string | null;
     hq_location: string | null;
     website: string | null;
     contact_email: string | null;
     description: string | null;
+    jira_form_data: Record<string, unknown> | null;
     focal_name: string | null;
     focal_role: string | null;
     focal_area: string | null;
     focal_email: string | null;
     focal_phone: string | null;
+    owner_name: string | null;
+    owner_email: string | null;
+    owner_role: string | null;
   }>;
 
   const entity = entityRows[0];
   if (!entity) return null;
+  const jiraFormData =
+    entity.jira_form_data && typeof entity.jira_form_data === "object" && !Array.isArray(entity.jira_form_data)
+      ? entity.jira_form_data
+      : {};
+  const vendorLanguage = cleanOverviewValue(
+    typeof jiraFormData.languagePreference === "string" ? jiraFormData.languagePreference : entity.category,
+  );
+  const vendorPriority = cleanOverviewValue(
+    typeof jiraFormData.priority === "string" ? jiraFormData.priority : null,
+  );
+  const vendorCompany = cleanOverviewValue(
+    typeof jiraFormData.company === "string" ? jiraFormData.company : entity.company_group,
+  );
+  const vendorCapNumber = cleanOverviewValue(
+    typeof jiraFormData.capNumber === "string" ? jiraFormData.capNumber : null,
+  );
+  const vendorScope = cleanOverviewValue(
+    typeof jiraFormData.scope === "string" ? jiraFormData.scope : entity.description,
+  );
+  const vendorEmail = cleanOverviewValue(
+    typeof jiraFormData.vendorEmail === "string" ? jiraFormData.vendorEmail : entity.contact_email,
+  );
+  const vendorResponsibleEmail = cleanOverviewValue(
+    typeof jiraFormData.vtexResponsibleEmail === "string" ? jiraFormData.vtexResponsibleEmail : entity.owner_email,
+  );
 
   const assessments = (await sql`
     SELECT id, status, risk_level, created_at, completed_at, typeform_response_token, typeform_form_id, typeform_submitted_at
@@ -1302,6 +1383,17 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
           entityKind: "VENDOR",
         })
       : null;
+  const vendorTypeformForms =
+    kind === "vendor"
+      ? (await getTypeformForms())
+          .filter((item) => item.enabled && item.workflow === "external_questionnaire" && item.entity_kind !== "PARTNER")
+          .map((item) => ({
+            id: item.id,
+            name: item.name,
+            formId: item.form_id,
+            hiddenAssessmentField: item.hidden_assessment_field,
+          }))
+      : [];
 
   let finalQuestions: EntityDetailData["questions"] = [];
   let partnerFormTable =
@@ -1615,6 +1707,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       assessmentId: latestAssessment?.id ?? null,
       formId: resolvedTypeformFormId,
       formName: resolvedTypeformFormName,
+      hiddenAssessmentField:
+        vendorTypeformForms.find((item) => item.formId === resolvedTypeformFormId)?.hiddenAssessmentField ?? "assessment_id",
+      recipientEmail: kind === "vendor" ? (vendorEmail ?? entity.contact_email ?? null) : null,
+      availableForms: kind === "vendor" ? vendorTypeformForms : [],
       responseTable: partnerFormTable,
       source: resolvedTypeformFormId ? "typeform" : "database",
       submittedAt: latestAssessment?.typeform_submitted_at
@@ -1632,14 +1728,21 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       hqLocation: kind === "partner" ? (partnerOverviewFromCommon?.hqLocation ?? "-") : (entity.hq_location ?? "-"),
       website: kind === "partner" ? (partnerOverviewFromCommon?.website ?? "-") : (entity.website ?? "-"),
       contact: kind === "partner" ? (partnerOverviewFromCommon?.contact ?? "-") : (entity.contact_email ?? "-"),
+      company: kind === "vendor" ? (vendorCompany ?? "-") : undefined,
+      vendorEmail: kind === "vendor" ? (vendorEmail ?? "-") : undefined,
+      vendorLanguage: kind === "vendor" ? (vendorLanguage ?? entity.segment ?? "-") : undefined,
+      vtexResponsibleEmail: kind === "vendor" ? (vendorResponsibleEmail ?? "-") : undefined,
+      priority: kind === "vendor" ? (vendorPriority ?? "-") : undefined,
+      capNumber: kind === "vendor" ? (vendorCapNumber ?? "-") : undefined,
+      scope: kind === "vendor" ? (vendorScope ?? entity.description ?? "-") : undefined,
       contactName: kind === "partner" ? (partnerOverviewFromCommon?.contactName ?? "-") : "-",
       contactPhone: kind === "partner" ? (partnerOverviewFromCommon?.contactPhone ?? "-") : "-",
       contactEmail: kind === "partner" ? (partnerOverviewFromCommon?.contactEmail ?? "-") : "-",
       internalFocalPoint: {
-        name: entity.focal_name ?? "-",
-        role: entity.focal_role ?? "-",
-        area: entity.focal_area ?? "-",
-        email: entity.focal_email ?? "-",
+        name: entity.focal_name ?? entity.owner_name ?? "-",
+        role: entity.focal_role ?? entity.owner_role ?? "-",
+        area: entity.focal_area ?? (kind === "vendor" && vendorResponsibleEmail ? "Responsável VTEX" : "-"),
+        email: entity.focal_email ?? entity.owner_email ?? "-",
         phone: entity.focal_phone ?? "-",
       },
       description:

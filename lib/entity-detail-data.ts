@@ -20,6 +20,14 @@ export type EntityDetailData = {
     assessmentId?: string | null;
     formId: string | null;
     formName: string | null;
+    hiddenAssessmentField?: string | null;
+    recipientEmail?: string | null;
+    availableForms?: Array<{
+      id: string;
+      name: string;
+      formId: string;
+      hiddenAssessmentField: string;
+    }>;
     responseTable?: string | null;
     source: "typeform" | "google_sheets" | "database";
     submittedAt?: string;
@@ -57,6 +65,13 @@ export type EntityDetailData = {
     hqLocation: string;
     website: string;
     contact: string;
+    company?: string;
+    vendorEmail?: string;
+    vendorLanguage?: string;
+    vtexResponsibleEmail?: string;
+    priority?: string;
+    capNumber?: string;
+    scope?: string;
     contactName?: string;
     contactPhone?: string;
     contactEmail?: string;

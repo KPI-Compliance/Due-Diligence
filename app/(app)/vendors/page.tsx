@@ -3,15 +3,8 @@ import { EntityWorkspace } from "@/components/ui/EntityWorkspace";
 import { getVendorsList } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
-
-const filters = [
-  { name: "vendor", label: "Vendor", kind: "text" as const, placeholder: "Filter by vendor name" },
-  { name: "initial_questionnaire", label: "Initial Questionnaire", kind: "select" as const, options: ["All", "Pending", "Sent", "Responded", "Reviewed"] },
-  { name: "main_questionnaire", label: "Main Questionnaire", kind: "select" as const, options: ["All", "Pending", "Responded", "Reviewed"] },
-  { name: "risk_level", label: "Risk Level", kind: "select" as const, options: ["All Risks", "Low", "Medium", "High", "Critical"] },
-  { name: "owner", label: "Owner", kind: "select" as const, options: ["All Owners"] },
-  { name: "date_range", label: "Date Range", kind: "button" as const, buttonText: "Last 90 days", className: "sm:max-w-[220px]" },
-];
+const MAX_VENDOR_ROWS = 25;
+const CURRENT_TIMESTAMP = Date.now();
 
 function renderWorkflowBadge(label: string) {
   const normalized = label.toLowerCase();
@@ -37,10 +30,118 @@ function renderTechnicalReviewBadge(label: string) {
 }
 
 export default async function VendorsPage({
+  searchParams,
 }: {
-  searchParams?: Promise<{ updated?: string }>;
+  searchParams?: Promise<{
+    vendor?: string;
+    initial_questionnaire?: string;
+    main_questionnaire?: string;
+    risk_level?: string;
+    owner?: string;
+    date_range?: string;
+    updated?: string;
+  }>;
 }) {
   const vendors = await getVendorsList();
+  const params = searchParams ? await searchParams : undefined;
+  const vendorQuery = (params?.vendor ?? "").trim().toLowerCase();
+  const initialQuestionnaire = (params?.initial_questionnaire ?? "All").trim();
+  const mainQuestionnaire = (params?.main_questionnaire ?? "All").trim();
+  const riskLevel = (params?.risk_level ?? "All Risks").trim();
+  const owner = (params?.owner ?? "All Owners").trim();
+  const dateRange = (params?.date_range ?? "All Periods").trim();
+
+  const ownerOptions = ["All Owners", ...Array.from(new Set(vendors.map((item) => item.owner).filter(Boolean))).sort((a, b) => a.localeCompare(b))];
+
+  const filters = [
+    {
+      name: "vendor",
+      label: "Vendor",
+      kind: "text" as const,
+      placeholder: "Filtrar por vendor ou ticket",
+      value: params?.vendor ?? "",
+    },
+    {
+      name: "initial_questionnaire",
+      label: "Questionário Inicial",
+      kind: "select" as const,
+      options: ["All", "Pending", "Sent", "Responded", "Reviewed"],
+      value: initialQuestionnaire,
+    },
+    {
+      name: "main_questionnaire",
+      label: "Questionário Principal",
+      kind: "select" as const,
+      options: ["All", "Pending", "Responded", "Reviewed"],
+      value: mainQuestionnaire,
+    },
+    {
+      name: "risk_level",
+      label: "Nível de Risco",
+      kind: "select" as const,
+      options: ["All Risks", "Pending", "Low", "Medium", "High", "Critical"],
+      value: riskLevel,
+    },
+    {
+      name: "owner",
+      label: "Responsável",
+      kind: "select" as const,
+      options: ownerOptions,
+      value: owner,
+    },
+    {
+      name: "date_range",
+      label: "Período",
+      kind: "select" as const,
+      options: ["All Periods", "Last 30 Days", "Last 90 Days", "Last 180 Days", "Last 365 Days"],
+      value: dateRange,
+      className: "sm:max-w-[220px]",
+    },
+  ];
+
+  const dateRangeMap: Record<string, number | null> = {
+    "All Periods": null,
+    "Last 30 Days": 30,
+    "Last 90 Days": 90,
+    "Last 180 Days": 180,
+    "Last 365 Days": 365,
+  };
+
+  const filteredVendors = vendors.filter((item) => {
+    const matchesVendor =
+      vendorQuery.length === 0 ||
+      item.company.toLowerCase().includes(vendorQuery) ||
+      (item.jiraTicket ?? "").toLowerCase().includes(vendorQuery);
+
+    const matchesInitialQuestionnaire =
+      initialQuestionnaire === "All" || item.intakeStatus === initialQuestionnaire;
+
+    const matchesMainQuestionnaire =
+      mainQuestionnaire === "All" || item.principalQuestionnaireStatus === mainQuestionnaire;
+
+    const matchesRiskLevel =
+      riskLevel === "All Risks" || item.risk === riskLevel;
+
+    const matchesOwner =
+      owner === "All Owners" || item.owner === owner;
+
+    const selectedRangeInDays = dateRangeMap[dateRange] ?? null;
+    const referenceTimestamp = item.referenceDate ? new Date(item.referenceDate).getTime() : Number.NaN;
+    const matchesDateRange =
+      selectedRangeInDays === null ||
+      (Number.isFinite(referenceTimestamp) && CURRENT_TIMESTAMP - referenceTimestamp <= selectedRangeInDays * 24 * 60 * 60 * 1000);
+
+    return (
+      matchesVendor &&
+      matchesInitialQuestionnaire &&
+      matchesMainQuestionnaire &&
+      matchesRiskLevel &&
+      matchesOwner &&
+      matchesDateRange
+    );
+  });
+
+  const visibleVendors = filteredVendors.slice(0, MAX_VENDOR_ROWS);
 
   return (
     <div className="space-y-4">
@@ -55,34 +156,38 @@ export default async function VendorsPage({
           "Jira Ticket",
           "Empresa",
           "Segment",
-          "Initial Questionnaire",
-          "Main Questionnaire",
+          "Questionário Inicial",
+          "Questionário Principal",
           "Redteam",
-          "Final Risk",
-          "Last Review",
+          "Risco Final",
+          "Última Revisão",
         ]}
-        tableFooterText={`Showing 1 to ${vendors.length} of ${vendors.length} vendors`}
+        tableFooterText={
+          filteredVendors.length === 0
+            ? "Nenhum vendor encontrado com os filtros aplicados"
+            : `Mostrando ${visibleVendors.length} de ${filteredVendors.length} vendors`
+        }
         summary={[
           {
             label: "Initial Pending",
-            value: vendors.filter((v) => v.intakeStatus === "Pending").length.toString(),
-            note: "Vendors aguardando o primeiro questionario",
+            value: filteredVendors.filter((v) => v.intakeStatus === "Pending").length.toString(),
+            note: "Vendors aguardando o primeiro questionário",
             tone: "primary",
           },
           {
             label: "Main Reviewed",
-            value: vendors.filter((v) => v.principalQuestionnaireStatus === "Reviewed").length.toString(),
-            note: "Questionario principal revisado por Privacy e Security",
+            value: filteredVendors.filter((v) => v.principalQuestionnaireStatus === "Reviewed").length.toString(),
+            note: "Questionário principal revisado por Privacy e Security",
             tone: "success",
           },
           {
             label: "Critical",
-            value: vendors.filter((v) => v.risk === "Critical").length.toString(),
+            value: filteredVendors.filter((v) => v.risk === "Critical").length.toString(),
             note: "Maior risco final entre Privacy e Security",
             tone: "danger",
           },
         ]}
-        rows={vendors.map((item) => (
+        rows={visibleVendors.map((item) => (
           <tr key={item.id} className="hover:bg-[var(--color-neutral-100)]/40 transition-colors">
             <td className="px-6 py-4">
               <Link href={`/vendors/${item.id}`} className="block">

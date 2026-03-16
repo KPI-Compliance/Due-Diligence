@@ -141,6 +141,7 @@ export async function POST(request: Request) {
         status_label,
         status,
         risk_level,
+        jira_form_data,
         owner_user_id,
         jira_issue_key,
         jira_issue_url,
@@ -161,6 +162,7 @@ export async function POST(request: Request) {
         ${entity.statusLabel},
         ${entity.status}::assessment_status,
         ${entity.riskLevel}::risk_level,
+        ${JSON.stringify(entity.jiraFormData)}::jsonb,
         ${ownerUserId}::uuid,
         ${entity.issueKey},
         ${browserIssueUrl},
@@ -181,6 +183,7 @@ export async function POST(request: Request) {
         status_label = COALESCE(EXCLUDED.status_label, entities.status_label),
         status = EXCLUDED.status,
         risk_level = EXCLUDED.risk_level,
+        jira_form_data = COALESCE(entities.jira_form_data, '{}'::jsonb) || COALESCE(EXCLUDED.jira_form_data, '{}'::jsonb),
         owner_user_id = COALESCE(EXCLUDED.owner_user_id, entities.owner_user_id),
         jira_issue_url = COALESCE(EXCLUDED.jira_issue_url, entities.jira_issue_url),
         jira_synced_at = now()

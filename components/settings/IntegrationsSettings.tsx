@@ -321,6 +321,37 @@ export function IntegrationsSettings({
               </label>
             </div>
 
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="space-y-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail remetente dos questionários</span>
+                <input
+                  name="sender_email"
+                  type="email"
+                  defaultValue={typeform.config.sender_email}
+                  placeholder="secgrc.integrations@vtex.com"
+                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                />
+                <span className="block text-xs text-[var(--color-neutral-600)]">
+                  Endereço usado especificamente para disparar os questionários externos. Esse remetente precisa estar autorizado no provedor de e-mail.
+                </span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              <label className="space-y-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Texto padrão do e-mail do questionário externo</span>
+                <textarea
+                  name="external_questionnaire_email_template"
+                  defaultValue={typeform.config.external_questionnaire_email_template}
+                  rows={8}
+                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                />
+                <span className="block text-xs text-[var(--color-neutral-600)]">
+                  Placeholders disponíveis: <code>{"{{form_link}}"}</code>, <code>{"{{form_name}}"}</code>, <code>{"{{form_id}}"}</code>.
+                </span>
+              </label>
+            </div>
+
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <label className="space-y-1 md:col-span-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome do Hidden Field Padrao</span>
