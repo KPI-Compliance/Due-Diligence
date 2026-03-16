@@ -62,13 +62,6 @@ const statusBadgeMap: Record<EntityDetailData["statusMode"], "pending" | "in_rev
   completed: "completed",
 };
 
-const levelStyles: Record<RiskLevel, string> = {
-  Low: "text-emerald-600",
-  Medium: "text-amber-600",
-  High: "text-red-600",
-  Pending: "text-slate-600",
-};
-
 const levelBadgeStyles: Record<RiskLevel, string> = {
   Low: "bg-emerald-100 text-emerald-700",
   Medium: "bg-amber-100 text-amber-700",
@@ -447,7 +440,7 @@ function QuestionnaireResponseCard({
               {answerLinkLabel}
             </a>
           ) : (
-            <p className="text-sm font-medium italic leading-relaxed text-[var(--color-neutral-700)]">"{answer}"</p>
+            <p className="text-sm font-medium italic leading-relaxed text-[var(--color-neutral-700)]">&quot;{answer}&quot;</p>
           )}
         </div>
       </div>
@@ -559,7 +552,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
               <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Question Count</p>
               <p className="mt-1 text-2xl font-black text-[var(--color-primary)]">{selectedExternalSection?.items.length ?? 0}</p>
               <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
-                Itens prontos para revisao na secao {selectedExternalSection?.section ?? "Common"}.
+                Itens prontos para revisão na seção {selectedExternalSection?.section ?? "Common"}.
               </p>
             </div>
           </div>
@@ -715,7 +708,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
             <QuestionnaireHero
               sectionLabel="Internal Questionnaire"
               title="Mini Questionario Interno"
-              description="Visualize as respostas recebidas do ponto focal interno e centralize as anotacoes da analise em um layout de revisao mais estruturado."
+              description="Visualize as respostas recebidas do ponto focal interno e centralize as anotações da análise em um layout de revisão mais estruturado."
             />
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
@@ -739,7 +732,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                   <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-10 text-center shadow-sm">
                     <p className="text-lg font-bold text-[var(--color-text)]">Mini questionario ainda sem respostas</p>
                     <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
-                      A solicitacao foi identificada, mas ainda nao ha respostas preenchidas para analise.
+                      A solicitação foi identificada, mas ainda não há respostas preenchidas para análise.
                     </p>
                   </article>
                 )}
@@ -797,7 +790,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                     />
                   </div>
                   <p className="mt-3 text-sm text-[var(--color-neutral-700)]">
-                    {internalQuestionnaire.questions.length} respostas carregadas para a revisao interna.
+                    {internalQuestionnaire.questions.length} respostas carregadas para a revisão interna.
                   </p>
                 </section>
               </aside>
@@ -807,7 +800,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
           })()
         ) : (
           <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-10 text-center shadow-sm">
-            <p className="text-lg font-bold text-[var(--color-text)]">Mini questionario interno nao encontrado</p>
+            <p className="text-lg font-bold text-[var(--color-text)]">Mini questionário interno não encontrado</p>
             <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
               Nenhuma linha correspondente foi localizada na planilha do Google Sheets para este vendor.
             </p>
@@ -820,7 +813,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
           <QuestionnaireHero
             sectionLabel="External Questionnaire"
             title="Questionario Externo"
-            description="Centralize as respostas recebidas do parceiro em um fluxo de revisao visual, com contexto da fonte, resposta original e espaco reservado para a avaliacao do analista."
+            description="Centralize as respostas recebidas do parceiro em um fluxo de revisão visual, com contexto da fonte, resposta original e espaço reservado para a avaliação do analista."
             sectionOptions={["Common", "Compliance", "Privacy", "Security"]}
             selectedSection={selectedExternalSection?.section}
             sectionHrefBuilder={(section) => `${basePath}?tab=external_questionnaire&section=${section}`}
@@ -867,7 +860,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                 </form>
               ) : (
                 <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-10 text-center shadow-sm">
-                  <p className="text-lg font-bold text-[var(--color-text)]">Questionario externo ainda nao encontrado</p>
+                  <p className="text-lg font-bold text-[var(--color-text)]">Questionário externo ainda não encontrado</p>
                   <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
                     Nenhuma resposta do Typeform foi vinculada a esta entidade ate o momento.
                   </p>

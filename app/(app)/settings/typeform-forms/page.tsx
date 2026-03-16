@@ -43,9 +43,9 @@ type FormMappingStatus = {
 const weightOptions: Array<{ value: number; label: string }> = [
   { value: 0, label: "0 - Sem impacto" },
   { value: 1, label: "1 - Baixo" },
-  { value: 2, label: "2 - Medio" },
+  { value: 2, label: "2 - Médio" },
   { value: 3, label: "3 - Alto" },
-  { value: 5, label: "5 - Critico" },
+  { value: 5, label: "5 - Crítico" },
 ];
 
 function getSetting<T>(
@@ -60,26 +60,29 @@ function RiskScoringLegend({ settings }: { settings: RiskScoringSettings }) {
 
   return (
     <div className="rounded-xl border border-[var(--color-primary)]/10 bg-[var(--color-primary)]/5 p-4">
-      <p className="text-sm font-bold text-[var(--color-text)]">Como o score e calculado</p>
+      <p className="text-sm font-bold text-[var(--color-text)]">Como o score é calculado</p>
       <div className="mt-3 grid gap-3 md:grid-cols-3">
         <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-3 text-sm text-[var(--color-neutral-700)]">
-          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Score da avaliacao</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Score da avaliação</p>
           <p className="mt-2">Totalmente = {profile.fully_score.toFixed(1)}</p>
           <p>Parcialmente = {profile.partially_score.toFixed(1)}</p>
-          <p>Nao Atende = {profile.does_not_meet_score.toFixed(1)}</p>
-          <p>N/A = fora do calculo</p>
+          <p>Não Atende = {profile.does_not_meet_score.toFixed(1)}</p>
+          <p>N/A = fora do cálculo</p>
         </div>
         <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-3 text-sm text-[var(--color-neutral-700)]">
           <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Peso da pergunta</p>
           <p className="mt-2">
-            Cada resposta avaliada contribui como <span className="font-semibold">peso x score</span>.
+            Os pesos são <span className="font-semibold">relativos</span>. Uma pergunta com peso maior influencia mais o resultado da seção.
           </p>
-          <p className="mt-1">Perguntas com peso maior impactam mais a secao.</p>
+          <p className="mt-1">
+            O sistema considera a proporção entre as perguntas avaliadas e calcula a seção por <span className="font-semibold">média ponderada</span>.
+          </p>
         </div>
         <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-3 text-sm text-[var(--color-neutral-700)]">
-          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Thresholds</p>
-          <p className="mt-2">Low: 0.0 ate {profile.low_max.toFixed(1)}</p>
-          <p>Medium: acima de {profile.low_max.toFixed(1)} ate {profile.medium_max.toFixed(1)}</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Fórmula e thresholds</p>
+          <p className="mt-2">Seção = soma(peso × nota) / soma dos pesos avaliados</p>
+          <p className="mt-2">Low: 0.0 até {profile.low_max.toFixed(1)}</p>
+          <p>Medium: acima de {profile.low_max.toFixed(1)} até {profile.medium_max.toFixed(1)}</p>
           <p>High: acima de {profile.medium_max.toFixed(1)}</p>
         </div>
       </div>
@@ -165,7 +168,7 @@ async function saveQuestionMappings(formData: FormData) {
   }
 
   revalidatePath("/settings/typeform-forms");
-  redirect(`/settings/typeform-forms?form=${formConfigId}&saved=mapping`);
+  redirect("/settings/typeform-forms?saved=mapping");
 }
 
 export default async function TypeformFormsSettingsPage({
@@ -175,6 +178,7 @@ export default async function TypeformFormsSettingsPage({
 }) {
   const params = await searchParams;
   const selectedFormId = typeof params.form === "string" ? params.form : "";
+  const savedFlag = typeof params.saved === "string" ? params.saved : "";
   const settings = await getIntegrationSettings();
   const riskScoringSettings = await getPlatformSettings("RISK_SCORING", normalizeRiskScoringSettings);
   const typeform = getSetting<TypeformConfig>(settings, "TYPEFORM");
@@ -197,7 +201,7 @@ export default async function TypeformFormsSettingsPage({
               totalQuestions,
               tone: "bg-slate-100 text-slate-600",
               label: "Sem leitura API",
-              detail: "Nao foi possivel validar a definicao do form agora.",
+              detail: "Não foi possível validar a definição do formulário agora.",
             }
           : mappedCount === 0
             ? {
@@ -399,11 +403,94 @@ export default async function TypeformFormsSettingsPage({
             </form>
           </SectionCard>
 
-          {selectedForm ? (
-            <SectionCard
-              title={`Mapeamento de Perguntas • ${selectedForm.name}`}
-              description="Todas as perguntas do formulário são listadas na ordem original do Typeform. Defina a seção e o peso usado no cálculo de risco para cada item."
-            >
+        </div>
+
+        <aside className="space-y-6">
+          <SectionCard title="Status da API" description="Resumo operacional da integração Typeform.">
+            <div className={`rounded-xl border p-4 ${typeform.enabled ? "border-emerald-100 bg-emerald-50" : "border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)]"}`}>
+              <p className={`text-sm font-bold ${typeform.enabled ? "text-emerald-700" : "text-[var(--color-neutral-700)]"}`}>
+                {typeform.enabled ? "Conectado com sucesso" : "Integração desativada"}
+              </p>
+              <p className={`mt-1 text-xs ${typeform.enabled ? "text-emerald-700/80" : "text-[var(--color-neutral-600)]"}`}>
+                {typeformApiTokenConfigured || typeform.config.api_token ? "Token de API disponível para leitura da definição dos forms." : "Configure o token no card principal do Typeform."}
+              </p>
+            </div>
+            <dl className="space-y-3 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-[var(--color-neutral-600)]">Usuário</dt>
+                <dd className="max-w-[180px] truncate font-semibold text-[var(--color-text)]">{typeform.config.api_user || "Não informado"}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-[var(--color-neutral-600)]">Webhook</dt>
+                <dd className="font-semibold text-[var(--color-text)]">{typeform.config.webhook_mode === "signed" ? "Assinado" : "Sem assinatura"}</dd>
+              </div>
+            </dl>
+          </SectionCard>
+
+          <SectionCard title="Webhook URL" description="Use este endpoint nas automações e testes do Typeform.">
+            <div className="rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-3 font-mono text-[10px] text-[var(--color-text)]">
+              {appUrl}/api/typeform/webhook
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Como usar" description="Fluxo recomendado para cadastrar e mapear corretamente.">
+            <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-[var(--color-neutral-700)]">
+              <li>Cadastre o formulário base com o `form_id` exato do Typeform.</li>
+              <li>Clique no lápis do formulário para carregar todas as perguntas em ordem.</li>
+              <li>Classifique cada pergunta em `Common`, `Compliance`, `Privacy` ou `Security`.</li>
+              <li>Defina o peso de cada pergunta para influenciar o score de risco da seção.</li>
+              <li>Salve o mapeamento antes de rodar o backfill ou sincronizar novos tickets.</li>
+            </ol>
+          </SectionCard>
+
+          <SectionCard title="Como os Pesos Funcionam" description="Entenda como o peso de cada pergunta influencia o cálculo do risco.">
+            <div className="space-y-4 text-sm leading-relaxed text-[var(--color-neutral-700)]">
+              <p>
+                Os pesos das perguntas são <span className="font-bold text-[var(--color-text)]">relativos</span>. Isso significa que uma
+                pergunta com peso maior influencia mais o resultado da sua seção do que uma pergunta com peso menor.
+              </p>
+              <p>
+                O sistema não exige que os pesos somem um valor máximo fixo. O cálculo da seção é feito por
+                <span className="font-bold text-[var(--color-text)]"> média ponderada</span>, considerando apenas as perguntas avaliadas.
+              </p>
+              <div className="rounded-lg bg-[var(--color-neutral-100)] px-4 py-3 font-mono text-xs text-[var(--color-text)]">
+                Score da seção = soma(peso × nota da avaliação) / soma dos pesos avaliados
+              </div>
+              <p>
+                Depois, cada seção gera seu próprio score e nível de risco. O score combinado continua como apoio quantitativo,
+                mas a classificação final segue a regra da pior seção obrigatória concluída.
+              </p>
+              <p>
+                Em resumo: <span className="font-bold text-[var(--color-text)]">peso maior = mais impacto</span>, mas o que importa é a
+                proporção entre as perguntas da mesma seção.
+              </p>
+            </div>
+          </SectionCard>
+        </aside>
+      </div>
+
+      {selectedForm ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-text)]/45 p-4">
+          <Link href="/settings/typeform-forms" aria-label="Fechar modal" className="absolute inset-0" />
+          <div className="relative z-10 max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-2xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-extrabold tracking-tight text-[var(--color-text)]">
+                  Mapeamento de Perguntas • {selectedForm.name}
+                </h2>
+                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
+                  Todas as perguntas do formulário são listadas na ordem original do Typeform. Defina a seção e o peso usado no cálculo de risco para cada item.
+                </p>
+              </div>
+              <Link
+                href="/settings/typeform-forms"
+                className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-4 py-2 text-sm font-bold text-[var(--color-neutral-700)] transition hover:bg-[var(--color-neutral-100)]"
+              >
+                Fechar
+              </Link>
+            </div>
+
+            <div className="mt-6">
               {flattenedQuestions.length === 0 ? (
                 <div className="rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-6 text-sm text-[var(--color-neutral-600)]">
                   Não foi possível carregar a definição do formulário no Typeform. Verifique o token da API e o `form_id`.
@@ -477,49 +564,33 @@ export default async function TypeformFormsSettingsPage({
                   </div>
                 </form>
               )}
-            </SectionCard>
-          ) : null}
+            </div>
+          </div>
         </div>
+      ) : null}
 
-        <aside className="space-y-6">
-          <SectionCard title="Status da API" description="Resumo operacional da integração Typeform.">
-            <div className={`rounded-xl border p-4 ${typeform.enabled ? "border-emerald-100 bg-emerald-50" : "border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)]"}`}>
-              <p className={`text-sm font-bold ${typeform.enabled ? "text-emerald-700" : "text-[var(--color-neutral-700)]"}`}>
-                {typeform.enabled ? "Conectado com sucesso" : "Integração desativada"}
-              </p>
-              <p className={`mt-1 text-xs ${typeform.enabled ? "text-emerald-700/80" : "text-[var(--color-neutral-600)]"}`}>
-                {typeformApiTokenConfigured || typeform.config.api_token ? "Token de API disponível para leitura da definição dos forms." : "Configure o token no card principal do Typeform."}
-              </p>
+      {savedFlag === "mapping" ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[var(--color-text)]/45 p-4">
+          <Link href="/settings/typeform-forms" aria-label="Fechar pop-up" className="absolute inset-0" />
+          <div className="relative z-10 w-full max-w-lg rounded-2xl border border-emerald-200 bg-white p-6 shadow-2xl">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-600">
+              ✓
             </div>
-            <dl className="space-y-3 text-sm">
-              <div className="flex items-start justify-between gap-3">
-                <dt className="text-[var(--color-neutral-600)]">Usuário</dt>
-                <dd className="max-w-[180px] truncate font-semibold text-[var(--color-text)]">{typeform.config.api_user || "Não informado"}</dd>
-              </div>
-              <div className="flex items-start justify-between gap-3">
-                <dt className="text-[var(--color-neutral-600)]">Webhook</dt>
-                <dd className="font-semibold text-[var(--color-text)]">{typeform.config.webhook_mode === "signed" ? "Assinado" : "Sem assinatura"}</dd>
-              </div>
-            </dl>
-          </SectionCard>
-
-          <SectionCard title="Webhook URL" description="Use este endpoint nas automações e testes do Typeform.">
-            <div className="rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-3 font-mono text-[10px] text-[var(--color-text)]">
-              {appUrl}/api/typeform/webhook
+            <h2 className="mt-4 text-2xl font-extrabold tracking-tight text-[var(--color-text)]">Mapeamento salvo com sucesso</h2>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--color-neutral-700)]">
+              As perguntas do formulário foram atualizadas e o sistema já pode usar esse mapeamento nas respostas futuras e históricas.
+            </p>
+            <div className="mt-6 flex justify-end">
+              <Link
+                href="/settings/typeform-forms"
+                className="rounded-lg bg-[var(--color-primary)] px-5 py-2.5 text-sm font-bold text-white transition hover:brightness-95"
+              >
+                Fechar
+              </Link>
             </div>
-          </SectionCard>
-
-          <SectionCard title="Como usar" description="Fluxo recomendado para cadastrar e mapear corretamente.">
-            <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-[var(--color-neutral-700)]">
-              <li>Cadastre o formulário base com o `form_id` exato do Typeform.</li>
-              <li>Clique no lápis do formulário para carregar todas as perguntas em ordem.</li>
-              <li>Classifique cada pergunta em `Common`, `Compliance`, `Privacy` ou `Security`.</li>
-              <li>Defina o peso de cada pergunta para influenciar o score de risco da seção.</li>
-              <li>Salve o mapeamento antes de rodar o backfill ou sincronizar novos tickets.</li>
-            </ol>
-          </SectionCard>
-        </aside>
-      </div>
+          </div>
+        </div>
+      ) : null}
     </PageContainer>
   );
 }

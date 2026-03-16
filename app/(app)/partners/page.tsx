@@ -101,7 +101,7 @@ export default async function PartnersPage({
     <div className="space-y-4">
       <EntityWorkspace
         title="Partners"
-        description="Acompanhe partners pela etapa da analise e pelo resultado final consolidado de Privacy, Security e Compliance."
+        description="Acompanhe partners pela etapa da análise e pelo resultado final consolidado de Privacy, Security e Compliance."
         actionLabel="New Partner"
         secondaryActionLabel="Export"
         filters={filters}
@@ -119,13 +119,13 @@ export default async function PartnersPage({
           {
             label: "Pending",
             value: filteredPartners.filter((v) => v.assessmentStatus === "Pending").length.toString(),
-            note: "Partners aguardando avance da avaliacao",
+            note: "Partners aguardando avanço da avaliação",
             tone: "primary",
           },
           {
             label: "Completed",
             value: filteredPartners.filter((v) => v.assessmentStatus === "Completed").length.toString(),
-            note: "Partners com analise encerrada",
+            note: "Partners com análise encerrada",
             tone: "success",
           },
           {

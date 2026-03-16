@@ -4,35 +4,18 @@ import { useState } from "react";
 import { SectionCard } from "@/components/ui/SectionCard";
 import type { RiskScoringProfile, RiskScoringSettings } from "@/lib/platform-settings";
 
-function buildRiskProfileExample(profile: RiskScoringProfile, includeCompliance: boolean) {
-  const totalWeight = profile.security_weight + profile.privacy_weight + profile.compliance_weight;
-  const weightedExampleScore =
-    ((8 * profile.security_weight) + (2 * profile.privacy_weight) + ((includeCompliance ? 4 : 0) * profile.compliance_weight)) /
-    Math.max(1, totalWeight);
-  const classification =
-    weightedExampleScore <= profile.low_max
-      ? "Low"
-      : weightedExampleScore <= profile.medium_max
-        ? "Medium"
-        : "High";
-
-  return { totalWeight, weightedExampleScore, classification };
-}
-
 function RiskProfileSection({
   title,
   description,
   profile,
   fieldPrefix,
   includeCompliance,
-  example,
 }: {
   title: string;
   description: string;
   profile: RiskScoringProfile;
   fieldPrefix: "partner" | "vendor";
   includeCompliance: boolean;
-  example: { totalWeight: number; weightedExampleScore: number; classification: string };
 }) {
   return (
     <section className="space-y-6 rounded-2xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
@@ -47,108 +30,73 @@ function RiskProfileSection({
             <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-4">
               <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">1. Pergunta</p>
               <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                Cada pergunta recebe um <span className="font-bold text-[var(--color-text)]">peso</span> no mapeamento do formulario.
+                Cada pergunta recebe um <span className="font-bold text-[var(--color-text)]">peso</span> no mapeamento do formulário.
               </p>
               <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                Quanto maior o peso, maior o impacto da pergunta dentro da secao.
+                Quanto maior o peso, maior o impacto da pergunta dentro da seção.
               </p>
             </div>
             <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">2. Avaliacao</p>
-              <p className="mt-2 text-sm text-[var(--color-neutral-700)]">A escolha do analista vira score numerico:</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">2. Avaliação</p>
+              <p className="mt-2 text-sm text-[var(--color-neutral-700)]">A escolha do analista vira score numérico:</p>
               <p className="mt-2 text-sm text-[var(--color-neutral-700)]">Totalmente = {profile.fully_score.toFixed(1)}</p>
               <p className="text-sm text-[var(--color-neutral-700)]">Parcialmente = {profile.partially_score.toFixed(1)}</p>
-              <p className="text-sm text-[var(--color-neutral-700)]">Nao Atende = {profile.does_not_meet_score.toFixed(1)}</p>
-              <p className="text-sm text-[var(--color-neutral-700)]">N/A = fora do calculo</p>
+              <p className="text-sm text-[var(--color-neutral-700)]">Não Atende = {profile.does_not_meet_score.toFixed(1)}</p>
+              <p className="text-sm text-[var(--color-neutral-700)]">N/A = fora do cálculo</p>
             </div>
             <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">3. Score Final</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">3. Decisão Final</p>
               <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                Primeiro calculamos o score de cada secao por media ponderada das perguntas.
+                O score combinado continua existindo como apoio quantitativo.
               </p>
               <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                Depois aplicamos os <span className="font-bold text-[var(--color-text)]">pesos por secao</span> para chegar ao risk score final.
+                A classificação final não pode ficar abaixo da <span className="font-bold text-[var(--color-text)]">pior seção concluída</span>.
               </p>
             </div>
           </div>
         </div>
 
         <div className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-5">
-          <p className="text-sm font-bold text-[var(--color-text)]">Exemplo pratico</p>
+          <p className="text-sm font-bold text-[var(--color-text)]">Como interpretar agora</p>
           <div className="mt-4 space-y-3 text-sm text-[var(--color-neutral-700)]">
             <p>
-              Suponha que os scores por secao ficaram:
-              <span className="font-bold text-[var(--color-text)]"> Security = 8.0</span>,
-              <span className="font-bold text-[var(--color-text)]"> Privacy = 2.0</span>
-              {includeCompliance ? (
-                <>
-                  {" "}e
-                  <span className="font-bold text-[var(--color-text)]"> Compliance = 4.0</span>.
-                </>
-              ) : (
-                "."
-              )}
+              Se uma seção obrigatória ficar em <span className="font-bold text-[var(--color-text)]">High</span>, a classificação final não pode ficar abaixo de <span className="font-bold text-[var(--color-text)]">High</span>.
             </p>
             <p>
-              Com pesos de secao
-              <span className="font-bold text-[var(--color-text)]">
-                {" "}
-                {profile.security_weight}% / {profile.privacy_weight}%{includeCompliance ? ` / ${profile.compliance_weight}%` : ""}
-              </span>,
-              o score final ponderado fica:
+              Se faltar uma seção obrigatória, a classificação final permanece como <span className="font-bold text-[var(--color-text)]">Pending Review</span>.
             </p>
-            <div className="rounded-lg bg-[var(--color-neutral-100)] px-4 py-3 font-mono text-xs text-[var(--color-text)]">
+            <p>
               {includeCompliance
-                ? `((8.0 x ${profile.security_weight}) + (2.0 x ${profile.privacy_weight}) + (4.0 x ${profile.compliance_weight})) / ${example.totalWeight || 1} = ${example.weightedExampleScore.toFixed(1)}`
-                : `((8.0 x ${profile.security_weight}) + (2.0 x ${profile.privacy_weight})) / ${example.totalWeight || 1} = ${example.weightedExampleScore.toFixed(1)}`}
-            </div>
-            <p>
-              Com os thresholds atuais, esse resultado seria classificado como
-              <span className="font-bold text-[var(--color-text)]"> {example.classification}</span>.
+                ? "Para Partners, as seções obrigatórias são Security, Privacy e Compliance."
+                : "Para Vendors, as seções obrigatórias são Security e Privacy."}
             </p>
           </div>
         </div>
       </div>
 
-      <SectionCard title="Pesos por Secao" description={`Defina como ${includeCompliance ? "Security, Privacy e Compliance" : "Security e Privacy"} afetam o score final ponderado.`}>
-        <div className="space-y-8">
-          {[
-            { key: "security_weight", label: "Security", icon: "security", value: profile.security_weight },
-            { key: "privacy_weight", label: "Privacy", icon: "privacy_tip", value: profile.privacy_weight },
-            ...(includeCompliance
-              ? [{ key: "compliance_weight", label: "Compliance", icon: "verified_user", value: profile.compliance_weight }]
-              : []),
-          ].map((item) => (
-            <div key={item.label} className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[var(--color-primary)]">{item.icon}</span>
-                  <span className="text-sm font-bold text-[var(--color-text)]">{item.label}</span>
-                </div>
-                <div className="rounded bg-[var(--color-neutral-100)] px-2 py-1 text-xs font-bold text-[var(--color-neutral-700)]">{item.value}%</div>
-              </div>
-              <input
-                name={`${fieldPrefix}_${item.key}`}
-                type="number"
-                min={0}
-                max={100}
-                defaultValue={item.value}
-                className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm"
-              />
-            </div>
-          ))}
-          <p className={`text-xs font-semibold ${example.totalWeight === 100 ? "text-emerald-700" : "text-amber-700"}`}>
-            Soma atual dos pesos: {example.totalWeight}% (obrigatorio: 100%)
-          </p>
+      <SectionCard title="Regra da Classificação Final" description="A decisão final segue o Modelo 1 e prioriza o pior risco entre as seções obrigatórias concluídas.">
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Score Combinado</p>
+            <p className="mt-2 text-sm text-[var(--color-neutral-700)]">Permanece como referência quantitativa para leitura e comparação histórica.</p>
+          </div>
+          <div className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Trava por Pior Seção</p>
+            <p className="mt-2 text-sm text-[var(--color-neutral-700)]">A classificação final nunca pode ser menor que a pior seção obrigatória concluída.</p>
+          </div>
+          <div className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Seções Pendentes</p>
+            <p className="mt-2 text-sm text-[var(--color-neutral-700)]">Enquanto houver frente obrigatoria pendente, o caso permanece em Pending Review.</p>
+          </div>
         </div>
       </SectionCard>
 
-      <SectionCard title="Score por Avaliacao" description="Regua numerica aplicada quando o analista marca cada resposta do questionario.">
+      <SectionCard title="Score por Avaliação" description="Régua numérica aplicada quando o analista marca cada resposta do questionário.">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {[
             { key: "fully_score", label: "Totalmente", tone: "text-emerald-700 bg-emerald-50 border-emerald-200", value: profile.fully_score },
             { key: "partially_score", label: "Parcialmente", tone: "text-amber-700 bg-amber-50 border-amber-200", value: profile.partially_score },
-            { key: "does_not_meet_score", label: "Nao Atende", tone: "text-red-700 bg-red-50 border-red-200", value: profile.does_not_meet_score },
+            { key: "does_not_meet_score", label: "Não Atende", tone: "text-red-700 bg-red-50 border-red-200", value: profile.does_not_meet_score },
           ].map((item) => (
             <div key={item.label} className={`rounded-xl border p-4 ${item.tone}`}>
               <p className="text-xs font-bold uppercase tracking-wider">{item.label}</p>
@@ -167,7 +115,7 @@ function RiskProfileSection({
         </div>
       </SectionCard>
 
-      <SectionCard title="Thresholds de Classificacao" description="Faixas de score entre 0 e 10 usadas para classificar o risco.">
+      <SectionCard title="Thresholds de Classificação" description="Faixas de score entre 0 e 10 usadas para classificar o risco.">
         <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
           {[
             { label: "Low", range: `0.0 - ${profile.low_max.toFixed(1)}`, tone: "text-emerald-700 bg-emerald-50 border-emerald-200" },
@@ -182,11 +130,11 @@ function RiskProfileSection({
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <label className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Maximo Low</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Máximo Low</span>
             <input name={`${fieldPrefix}_low_max`} type="number" min={0} max={10} step="0.1" defaultValue={profile.low_max} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
           </label>
           <label className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Maximo Medium</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Máximo Medium</span>
             <input name={`${fieldPrefix}_medium_max`} type="number" min={0} max={10} step="0.1" defaultValue={profile.medium_max} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
           </label>
         </div>
@@ -203,14 +151,12 @@ export function RiskScoringSettingsPanel({
   saveAction: (formData: FormData) => Promise<void>;
 }) {
   const [activeProfile, setActiveProfile] = useState<"partner" | "vendor">("partner");
-  const partnerExample = buildRiskProfileExample(value.partner, true);
-  const vendorExample = buildRiskProfileExample(value.vendor, false);
 
   return (
     <form action={saveAction} className="space-y-6">
       <SectionCard
         title="Estrutura de Calculo"
-        description="Partners e Vendors agora possuem configuracoes independentes, porque os fluxos de avaliacao sao diferentes."
+        description="Partners e Vendors agora possuem configurações independentes, porque os fluxos de avaliação são diferentes."
       >
         <div className="grid gap-3 md:grid-cols-2">
           <button
@@ -243,23 +189,21 @@ export function RiskScoringSettingsPanel({
 
       {activeProfile === "partner" ? (
         <RiskProfileSection
-          title="Configuracao de Partners"
-          description="Regra usada para recalcular automaticamente o score e a classificacao dos assessments de partners."
+          title="Configuração de Partners"
+          description="Configuração usada para score por pergunta e para a classificação final com trava pela pior seção concluída."
           profile={value.partner}
           fieldPrefix="partner"
           includeCompliance
-          example={partnerExample}
         />
       ) : null}
 
       {activeProfile === "vendor" ? (
         <RiskProfileSection
-          title="Configuracao de Vendors"
-          description="Regra reservada para o fluxo de vendors, considerando somente Security e Privacy."
+          title="Configuração de Vendors"
+          description="Configuração usada para score por pergunta e para a classificação final com trava pela pior seção concluída."
           profile={value.vendor}
           fieldPrefix="vendor"
           includeCompliance={false}
-          example={vendorExample}
         />
       ) : null}
 

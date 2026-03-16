@@ -229,7 +229,7 @@ async function readConfiguredSheetRows(
   if (!hasServiceAccountCredentials()) {
     reportFetchIssueOnce(
       `google-sheets-auth-missing-${entityKind}-${workflow}`,
-      "Google Sheets configurado na aplicacao, mas as credenciais da service account nao estao definidas no ambiente.",
+      "Google Sheets configurado na aplicação, mas as credenciais da service account não estão definidas no ambiente.",
     );
     return null;
   }

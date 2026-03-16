@@ -113,7 +113,7 @@ function formatRiskSettingsError(errorCode: string | undefined) {
     return "Em Vendors, os thresholds precisam respeitar: Low < Medium e ambos entre 0 e 10.";
   }
 
-  return "Nao foi possivel salvar a pontuacao de risco. Revise os valores informados.";
+  return "Não foi possível salvar a pontuação de risco. Revise os valores informados.";
 }
 
 function parseDecimalField(formData: FormData, key: string, fallback: number) {
@@ -122,21 +122,12 @@ function parseDecimalField(formData: FormData, key: string, fallback: number) {
   return Math.round(Math.max(0, Math.min(10, raw)) * 10) / 10;
 }
 
-function parsePercentField(formData: FormData, key: string, fallback: number) {
-  const raw = Number(formData.get(key) ?? fallback);
-  if (!Number.isFinite(raw)) return fallback;
-  return Math.max(0, Math.min(100, Math.round(raw)));
-}
-
-function isValidRiskProfile(profile: RiskScoringProfile, expectedWeightTotal: number) {
-  const totalWeight = profile.security_weight + profile.privacy_weight + profile.compliance_weight;
-  const validWeights = totalWeight === expectedWeightTotal;
+function isValidRiskProfile(profile: RiskScoringProfile) {
   const validScores =
     profile.fully_score <= profile.partially_score && profile.partially_score <= profile.does_not_meet_score;
   const validThresholds = profile.low_max < profile.medium_max && profile.low_max >= 0 && profile.medium_max <= 10;
 
   return {
-    validWeights,
     validScores,
     validThresholds,
   };
@@ -340,11 +331,13 @@ async function saveGeneralSettings(formData: FormData) {
 async function saveRiskScoringSettings(formData: FormData) {
   "use server";
 
+  const currentSettings = await getPlatformSettings("RISK_SCORING", normalizeRiskScoringSettings);
+
   const payload: RiskScoringSettings = {
     partner: {
-      security_weight: parsePercentField(formData, "partner_security_weight", 50),
-      privacy_weight: parsePercentField(formData, "partner_privacy_weight", 30),
-      compliance_weight: parsePercentField(formData, "partner_compliance_weight", 20),
+      security_weight: currentSettings.partner.security_weight,
+      privacy_weight: currentSettings.partner.privacy_weight,
+      compliance_weight: currentSettings.partner.compliance_weight,
       fully_score: parseDecimalField(formData, "partner_fully_score", 0),
       partially_score: parseDecimalField(formData, "partner_partially_score", 5),
       does_not_meet_score: parseDecimalField(formData, "partner_does_not_meet_score", 10),
@@ -352,8 +345,8 @@ async function saveRiskScoringSettings(formData: FormData) {
       medium_max: parseDecimalField(formData, "partner_medium_max", 6),
     },
     vendor: {
-      security_weight: parsePercentField(formData, "vendor_security_weight", 50),
-      privacy_weight: parsePercentField(formData, "vendor_privacy_weight", 50),
+      security_weight: currentSettings.vendor.security_weight,
+      privacy_weight: currentSettings.vendor.privacy_weight,
       compliance_weight: 0,
       fully_score: parseDecimalField(formData, "vendor_fully_score", 0),
       partially_score: parseDecimalField(formData, "vendor_partially_score", 5),
@@ -363,10 +356,7 @@ async function saveRiskScoringSettings(formData: FormData) {
     },
   };
 
-  const partnerValidation = isValidRiskProfile(payload.partner, 100);
-  if (!partnerValidation.validWeights) {
-    redirect("/settings?tab=pontuacao&error=partner_weights");
-  }
+  const partnerValidation = isValidRiskProfile(payload.partner);
   if (!partnerValidation.validScores) {
     redirect("/settings?tab=pontuacao&error=partner_scores");
   }
@@ -374,10 +364,7 @@ async function saveRiskScoringSettings(formData: FormData) {
     redirect("/settings?tab=pontuacao&error=partner_thresholds");
   }
 
-  const vendorValidation = isValidRiskProfile(payload.vendor, 100);
-  if (!vendorValidation.validWeights) {
-    redirect("/settings?tab=pontuacao&error=vendor_weights");
-  }
+  const vendorValidation = isValidRiskProfile(payload.vendor);
   if (!vendorValidation.validScores) {
     redirect("/settings?tab=pontuacao&error=vendor_scores");
   }

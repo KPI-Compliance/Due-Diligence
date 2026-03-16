@@ -72,15 +72,34 @@ function getEvaluationScore(
   return null;
 }
 
-function toClassification(
-  score: number | null,
-  settings: RiskScoringProfile,
-) {
-  const level = toDecisionLevel(score, settings);
-  if (!level) return "Not classified";
-  if (level === "HIGH") return "High Risk";
-  if (level === "MEDIUM") return "Medium Risk";
-  return "Low Risk";
+function decisionLevelSeverity(level: DecisionLevel | null) {
+  if (level === "HIGH") return 3;
+  if (level === "MEDIUM") return 2;
+  if (level === "LOW") return 1;
+  return 0;
+}
+
+function getModelOneClassification(input: {
+  combinedScore: number | null;
+  settings: RiskScoringProfile;
+  requiredSectionLevels: Array<DecisionLevel | null>;
+}) {
+  if (input.requiredSectionLevels.some((level) => !level)) {
+    return "Pending Review";
+  }
+
+  const combinedLevel = toDecisionLevel(input.combinedScore, input.settings);
+  const worstSectionLevel = input.requiredSectionLevels.reduce<DecisionLevel | null>((worst, current) => {
+    return decisionLevelSeverity(current) > decisionLevelSeverity(worst) ? current : worst;
+  }, null);
+
+  const finalLevel =
+    decisionLevelSeverity(worstSectionLevel) > decisionLevelSeverity(combinedLevel) ? worstSectionLevel : combinedLevel;
+
+  if (finalLevel === "HIGH") return "High Risk";
+  if (finalLevel === "MEDIUM") return "Medium Risk";
+  if (finalLevel === "LOW") return "Low Risk";
+  return "Pending Review";
 }
 
 function getSectionNote(section: ScoredSection, answeredCount: number, totalWeight: number, score: number | null) {
@@ -436,7 +455,15 @@ async function recalculatePartnerAssessmentDecisionByAssessmentId(
         ${toDecisionLevel(complianceScore, partnerRiskScoring)}::risk_level,
         ${getSectionNote("COMPLIANCE", complianceScoreRaw?.answeredCount ?? 0, complianceScoreRaw?.totalWeight ?? 0, complianceScore)},
         ${combinedScore === null ? null : Number(combinedScore.toFixed(1))},
-        ${toClassification(combinedScore, partnerRiskScoring)}
+        ${getModelOneClassification({
+          combinedScore,
+          settings: partnerRiskScoring,
+          requiredSectionLevels: [
+            toDecisionLevel(securityScore, partnerRiskScoring),
+            toDecisionLevel(privacyScore, partnerRiskScoring),
+            toDecisionLevel(complianceScore, partnerRiskScoring),
+          ],
+        })}
       )
       ON CONFLICT (assessment_id)
       DO UPDATE SET
@@ -479,7 +506,15 @@ async function recalculatePartnerAssessmentDecisionByAssessmentId(
         ${toDecisionLevel(complianceScore, partnerRiskScoring)}::risk_level,
         ${getSectionNote("COMPLIANCE", complianceScoreRaw?.answeredCount ?? 0, complianceScoreRaw?.totalWeight ?? 0, complianceScore)},
         ${combinedScore === null ? null : Number(combinedScore.toFixed(1))},
-        ${toClassification(combinedScore, partnerRiskScoring)}
+        ${getModelOneClassification({
+          combinedScore,
+          settings: partnerRiskScoring,
+          requiredSectionLevels: [
+            toDecisionLevel(securityScore, partnerRiskScoring),
+            toDecisionLevel(privacyScore, partnerRiskScoring),
+            toDecisionLevel(complianceScore, partnerRiskScoring),
+          ],
+        })}
       )
       ON CONFLICT (assessment_id)
       DO UPDATE SET

@@ -13,7 +13,6 @@ const modalInputClass =
 const modalReadOnlyInputClass =
   "w-full rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-4 py-2.5 text-sm text-[var(--color-text)]";
 const modalLabelClass = "text-sm font-bold text-[var(--color-neutral-700)]";
-const modalHintClass = "block text-xs text-[var(--color-neutral-600)]";
 
 type IntegrationsSettingsProps = {
   appUrl: string;
@@ -109,7 +108,7 @@ export function IntegrationsSettings({
       setCopyFeedback(successMessage);
       setTimeout(() => setCopyFeedback(null), 2200);
     } catch {
-      setCopyFeedback("Nao foi possivel copiar automaticamente. Copie manualmente.");
+      setCopyFeedback("Não foi possível copiar automaticamente. Copie manualmente.");
       setTimeout(() => setCopyFeedback(null), 2200);
     }
   }
@@ -170,12 +169,12 @@ export function IntegrationsSettings({
 
         <SectionCard
           title="Typeform Forms"
-          description="Catalogo e mapeamento dos formularios cadastrados"
+          description="Catálogo e mapeamento dos formulários cadastrados"
           className={typeformForms.length > 0 ? "border-emerald-200" : "border-[var(--color-neutral-200)]"}
         >
           <div className="space-y-3">
             <p className="text-sm font-semibold text-[var(--color-text)]">
-              Status: <span className={typeformForms.length > 0 ? "text-emerald-600" : "text-amber-600"}>{typeformForms.length > 0 ? "Configurado" : "Sem formularios"}</span>
+              Status: <span className={typeformForms.length > 0 ? "text-emerald-600" : "text-amber-600"}>{typeformForms.length > 0 ? "Configurado" : "Sem formulários"}</span>
             </p>
             <p className="text-xs text-[var(--color-neutral-600)]">
               Total: {typeformForms.length} | Partners: {typeformForms.filter((form) => form.entity_kind === "PARTNER").length}
@@ -189,7 +188,7 @@ export function IntegrationsSettings({
           </div>
         </SectionCard>
 
-        <SectionCard title="Jira" description="Tickets para mitigacao e filas de revisao" className={jira.enabled ? "border-emerald-200" : "border-[var(--color-neutral-200)]"}>
+        <SectionCard title="Jira" description="Tickets para mitigação e filas de revisão" className={jira.enabled ? "border-emerald-200" : "border-[var(--color-neutral-200)]"}>
           <div className="space-y-3">
             <p className="text-sm font-semibold text-[var(--color-text)]">
               Status: <span className={jira.enabled ? "text-emerald-600" : "text-amber-600"}>{jira.enabled ? "Ativado" : "Desativado"}</span>
@@ -239,7 +238,7 @@ export function IntegrationsSettings({
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
               <h3 className="text-xl font-bold text-[var(--color-text)]">Configurar Typeform</h3>
-              <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Configure uma vez e depois mapeie um ou varios formularios por `form_id`, inclusive varios externos para Partners.</p>
+              <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Configure uma vez e depois mapeie um ou vários formulários por `form_id`, inclusive vários externos para Partners.</p>
             </div>
             <button type="button" onClick={() => setOpenModal(null)} className="rounded-md px-2 py-1 text-[var(--color-neutral-600)] hover:bg-[var(--color-neutral-100)]">
               ✕
@@ -248,14 +247,14 @@ export function IntegrationsSettings({
 
           <section className="mb-4 space-y-3 rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-bold text-[var(--color-text)]">Configuracao Rapida (recomendada)</p>
+              <p className="text-sm font-bold text-[var(--color-text)]">Configuração Rápida (recomendada)</p>
               {copyFeedback ? <span className="text-xs font-semibold text-emerald-700">{copyFeedback}</span> : null}
             </div>
             <ol className="space-y-1 text-sm text-[var(--color-neutral-700)]">
               <li>1. Salve as configuracoes globais (endpoint, modo e hidden field padrao).</li>
               <li>2. No Typeform, cadastre a URL de webhook abaixo.</li>
-              <li>3. Para cada formulario Typeform, adicione um mapeamento com o `form_id` exato.</li>
-              <li>4. Para Partners, voce pode cadastrar varios formularios `external_questionnaire` apontando para a mesma fila do Jira.</li>
+              <li>3. Para cada formulário Typeform, adicione um mapeamento com o `form_id` exato.</li>
+              <li>4. Para Partners, você pode cadastrar vários formulários `external_questionnaire` apontando para a mesma fila do Jira.</li>
               <li>5. Hidden field continua opcional quando o vinculo for feito pelo nome da empresa.</li>
             </ol>
             <div className="flex flex-wrap gap-2">
@@ -277,7 +276,7 @@ export function IntegrationsSettings({
           </section>
 
           <form action={saveTypeformSettings} className="space-y-4 rounded-xl border border-[var(--color-neutral-200)] p-4">
-            <p className="text-sm font-bold text-[var(--color-text)]">Configuracoes Globais do Typeform</p>
+            <p className="text-sm font-bold text-[var(--color-text)]">Configurações Globais do Typeform</p>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <label className="space-y-1">
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Endpoint do Webhook</span>
@@ -292,7 +291,7 @@ export function IntegrationsSettings({
                   value={typeformSecretConfigured ? "Configurado no ambiente" : "Ausente: TYPEFORM_WEBHOOK_SECRET"}
                   className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm"
                 />
-                <span className="block text-xs text-[var(--color-neutral-600)]">Quando o modo for Assinado, essa variavel e obrigatoria.</span>
+                <span className="block text-xs text-[var(--color-neutral-600)]">Quando o modo for Assinado, essa variável é obrigatória.</span>
               </label>
             </div>
 
@@ -331,7 +330,7 @@ export function IntegrationsSettings({
                   defaultValue={typeform.config.default_hidden_assessment_field}
                   className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
                 />
-                <span className="block text-xs text-[var(--color-neutral-600)]">Campo de fallback caso o mapeamento do formulario nao sobrescreva.</span>
+                <span className="block text-xs text-[var(--color-neutral-600)]">Campo de fallback caso o mapeamento do formulário não sobrescreva.</span>
               </label>
 
               <label className="space-y-1">
@@ -350,7 +349,7 @@ export function IntegrationsSettings({
             </label>
 
             <div className="flex justify-end">
-              <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">Salvar Configuracoes Globais</button>
+              <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">Salvar Configurações Globais</button>
             </div>
           </form>
 
@@ -689,7 +688,7 @@ export function IntegrationsSettings({
               <li>Cadastre no Jira Automation ou Webhook um gatilho para issue criada e issue atualizada.</li>
               <li>Aponte o destino para o endpoint abaixo.</li>
               <li>Se usar segredo, envie o header `x-jira-webhook-secret` com o mesmo valor de `JIRA_WEBHOOK_SECRET`.</li>
-              <li>Use as filas configuradas abaixo para orientar a operacao: Vendors e Partners possuem links diferentes.</li>
+              <li>Use as filas configuradas abaixo para orientar a operação: Vendors e Partners possuem links diferentes.</li>
             </ol>
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
               <label className="space-y-1">
@@ -798,7 +797,7 @@ export function IntegrationsSettings({
               <button type="button" onClick={() => setOpenModal(null)} className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-4 py-2 text-sm font-bold text-[var(--color-neutral-700)]">
                 Cancelar
               </button>
-              <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">Salvar Configuracoes do Jira</button>
+              <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">Salvar Configurações do Jira</button>
             </div>
           </form>
         </Backdrop>
@@ -834,7 +833,7 @@ export function IntegrationsSettings({
               </label>
               <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text)]">
                 <input name="notify_on_critical" type="checkbox" defaultChecked={slack.config.notify_on_critical} className="h-4 w-4 accent-[var(--color-primary)]" />
-                Notificar quando risco critico for identificado
+                Notificar quando risco crítico for identificado
               </label>
               <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text)]">
                 <input name="enabled" type="checkbox" defaultChecked={slack.enabled} className="h-4 w-4 accent-[var(--color-primary)]" />
@@ -846,7 +845,7 @@ export function IntegrationsSettings({
               <button type="button" onClick={() => setOpenModal(null)} className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-4 py-2 text-sm font-bold text-[var(--color-neutral-700)]">
                 Cancelar
               </button>
-              <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">Salvar Configuracoes do Slack</button>
+              <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">Salvar Configurações do Slack</button>
             </div>
           </form>
         </Backdrop>
@@ -1140,7 +1139,7 @@ export function IntegrationsSettings({
                 Cancelar
               </button>
               <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">
-                Salvar Configuracoes do Google Sheets
+                Salvar Configurações do Google Sheets
               </button>
             </div>
           </form>

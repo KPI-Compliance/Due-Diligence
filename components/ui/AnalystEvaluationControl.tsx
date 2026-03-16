@@ -10,7 +10,7 @@ const evaluationOptions: Array<{
 }> = [
   {
     value: "DOES_NOT_MEET",
-    label: "Nao Atende",
+    label: "Não Atende",
     tone: "border-red-200 text-red-600 bg-red-50/80",
   },
   {
@@ -45,7 +45,7 @@ export function AnalystEvaluationControl({
     analystEvaluation ?? "NOT_EVALUATED",
   );
   const selectedEvaluationLabel =
-    evaluationOptions.find((option) => option.value === selectedEvaluation)?.label ?? "Nao avaliado";
+    evaluationOptions.find((option) => option.value === selectedEvaluation)?.label ?? "Não avaliado";
 
   return (
     <>

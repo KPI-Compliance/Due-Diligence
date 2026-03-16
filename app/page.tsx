@@ -135,7 +135,7 @@ export default function HomePage() {
             </p>
 
             <div className="mt-6 rounded-lg border border-dashed border-[var(--color-secondary)]/15 bg-[var(--color-secondary)]/3 px-4 py-3 text-xs leading-6 text-[var(--color-neutral-700)]">
-              Login e SSO ainda nao estao integrados. O botao <span className="font-semibold text-[var(--color-secondary)]">Entrar</span> libera o acesso provisoriamente.
+              Login e SSO ainda não estão integrados. O botão <span className="font-semibold text-[var(--color-secondary)]">Entrar</span> libera o acesso provisoriamente.
             </div>
           </div>
         </section>

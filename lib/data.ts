@@ -120,6 +120,45 @@ function maxRisk(...levels: Array<string | null>) {
   return levels.map(mapRisk).sort((a, b) => compareRiskSeverity(b) - compareRiskSeverity(a))[0] ?? "Low";
 }
 
+function classificationToUiRisk(classification: string | null | undefined): UiRisk | null {
+  const normalized = (classification ?? "").trim().toLowerCase();
+  if (normalized.includes("high")) return "High";
+  if (normalized.includes("medium")) return "Medium";
+  if (normalized.includes("low")) return "Low";
+  if (normalized.includes("critical")) return "Critical";
+  return null;
+}
+
+function getModelOneDisplayClassification(input: {
+  kind: "vendor" | "partner";
+  securityLevel: string | null;
+  privacyLevel: string | null;
+  complianceLevel: string | null;
+  storedClassification: string | null;
+}) {
+  const requiredLevels =
+    input.kind === "partner"
+      ? [input.securityLevel, input.privacyLevel, input.complianceLevel]
+      : [input.securityLevel, input.privacyLevel];
+
+  if (requiredLevels.some((level) => !level)) {
+    return "Pending Review";
+  }
+
+  const worstSectionRisk =
+    input.kind === "partner"
+      ? maxRisk(input.securityLevel, input.privacyLevel, input.complianceLevel)
+      : maxRisk(input.securityLevel, input.privacyLevel);
+  const storedRisk = classificationToUiRisk(input.storedClassification);
+  const finalRisk =
+    storedRisk && compareRiskSeverity(storedRisk) > compareRiskSeverity(worstSectionRisk) ? storedRisk : worstSectionRisk;
+
+  if (finalRisk === "Critical") return "Critical Risk";
+  if (finalRisk === "High") return "High Risk";
+  if (finalRisk === "Medium") return "Medium Risk";
+  return "Low Risk";
+}
+
 function mapDecisionRisk(level: string | null) {
   return level ? mapRisk(level) : null;
 }
@@ -1456,6 +1495,13 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   const privacyScore = normalizeDecimal(decision?.privacy_score);
   const complianceScore = normalizeDecimal(decision?.compliance_score);
   const combinedScore = normalizeDecimal(decision?.combined_score);
+  const effectiveClassification = getModelOneDisplayClassification({
+    kind,
+    securityLevel: decision?.security_level ?? null,
+    privacyLevel: decision?.privacy_level ?? null,
+    complianceLevel: decision?.compliance_level ?? null,
+    storedClassification: decision?.classification ?? null,
+  });
   const partnerSectionReviewDates =
     kind === "partner" && latestAssessment
       ? await getPartnerSectionReviewDates(partnerFormTable, {
@@ -1515,30 +1561,30 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
               title: "Security analisado",
               eventAt: sectionDateMap.get("Security") ?? null,
               note: sectionDateMap.get("Security")
-                ? "A aba Security recebeu a analise do time responsavel."
-                : "Aguardando analise da frente de Security.",
+                ? "A aba Security recebeu a análise do time responsável."
+                : "Aguardando análise da frente de Security.",
             },
             {
               title: "Privacy analisado",
               eventAt: sectionDateMap.get("Privacy") ?? null,
               note: sectionDateMap.get("Privacy")
-                ? "A aba Privacy recebeu a analise do time responsavel."
-                : "Aguardando analise da frente de Privacy.",
+                ? "A aba Privacy recebeu a análise do time responsável."
+                : "Aguardando análise da frente de Privacy.",
             },
             {
               title: "Compliance analisado",
               eventAt: sectionDateMap.get("Compliance") ?? null,
               note: sectionDateMap.get("Compliance")
-                ? "A aba Compliance recebeu a analise do time responsavel."
-                : "Aguardando analise da frente de Compliance.",
+                ? "A aba Compliance recebeu a análise do time responsável."
+                : "Aguardando análise da frente de Compliance.",
             },
             {
               title: "Assessment finalizado",
               eventAt: latestAssessment.completed_at ?? decision?.finalized_at ?? null,
               note:
                 latestAssessment.completed_at ?? decision?.finalized_at
-                  ? "Assessment concluido por completo."
-                  : "Aguardando conclusao final do assessment.",
+                  ? "Assessment concluído por completo."
+                  : "Aguardando conclusão final do assessment.",
             },
           ];
 
@@ -1645,7 +1691,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
         score: complianceScore?.toFixed(1) ?? "-",
       },
       combinedScore: combinedScore?.toFixed(1) ?? "0.0",
-      classification: decision?.classification ?? "Not classified",
+      classification: effectiveClassification,
     },
   };
 }
