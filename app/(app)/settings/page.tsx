@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings";
+import { RiskScoringSettingsPanel } from "@/components/settings/RiskScoringSettingsPanel";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SectionCard } from "@/components/ui/SectionCard";
 import {
@@ -87,6 +88,57 @@ function normalizeTab(value: string | undefined): SettingsTab {
     return tab;
   }
   return "geral";
+}
+
+function formatRiskSettingsError(errorCode: string | undefined) {
+  if (!errorCode) return null;
+
+  if (errorCode === "partner_weights") {
+    return "A soma dos pesos de Partners precisa ser exatamente 100%.";
+  }
+  if (errorCode === "vendor_weights") {
+    return "A soma dos pesos de Vendors precisa ser exatamente 100% entre Security e Privacy.";
+  }
+  if (errorCode === "partner_scores") {
+    return "Em Partners, os scores precisam respeitar a ordem: Totalmente <= Parcialmente <= Não Atende.";
+  }
+  if (errorCode === "vendor_scores") {
+    return "Em Vendors, os scores precisam respeitar a ordem: Totalmente <= Parcialmente <= Não Atende.";
+  }
+  if (errorCode === "partner_thresholds") {
+    return "Em Partners, os thresholds precisam respeitar: Low < Medium e ambos entre 0 e 10.";
+  }
+  if (errorCode === "vendor_thresholds") {
+    return "Em Vendors, os thresholds precisam respeitar: Low < Medium e ambos entre 0 e 10.";
+  }
+
+  return "Nao foi possivel salvar a pontuacao de risco. Revise os valores informados.";
+}
+
+function parseDecimalField(formData: FormData, key: string, fallback: number) {
+  const raw = Number(formData.get(key) ?? fallback);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.round(Math.max(0, Math.min(10, raw)) * 10) / 10;
+}
+
+function parsePercentField(formData: FormData, key: string, fallback: number) {
+  const raw = Number(formData.get(key) ?? fallback);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(0, Math.min(100, Math.round(raw)));
+}
+
+function isValidRiskProfile(profile: RiskScoringProfile, expectedWeightTotal: number) {
+  const totalWeight = profile.security_weight + profile.privacy_weight + profile.compliance_weight;
+  const validWeights = totalWeight === expectedWeightTotal;
+  const validScores =
+    profile.fully_score <= profile.partially_score && profile.partially_score <= profile.does_not_meet_score;
+  const validThresholds = profile.low_max < profile.medium_max && profile.low_max >= 0 && profile.medium_max <= 10;
+
+  return {
+    validWeights,
+    validScores,
+    validThresholds,
+  };
 }
 
 async function saveTypeformSettings(formData: FormData) {
@@ -287,20 +339,50 @@ async function saveGeneralSettings(formData: FormData) {
 async function saveRiskScoringSettings(formData: FormData) {
   "use server";
 
-  const lowMax = Math.max(0, Math.min(10, Number(formData.get("low_max") ?? 3) || 3));
-  const mediumMaxInput = Math.max(0, Math.min(10, Number(formData.get("medium_max") ?? 6) || 6));
-  const mediumMax = Math.max(lowMax, mediumMaxInput);
-
   const payload: RiskScoringSettings = {
-    security_weight: Math.max(0, Math.min(100, Number(formData.get("security_weight") ?? 50) || 50)),
-    privacy_weight: Math.max(0, Math.min(100, Number(formData.get("privacy_weight") ?? 30) || 30)),
-    compliance_weight: Math.max(0, Math.min(100, Number(formData.get("compliance_weight") ?? 20) || 20)),
-    fully_score: Math.max(0, Math.min(10, Number(formData.get("fully_score") ?? 0) || 0)),
-    partially_score: Math.max(0, Math.min(10, Number(formData.get("partially_score") ?? 5) || 5)),
-    does_not_meet_score: Math.max(0, Math.min(10, Number(formData.get("does_not_meet_score") ?? 10) || 10)),
-    low_max: lowMax,
-    medium_max: mediumMax,
+    partner: {
+      security_weight: parsePercentField(formData, "partner_security_weight", 50),
+      privacy_weight: parsePercentField(formData, "partner_privacy_weight", 30),
+      compliance_weight: parsePercentField(formData, "partner_compliance_weight", 20),
+      fully_score: parseDecimalField(formData, "partner_fully_score", 0),
+      partially_score: parseDecimalField(formData, "partner_partially_score", 5),
+      does_not_meet_score: parseDecimalField(formData, "partner_does_not_meet_score", 10),
+      low_max: parseDecimalField(formData, "partner_low_max", 3),
+      medium_max: parseDecimalField(formData, "partner_medium_max", 6),
+    },
+    vendor: {
+      security_weight: parsePercentField(formData, "vendor_security_weight", 50),
+      privacy_weight: parsePercentField(formData, "vendor_privacy_weight", 50),
+      compliance_weight: 0,
+      fully_score: parseDecimalField(formData, "vendor_fully_score", 0),
+      partially_score: parseDecimalField(formData, "vendor_partially_score", 5),
+      does_not_meet_score: parseDecimalField(formData, "vendor_does_not_meet_score", 10),
+      low_max: parseDecimalField(formData, "vendor_low_max", 3),
+      medium_max: parseDecimalField(formData, "vendor_medium_max", 6),
+    },
   };
+
+  const partnerValidation = isValidRiskProfile(payload.partner, 100);
+  if (!partnerValidation.validWeights) {
+    redirect("/settings?tab=pontuacao&error=partner_weights");
+  }
+  if (!partnerValidation.validScores) {
+    redirect("/settings?tab=pontuacao&error=partner_scores");
+  }
+  if (!partnerValidation.validThresholds) {
+    redirect("/settings?tab=pontuacao&error=partner_thresholds");
+  }
+
+  const vendorValidation = isValidRiskProfile(payload.vendor, 100);
+  if (!vendorValidation.validWeights) {
+    redirect("/settings?tab=pontuacao&error=vendor_weights");
+  }
+  if (!vendorValidation.validScores) {
+    redirect("/settings?tab=pontuacao&error=vendor_scores");
+  }
+  if (!vendorValidation.validThresholds) {
+    redirect("/settings?tab=pontuacao&error=vendor_thresholds");
+  }
 
   await upsertPlatformSettings("RISK_SCORING", payload);
   await recalculateAllPartnerAssessmentDecisions();
@@ -490,146 +572,7 @@ function RiskScoringTab({
   value: RiskScoringSettings;
   saveAction: (formData: FormData) => Promise<void>;
 }) {
-  const totalWeight = value.security_weight + value.privacy_weight + value.compliance_weight;
-  const weightedExampleScore =
-    (8 * value.security_weight + 2 * value.privacy_weight + 4 * value.compliance_weight) /
-    Math.max(1, totalWeight);
-  const exampleClassification =
-    weightedExampleScore <= value.low_max
-      ? "Low"
-      : weightedExampleScore <= value.medium_max
-        ? "Medium"
-        : "High";
-  return (
-    <form action={saveAction} className="space-y-6">
-      <SectionCard title="Como Funciona" description="A fórmula acontece em 3 camadas: pergunta, seção e score final.">
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="space-y-4 rounded-xl border border-[var(--color-primary)]/10 bg-[var(--color-primary)]/5 p-5">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">1. Pergunta</p>
-                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                  Cada pergunta recebe um <span className="font-bold text-[var(--color-text)]">peso</span> no mapeamento do Typeform.
-                </p>
-                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                  Quanto maior o peso, maior o impacto da pergunta dentro da seção.
-                </p>
-              </div>
-              <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">2. Avaliação</p>
-                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">A escolha do analista vira score numérico:</p>
-                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">Totalmente = {value.fully_score.toFixed(1)}</p>
-                <p className="text-sm text-[var(--color-neutral-700)]">Parcialmente = {value.partially_score.toFixed(1)}</p>
-                <p className="text-sm text-[var(--color-neutral-700)]">Não Atende = {value.does_not_meet_score.toFixed(1)}</p>
-                <p className="text-sm text-[var(--color-neutral-700)]">N/A = fora do cálculo</p>
-              </div>
-              <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">3. Score Final</p>
-                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                  Primeiro calculamos o score de cada seção por média ponderada das perguntas.
-                </p>
-                <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                  Depois aplicamos os <span className="font-bold text-[var(--color-text)]">pesos por seção</span> para chegar ao risk score final.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-5">
-            <p className="text-sm font-bold text-[var(--color-text)]">Exemplo prático</p>
-            <div className="mt-4 space-y-3 text-sm text-[var(--color-neutral-700)]">
-              <p>
-                Suponha que os scores por seção ficaram:
-                <span className="font-bold text-[var(--color-text)]"> Security = 8.0</span>,
-                <span className="font-bold text-[var(--color-text)]"> Privacy = 2.0</span> e
-                <span className="font-bold text-[var(--color-text)]"> Compliance = 4.0</span>.
-              </p>
-              <p>
-                Com pesos de seção
-                <span className="font-bold text-[var(--color-text)]"> {value.security_weight}% / {value.privacy_weight}% / {value.compliance_weight}%</span>,
-                o score final ponderado fica:
-              </p>
-              <div className="rounded-lg bg-[var(--color-neutral-100)] px-4 py-3 font-mono text-xs text-[var(--color-text)]">
-                ((8.0 x {value.security_weight}) + (2.0 x {value.privacy_weight}) + (4.0 x {value.compliance_weight})) / {totalWeight || 1} = {weightedExampleScore.toFixed(1)}
-              </div>
-              <p>
-                Com os thresholds atuais, esse resultado seria classificado como
-                <span className="font-bold text-[var(--color-text)]"> {exampleClassification}</span>.
-              </p>
-            </div>
-          </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Pesos por Seção" description="Defina como Security, Privacy e Compliance afetam o score final ponderado (total recomendado: 100%).">
-        <div className="space-y-8">
-          {[
-            { key: "security_weight", label: "Security", icon: "security", value: value.security_weight },
-            { key: "privacy_weight", label: "Privacy", icon: "privacy_tip", value: value.privacy_weight },
-            { key: "compliance_weight", label: "Compliance", icon: "verified_user", value: value.compliance_weight },
-          ].map((item) => (
-            <div key={item.label} className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[var(--color-primary)]">{item.icon}</span>
-                  <span className="text-sm font-bold text-[var(--color-text)]">{item.label}</span>
-                </div>
-                <div className="rounded bg-[var(--color-neutral-100)] px-2 py-1 text-xs font-bold text-[var(--color-neutral-700)]">{item.value}%</div>
-              </div>
-              <input name={item.key} type="number" min={0} max={100} defaultValue={item.value} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
-            </div>
-          ))}
-          <p className={`text-xs font-semibold ${totalWeight === 100 ? "text-emerald-700" : "text-amber-700"}`}>
-            Soma atual dos pesos: {totalWeight}% (recomendado: 100%)
-          </p>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Score por Avaliação" description="Régua numérica aplicada quando o analista marca cada resposta do questionário. `N/A` e `Não avaliado` ficam fora do cálculo.">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {[
-            { key: "fully_score", label: "Totalmente", tone: "text-emerald-700 bg-emerald-50 border-emerald-200", value: value.fully_score },
-            { key: "partially_score", label: "Parcialmente", tone: "text-amber-700 bg-amber-50 border-amber-200", value: value.partially_score },
-            { key: "does_not_meet_score", label: "Não Atende", tone: "text-red-700 bg-red-50 border-red-200", value: value.does_not_meet_score },
-          ].map((item) => (
-            <div key={item.label} className={`rounded-xl border p-4 ${item.tone}`}>
-              <p className="text-xs font-bold uppercase tracking-wider">{item.label}</p>
-              <p className="mt-1 text-lg font-black">{item.value.toFixed(1)}</p>
-              <input name={item.key} type="number" min={0} max={10} step="0.1" defaultValue={item.value} className="mt-3 w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm text-[var(--color-text)]" />
-            </div>
-          ))}
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Thresholds de Classificação" description="Faixas de score entre 0 e 10 usadas para classificar cada seção e o risco final.">
-        <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-          {[
-            { label: "Low", range: `0.0 - ${value.low_max.toFixed(1)}`, tone: "text-emerald-700 bg-emerald-50 border-emerald-200" },
-            { label: "Medium", range: `${value.low_max.toFixed(1)} - ${value.medium_max.toFixed(1)}`, tone: "text-amber-700 bg-amber-50 border-amber-200" },
-            { label: "High", range: `>${value.medium_max.toFixed(1)}`, tone: "text-red-700 bg-red-50 border-red-200" },
-          ].map((item) => (
-            <div key={item.label} className={`rounded-xl border p-4 ${item.tone}`}>
-              <p className="text-xs font-bold uppercase tracking-wider">{item.label}</p>
-              <p className="mt-1 text-lg font-black">{item.range}</p>
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <label className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Máximo Low</span>
-            <input name="low_max" type="number" min={0} max={10} step="0.1" defaultValue={value.low_max} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
-          </label>
-          <label className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Máximo Medium</span>
-            <input name="medium_max" type="number" min={0} max={10} step="0.1" defaultValue={value.medium_max} className="w-full rounded-lg border border-[var(--color-neutral-200)] px-3 py-2 text-sm" />
-          </label>
-        </div>
-      </SectionCard>
-      <div className="flex justify-end">
-        <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">Salvar Pontuação de Risco</button>
-      </div>
-    </form>
-  );
+  return <RiskScoringSettingsPanel value={value} saveAction={saveAction} />;
 }
 
 function NotificationsTab({
@@ -680,7 +623,7 @@ function NotificationsTab({
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ saved?: string; tab?: string }>;
+  searchParams?: Promise<{ saved?: string; tab?: string; error?: string }>;
 }) {
   const settings = await getIntegrationSettings();
   const typeformForms = await getTypeformForms();
@@ -696,6 +639,7 @@ export default async function SettingsPage({
 
   const savedFlag = params?.saved;
   const activeTab = normalizeTab(params?.tab);
+  const errorMessage = formatRiskSettingsError(params?.error);
 
   return (
     <PageContainer
@@ -706,6 +650,11 @@ export default async function SettingsPage({
       {savedFlag ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
           Configurações de <span className="font-bold uppercase">{savedFlag}</span> salvas com sucesso.
+        </div>
+      ) : null}
+      {errorMessage ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+          {errorMessage}
         </div>
       ) : null}
 

@@ -56,15 +56,17 @@ function getSetting<T>(
 }
 
 function RiskScoringLegend({ settings }: { settings: RiskScoringSettings }) {
+  const profile = settings.partner;
+
   return (
     <div className="rounded-xl border border-[var(--color-primary)]/10 bg-[var(--color-primary)]/5 p-4">
       <p className="text-sm font-bold text-[var(--color-text)]">Como o score e calculado</p>
       <div className="mt-3 grid gap-3 md:grid-cols-3">
         <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-3 text-sm text-[var(--color-neutral-700)]">
           <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Score da avaliacao</p>
-          <p className="mt-2">Totalmente = {settings.fully_score.toFixed(1)}</p>
-          <p>Parcialmente = {settings.partially_score.toFixed(1)}</p>
-          <p>Nao Atende = {settings.does_not_meet_score.toFixed(1)}</p>
+          <p className="mt-2">Totalmente = {profile.fully_score.toFixed(1)}</p>
+          <p>Parcialmente = {profile.partially_score.toFixed(1)}</p>
+          <p>Nao Atende = {profile.does_not_meet_score.toFixed(1)}</p>
           <p>N/A = fora do calculo</p>
         </div>
         <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-3 text-sm text-[var(--color-neutral-700)]">
@@ -76,9 +78,9 @@ function RiskScoringLegend({ settings }: { settings: RiskScoringSettings }) {
         </div>
         <div className="rounded-lg border border-[var(--color-neutral-200)] bg-white p-3 text-sm text-[var(--color-neutral-700)]">
           <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Thresholds</p>
-          <p className="mt-2">Low: 0.0 ate {settings.low_max.toFixed(1)}</p>
-          <p>Medium: acima de {settings.low_max.toFixed(1)} ate {settings.medium_max.toFixed(1)}</p>
-          <p>High: acima de {settings.medium_max.toFixed(1)}</p>
+          <p className="mt-2">Low: 0.0 ate {profile.low_max.toFixed(1)}</p>
+          <p>Medium: acima de {profile.low_max.toFixed(1)} ate {profile.medium_max.toFixed(1)}</p>
+          <p>High: acima de {profile.medium_max.toFixed(1)}</p>
         </div>
       </div>
     </div>

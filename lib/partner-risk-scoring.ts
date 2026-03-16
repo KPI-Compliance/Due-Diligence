@@ -348,6 +348,7 @@ async function recalculatePartnerAssessmentDecisionByAssessmentId(
     getMappingsByFormId(assessmentContext.typeform_form_id),
     getPlatformSettings("RISK_SCORING", normalizeRiskScoringSettings),
   ]);
+  const partnerRiskScoring = riskScoringSettings.partner;
 
   const mappingByKey = new Map(mappings.filter((item) => item.question_key).map((item) => [item.question_key, item]));
   const mappingByText = new Map(mappings.map((item) => [normalizeLookup(item.question_text), item]));
@@ -368,7 +369,7 @@ async function recalculatePartnerAssessmentDecisionByAssessmentId(
     if (!Number.isFinite(weight) || weight <= 0) continue;
 
     const evaluation = ((response.analyst_evaluation ?? "NOT_EVALUATED").toUpperCase() as AnalystEvaluation);
-    const score = getEvaluationScore(evaluation, riskScoringSettings);
+    const score = getEvaluationScore(evaluation, partnerRiskScoring);
     if (score === null) continue;
 
     const bucket = sectionTotals.get(section);
@@ -390,15 +391,15 @@ async function recalculatePartnerAssessmentDecisionByAssessmentId(
   const sectionWeightedScores = [
     {
       score: securityScore,
-      sectionWeight: riskScoringSettings.security_weight,
+      sectionWeight: partnerRiskScoring.security_weight,
     },
     {
       score: privacyScore,
-      sectionWeight: riskScoringSettings.privacy_weight,
+      sectionWeight: partnerRiskScoring.privacy_weight,
     },
     {
       score: complianceScore,
-      sectionWeight: riskScoringSettings.compliance_weight,
+      sectionWeight: partnerRiskScoring.compliance_weight,
     },
   ].filter((item) => item.score !== null && item.sectionWeight > 0) as Array<{ score: number; sectionWeight: number }>;
 
@@ -426,16 +427,16 @@ async function recalculatePartnerAssessmentDecisionByAssessmentId(
       ) VALUES (
         ${assessmentId}::uuid,
         ${securityScore === null ? null : Number(securityScore.toFixed(1))},
-        ${toDecisionLevel(securityScore, riskScoringSettings)}::risk_level,
+        ${toDecisionLevel(securityScore, partnerRiskScoring)}::risk_level,
         ${getSectionNote("SECURITY", securityScoreRaw?.answeredCount ?? 0, securityScoreRaw?.totalWeight ?? 0, securityScore)},
         ${privacyScore === null ? null : Number(privacyScore.toFixed(1))},
-        ${toDecisionLevel(privacyScore, riskScoringSettings)}::risk_level,
+        ${toDecisionLevel(privacyScore, partnerRiskScoring)}::risk_level,
         ${getSectionNote("PRIVACY", privacyScoreRaw?.answeredCount ?? 0, privacyScoreRaw?.totalWeight ?? 0, privacyScore)},
         ${complianceScore === null ? null : Number(complianceScore.toFixed(1))},
-        ${toDecisionLevel(complianceScore, riskScoringSettings)}::risk_level,
+        ${toDecisionLevel(complianceScore, partnerRiskScoring)}::risk_level,
         ${getSectionNote("COMPLIANCE", complianceScoreRaw?.answeredCount ?? 0, complianceScoreRaw?.totalWeight ?? 0, complianceScore)},
         ${combinedScore === null ? null : Number(combinedScore.toFixed(1))},
-        ${toClassification(combinedScore, riskScoringSettings)}
+        ${toClassification(combinedScore, partnerRiskScoring)}
       )
       ON CONFLICT (assessment_id)
       DO UPDATE SET
@@ -471,14 +472,14 @@ async function recalculatePartnerAssessmentDecisionByAssessmentId(
         classification
       ) VALUES (
         ${assessmentId}::uuid,
-        ${toDecisionLevel(securityScore, riskScoringSettings)}::risk_level,
+        ${toDecisionLevel(securityScore, partnerRiskScoring)}::risk_level,
         ${getSectionNote("SECURITY", securityScoreRaw?.answeredCount ?? 0, securityScoreRaw?.totalWeight ?? 0, securityScore)},
-        ${toDecisionLevel(privacyScore, riskScoringSettings)}::risk_level,
+        ${toDecisionLevel(privacyScore, partnerRiskScoring)}::risk_level,
         ${getSectionNote("PRIVACY", privacyScoreRaw?.answeredCount ?? 0, privacyScoreRaw?.totalWeight ?? 0, privacyScore)},
-        ${toDecisionLevel(complianceScore, riskScoringSettings)}::risk_level,
+        ${toDecisionLevel(complianceScore, partnerRiskScoring)}::risk_level,
         ${getSectionNote("COMPLIANCE", complianceScoreRaw?.answeredCount ?? 0, complianceScoreRaw?.totalWeight ?? 0, complianceScore)},
         ${combinedScore === null ? null : Number(combinedScore.toFixed(1))},
-        ${toClassification(combinedScore, riskScoringSettings)}
+        ${toClassification(combinedScore, partnerRiskScoring)}
       )
       ON CONFLICT (assessment_id)
       DO UPDATE SET

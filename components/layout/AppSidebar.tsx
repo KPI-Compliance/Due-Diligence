@@ -33,12 +33,12 @@ export function AppSidebar() {
   return (
     <aside className="hidden h-screen w-64 shrink-0 border-r border-[var(--color-primary)]/10 bg-white lg:fixed lg:inset-y-0 lg:flex lg:flex-col">
       <div className="flex items-center gap-3 px-6 py-6">
-        <div className="flex h-10 w-10 items-center justify-center">
-          <img src="/VTEX-Logo.png" alt="VTEX" className="h-full w-full object-contain" />
+        <div className="flex h-10 w-24 shrink-0 items-center justify-start">
+          <img src="/Logo_VTEX.png" alt="VTEX" className="h-full w-full object-contain" />
         </div>
         <div>
-          <h1 className="text-base font-extrabold leading-tight tracking-[-0.02em] text-[var(--color-text)]">
-            Due Diligence VTEX
+          <h1 className="whitespace-nowrap text-sm font-extrabold leading-tight tracking-[-0.02em] text-[var(--color-text)]">
+            Due Diligence
           </h1>
         </div>
       </div>

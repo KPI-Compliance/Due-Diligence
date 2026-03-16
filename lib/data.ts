@@ -351,6 +351,119 @@ function getPartnerFormNameFromTable(tableName: PartnerResponseTableName) {
   }
 }
 
+type PartnerSectionReviewDate = {
+  section: string | null;
+  analyzed_at: string | null;
+};
+
+async function getPartnerSectionReviewDates(
+  tableName: string | null | undefined,
+  input: {
+    assessmentId?: string | null;
+    responseToken?: string | null;
+    companyName: string;
+    typeformFormId?: string | null;
+  },
+) {
+  if (!tableName) {
+    return [] as PartnerSectionReviewDate[];
+  }
+
+  const queryByTable = async (resolvedTableName: string) => {
+    if (resolvedTableName === "partner_typeform_assessment_ptbr_responses") {
+      return (await sql`
+        SELECT section::text, MAX(analyzed_at) AS analyzed_at
+        FROM partner_typeform_assessment_ptbr_responses
+        WHERE analyzed_at IS NOT NULL
+          AND (
+            (${input.assessmentId ?? null}::uuid IS NOT NULL AND assessment_id = ${input.assessmentId ?? null}::uuid)
+            OR (
+              ${input.responseToken ?? null}::text IS NOT NULL
+              AND typeform_response_token = ${input.responseToken ?? null}
+            )
+            OR (
+              lower(company_name) = lower(${input.companyName})
+              AND (
+                ${input.typeformFormId ?? null}::text IS NULL
+                OR typeform_form_id = ${input.typeformFormId ?? null}
+              )
+            )
+          )
+        GROUP BY section
+      `) as PartnerSectionReviewDate[];
+    }
+
+    if (resolvedTableName === "partner_typeform_assessment_en_responses") {
+      return (await sql`
+        SELECT section::text, MAX(analyzed_at) AS analyzed_at
+        FROM partner_typeform_assessment_en_responses
+        WHERE analyzed_at IS NOT NULL
+          AND (
+            (${input.assessmentId ?? null}::uuid IS NOT NULL AND assessment_id = ${input.assessmentId ?? null}::uuid)
+            OR (
+              ${input.responseToken ?? null}::text IS NOT NULL
+              AND typeform_response_token = ${input.responseToken ?? null}
+            )
+            OR (
+              lower(company_name) = lower(${input.companyName})
+              AND (
+                ${input.typeformFormId ?? null}::text IS NULL
+                OR typeform_form_id = ${input.typeformFormId ?? null}
+              )
+            )
+          )
+        GROUP BY section
+      `) as PartnerSectionReviewDate[];
+    }
+
+    if (resolvedTableName === "partner_typeform_assessment_en_v2_responses") {
+      return (await sql`
+        SELECT section::text, MAX(analyzed_at) AS analyzed_at
+        FROM partner_typeform_assessment_en_v2_responses
+        WHERE analyzed_at IS NOT NULL
+          AND (
+            (${input.assessmentId ?? null}::uuid IS NOT NULL AND assessment_id = ${input.assessmentId ?? null}::uuid)
+            OR (
+              ${input.responseToken ?? null}::text IS NOT NULL
+              AND typeform_response_token = ${input.responseToken ?? null}
+            )
+            OR (
+              lower(company_name) = lower(${input.companyName})
+              AND (
+                ${input.typeformFormId ?? null}::text IS NULL
+                OR typeform_form_id = ${input.typeformFormId ?? null}
+              )
+            )
+          )
+        GROUP BY section
+      `) as PartnerSectionReviewDate[];
+    }
+
+    return (await sql`
+      SELECT section::text, MAX(analyzed_at) AS analyzed_at
+      FROM partner_typeform_assessment_pt_v2_responses
+      WHERE analyzed_at IS NOT NULL
+        AND (
+          (${input.assessmentId ?? null}::uuid IS NOT NULL AND assessment_id = ${input.assessmentId ?? null}::uuid)
+          OR (
+            ${input.responseToken ?? null}::text IS NOT NULL
+            AND typeform_response_token = ${input.responseToken ?? null}
+          )
+          OR (
+            lower(company_name) = lower(${input.companyName})
+            AND (
+              ${input.typeformFormId ?? null}::text IS NULL
+              OR typeform_form_id = ${input.typeformFormId ?? null}
+            )
+          )
+        )
+      GROUP BY section
+    `) as PartnerSectionReviewDate[];
+  };
+
+  return queryByTable(tableName);
+}
+
 async function getTypeformQuestionSectionOverrides(typeformFormId: string | null | undefined) {
   if (!typeformFormId) {
     return new Map<string, string>();
@@ -1112,7 +1225,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   if (!entity) return null;
 
   const assessments = (await sql`
-    SELECT id, status, risk_level, created_at, typeform_response_token, typeform_form_id, typeform_submitted_at
+    SELECT id, status, risk_level, created_at, completed_at, typeform_response_token, typeform_form_id, typeform_submitted_at
     FROM assessments
     WHERE entity_id = ${entity.id}
     ORDER BY created_at DESC
@@ -1122,6 +1235,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     status: string;
     risk_level: string | null;
     created_at: string;
+    completed_at: string | null;
     typeform_response_token: string | null;
     typeform_form_id: string | null;
     typeform_submitted_at: string | null;
@@ -1281,6 +1395,9 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     compliance_note: string | null;
     combined_score: number | string | null;
     classification: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+    finalized_at: string | null;
   }> = [];
 
   if (latestAssessment) {
@@ -1297,7 +1414,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
           compliance_level,
           compliance_note,
           combined_score,
-          classification
+          classification,
+          created_at,
+          updated_at,
+          finalized_at
         FROM assessment_decisions
         WHERE assessment_id = ${latestAssessment.id}
         LIMIT 1
@@ -1317,7 +1437,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
             compliance_level,
             compliance_note,
             combined_score,
-            classification
+            classification,
+            created_at,
+            updated_at,
+            finalized_at
           FROM assessment_decisions
           WHERE assessment_id = ${latestAssessment.id}
           LIMIT 1
@@ -1333,6 +1456,15 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   const privacyScore = normalizeDecimal(decision?.privacy_score);
   const complianceScore = normalizeDecimal(decision?.compliance_score);
   const combinedScore = normalizeDecimal(decision?.combined_score);
+  const partnerSectionReviewDates =
+    kind === "partner" && latestAssessment
+      ? await getPartnerSectionReviewDates(partnerFormTable, {
+          assessmentId: latestAssessment.id,
+          responseToken: latestAssessment.typeform_response_token,
+          companyName: entity.name,
+          typeformFormId: resolvedTypeformFormId,
+        })
+      : [];
 
   const statusMode: EntityDetailData["statusMode"] =
     mapStatus(entity.status) === "completed"
@@ -1365,6 +1497,69 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     score: item.score,
     level: riskLevelToOverview(item.level),
   }));
+
+  const partnerTimeline =
+    kind === "partner" && latestAssessment
+      ? (() => {
+          const sectionDateMap = new Map(
+            partnerSectionReviewDates.map((row) => [mapPartnerQuestionSection(row.section), row.analyzed_at]),
+          );
+
+          const events = [
+            {
+              title: "Ticket criado",
+              eventAt: latestAssessment.created_at,
+              note: "Ticket registrado na fila de partners.",
+            },
+            {
+              title: "Security analisado",
+              eventAt: sectionDateMap.get("Security") ?? null,
+              note: sectionDateMap.get("Security")
+                ? "A aba Security recebeu a analise do time responsavel."
+                : "Aguardando analise da frente de Security.",
+            },
+            {
+              title: "Privacy analisado",
+              eventAt: sectionDateMap.get("Privacy") ?? null,
+              note: sectionDateMap.get("Privacy")
+                ? "A aba Privacy recebeu a analise do time responsavel."
+                : "Aguardando analise da frente de Privacy.",
+            },
+            {
+              title: "Compliance analisado",
+              eventAt: sectionDateMap.get("Compliance") ?? null,
+              note: sectionDateMap.get("Compliance")
+                ? "A aba Compliance recebeu a analise do time responsavel."
+                : "Aguardando analise da frente de Compliance.",
+            },
+            {
+              title: "Assessment finalizado",
+              eventAt: latestAssessment.completed_at ?? decision?.finalized_at ?? null,
+              note:
+                latestAssessment.completed_at ?? decision?.finalized_at
+                  ? "Assessment concluido por completo."
+                  : "Aguardando conclusao final do assessment.",
+            },
+          ];
+
+          if (!latestAssessment.created_at) {
+            return [];
+          }
+
+          const completedAt = latestAssessment.completed_at ?? decision?.finalized_at ?? null;
+          const currentIndex = completedAt
+            ? -1
+            : events.findIndex((item) => !item.eventAt);
+          const fallbackCurrentIndex = completedAt ? -1 : events.length - 1;
+
+          return events.map((item, index) => ({
+              title: item.title,
+              date: formatDate(item.eventAt),
+              note: item.note,
+              current: !completedAt && index === (currentIndex >= 0 ? currentIndex : fallbackCurrentIndex),
+            }));
+        })()
+      : [];
 
   return {
     id: entity.slug,
@@ -1415,7 +1610,9 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
               { label: "Operational", score: 0, level: "Low" },
             ],
       timeline:
-        timelineRows.length > 0
+        partnerTimeline.length > 0
+          ? partnerTimeline
+          : timelineRows.length > 0
           ? timelineRows.map((t) => ({
               title: t.title,
               date: t.event_at ? formatDate(t.event_at) : "-",

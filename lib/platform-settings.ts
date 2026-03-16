@@ -13,7 +13,7 @@ export type GeneralSettings = {
   require_security_review: boolean;
 };
 
-export type RiskScoringSettings = {
+export type RiskScoringProfile = {
   security_weight: number;
   privacy_weight: number;
   compliance_weight: number;
@@ -22,6 +22,11 @@ export type RiskScoringSettings = {
   does_not_meet_score: number;
   low_max: number;
   medium_max: number;
+};
+
+export type RiskScoringSettings = {
+  partner: RiskScoringProfile;
+  vendor: RiskScoringProfile;
 };
 
 export type NotificationSettings = {
@@ -48,14 +53,26 @@ function fallbackSettings(key: PlatformSettingsKey) {
 
   if (key === "RISK_SCORING") {
     return {
-      security_weight: 50,
-      privacy_weight: 30,
-      compliance_weight: 20,
-      fully_score: 0,
-      partially_score: 5,
-      does_not_meet_score: 10,
-      low_max: 3,
-      medium_max: 6,
+      partner: {
+        security_weight: 50,
+        privacy_weight: 30,
+        compliance_weight: 20,
+        fully_score: 0,
+        partially_score: 5,
+        does_not_meet_score: 10,
+        low_max: 3,
+        medium_max: 6,
+      },
+      vendor: {
+        security_weight: 50,
+        privacy_weight: 50,
+        compliance_weight: 0,
+        fully_score: 0,
+        partially_score: 5,
+        does_not_meet_score: 10,
+        low_max: 3,
+        medium_max: 6,
+      },
     } satisfies RiskScoringSettings;
   }
 
@@ -71,6 +88,12 @@ function fallbackSettings(key: PlatformSettingsKey) {
 function clampNumber(value: unknown, min: number, max: number, fallback: number) {
   if (typeof value !== "number" || Number.isNaN(value)) return fallback;
   return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function clampDecimal(value: unknown, min: number, max: number, fallback: number) {
+  if (typeof value !== "number" || Number.isNaN(value)) return fallback;
+  const clamped = Math.max(min, Math.min(max, value));
+  return Math.round(clamped * 10) / 10;
 }
 
 export function normalizeGeneralSettings(raw: unknown): GeneralSettings {
@@ -100,25 +123,46 @@ export function normalizeRiskScoringSettings(raw: unknown): RiskScoringSettings 
   if (!raw || typeof raw !== "object") return base;
 
   const source = raw as Record<string, unknown>;
+  const legacyShape = !("partner" in source) && !("vendor" in source);
+
+  const normalizeProfile = (profileRaw: unknown, profileBase: RiskScoringProfile, forceComplianceWeight?: number): RiskScoringProfile => {
+    const profileSource = profileRaw && typeof profileRaw === "object" ? (profileRaw as Record<string, unknown>) : {};
+
+    return {
+      security_weight: clampNumber(profileSource.security_weight, 0, 100, profileBase.security_weight),
+      privacy_weight: clampNumber(profileSource.privacy_weight, 0, 100, profileBase.privacy_weight),
+      compliance_weight:
+        typeof forceComplianceWeight === "number"
+          ? forceComplianceWeight
+          : clampNumber(profileSource.compliance_weight, 0, 100, profileBase.compliance_weight),
+      fully_score: clampDecimal(profileSource.fully_score, 0, 10, profileBase.fully_score),
+      partially_score: clampDecimal(profileSource.partially_score, 0, 10, profileBase.partially_score),
+      does_not_meet_score: clampDecimal(profileSource.does_not_meet_score, 0, 10, profileBase.does_not_meet_score),
+      low_max: clampDecimal(
+        profileSource.low_max,
+        0,
+        10,
+        typeof profileSource.low_min === "number" ? Math.round((100 - profileSource.low_min) / 10) : profileBase.low_max,
+      ),
+      medium_max: clampDecimal(
+        profileSource.medium_max,
+        0,
+        10,
+        typeof profileSource.medium_min === "number" ? Math.round((100 - profileSource.medium_min) / 10) : profileBase.medium_max,
+      ),
+    };
+  };
+
+  if (legacyShape) {
+    return {
+      partner: normalizeProfile(source, base.partner),
+      vendor: base.vendor,
+    };
+  }
+
   return {
-    security_weight: clampNumber(source.security_weight, 0, 100, base.security_weight),
-    privacy_weight: clampNumber(source.privacy_weight, 0, 100, base.privacy_weight),
-    compliance_weight: clampNumber(source.compliance_weight, 0, 100, base.compliance_weight),
-    fully_score: clampNumber(source.fully_score, 0, 10, base.fully_score),
-    partially_score: clampNumber(source.partially_score, 0, 10, base.partially_score),
-    does_not_meet_score: clampNumber(source.does_not_meet_score, 0, 10, base.does_not_meet_score),
-    low_max: clampNumber(
-      source.low_max,
-      0,
-      10,
-      typeof source.low_min === "number" ? Math.round((100 - source.low_min) / 10) : base.low_max,
-    ),
-    medium_max: clampNumber(
-      source.medium_max,
-      0,
-      10,
-      typeof source.medium_min === "number" ? Math.round((100 - source.medium_min) / 10) : base.medium_max,
-    ),
+    partner: normalizeProfile(source.partner, base.partner),
+    vendor: normalizeProfile(source.vendor, base.vendor, 0),
   };
 }
 
