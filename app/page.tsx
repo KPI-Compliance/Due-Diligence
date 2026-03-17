@@ -7,6 +7,7 @@ const loginErrorMessages: Record<string, string> = {
   google_invalid_state: "A validação de segurança do SSO expirou. Tente entrar novamente.",
   google_token_exchange_failed: "Não foi possível validar o login com o Google.",
   google_userinfo_failed: "O Google autenticou a conta, mas não retornou os dados do usuário.",
+  google_unauthorized_account: "Sua conta Google não está autorizada para acessar este ambiente.",
   google_sso_failed: "O login corporativo falhou por um erro inesperado.",
   dev_login_disabled: "O bypass de login local está desativado neste ambiente.",
 };

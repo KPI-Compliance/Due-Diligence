@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getGoogleOAuthSettings, setAuthenticatedSession, validateOauthState } from "@/lib/auth";
+import { getGoogleOAuthSettings, isAllowedGoogleIdentity, setAuthenticatedSession, validateOauthState } from "@/lib/auth";
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -74,6 +74,10 @@ export async function GET(request: NextRequest) {
 
     if (!userResponse.ok || !userInfo.email) {
       return buildErrorRedirect(request, "google_userinfo_failed");
+    }
+
+    if (!isAllowedGoogleIdentity(userInfo.email)) {
+      return buildErrorRedirect(request, "google_unauthorized_account");
     }
 
     await setAuthenticatedSession({

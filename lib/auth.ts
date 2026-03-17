@@ -32,6 +32,7 @@ const SESSION_COOKIE = "dd_session";
 const OAUTH_STATE_COOKIE = "dd_oauth_state";
 const SESSION_DURATION_SECONDS = 60 * 60 * 8;
 const STATE_DURATION_SECONDS = 60 * 10;
+const LOCAL_DEV_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function base64UrlEncode(value: string) {
   return Buffer.from(value, "utf8").toString("base64url");
@@ -43,6 +44,13 @@ function base64UrlDecode(value: string) {
 
 function sanitizeEnvValue(value: string | undefined) {
   return value?.trim().replace(/^"(.*)"$/, "$1");
+}
+
+function splitEnvList(value: string | undefined) {
+  return (sanitizeEnvValue(value) ?? "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function getGoogleOAuthConfig() {
@@ -74,8 +82,13 @@ function normalizeUrl(value: string) {
 }
 
 function getSessionSecret() {
-  const oauthConfig = getGoogleOAuthConfig();
-  return process.env.DD_AUTH_SECRET ?? oauthConfig.client_secret;
+  const sessionSecret = sanitizeEnvValue(process.env.DD_AUTH_SECRET);
+
+  if (!sessionSecret) {
+    throw new Error("DD_AUTH_SECRET precisa estar configurado.");
+  }
+
+  return sessionSecret;
 }
 
 function sign(value: string) {
@@ -128,6 +141,41 @@ export function getGoogleOAuthSettings(requestOrigin?: string) {
     tokenUri: config.token_uri,
     redirectUri,
   };
+}
+
+export function getAllowedGoogleDomains() {
+  return splitEnvList(process.env.ALLOWED_GOOGLE_DOMAINS);
+}
+
+export function getAllowedGoogleEmails() {
+  return splitEnvList(process.env.ALLOWED_GOOGLE_EMAILS);
+}
+
+export function isAllowedGoogleIdentity(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const allowedEmails = getAllowedGoogleEmails();
+  const allowedDomains = getAllowedGoogleDomains();
+  const emailDomain = normalizedEmail.split("@")[1] ?? "";
+
+  if (allowedEmails.length === 0 && allowedDomains.length === 0) {
+    return false;
+  }
+
+  return allowedEmails.includes(normalizedEmail) || allowedDomains.includes(emailDomain);
+}
+
+export function getPreferredHostedDomain() {
+  const [firstDomain] = getAllowedGoogleDomains();
+  return firstDomain;
+}
+
+export function isTrustedLocalhostOrigin(origin: string) {
+  try {
+    const url = new URL(origin);
+    return LOCAL_DEV_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 export async function createOauthState() {

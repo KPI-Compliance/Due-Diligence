@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isDevAuthBypassEnabled, setAuthenticatedSession } from "@/lib/auth";
+import { isDevAuthBypassEnabled, isTrustedLocalhostOrigin, setAuthenticatedSession } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
-  if (!isDevAuthBypassEnabled()) {
+  if (!isDevAuthBypassEnabled() || !isTrustedLocalhostOrigin(request.nextUrl.origin)) {
     return NextResponse.redirect(new URL("/?error=dev_login_disabled", request.url));
   }
 

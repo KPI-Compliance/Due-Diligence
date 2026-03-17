@@ -193,6 +193,38 @@ function findValueInObject(source: unknown, aliases: string[]): string | null {
   return visit(source);
 }
 
+function findAllValuesInObject(source: unknown, aliases: string[]) {
+  const normalizedAliases = aliases.map(normalizeKey);
+  const matches: string[] = [];
+
+  function visit(value: unknown) {
+    if (!value || typeof value !== "object") {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        visit(item);
+      }
+      return;
+    }
+
+    for (const [rawKey, rawValue] of Object.entries(value)) {
+      if (normalizedAliases.includes(normalizeKey(rawKey))) {
+        const direct = stringifyUnknown(rawValue);
+        if (direct) {
+          matches.push(direct);
+        }
+      }
+
+      visit(rawValue);
+    }
+  }
+
+  visit(source);
+  return matches;
+}
+
 function cleanUrl(value: string | null) {
   if (!value) return null;
   const trimmed = value.trim();
@@ -411,6 +443,29 @@ function normalizeCompanyGroup(value: string | null): "VTEX" | "WENI" | null {
   return null;
 }
 
+function findCompanyGroupFromPayload(payload: unknown, description: string) {
+  const payloadMatches = findAllValuesInObject(payload, ["company", "company group", "grupo", "business unit"])
+    .map((value) => normalizeCompanyGroup(value))
+    .filter((value): value is "VTEX" | "WENI" => Boolean(value));
+  const descriptionMatch = normalizeCompanyGroup(
+    findFieldValue(description, ["company", "company group", "grupo", "business unit"]),
+  );
+
+  if (descriptionMatch) {
+    return descriptionMatch;
+  }
+
+  if (payloadMatches.includes("WENI")) {
+    return "WENI";
+  }
+
+  if (payloadMatches.includes("VTEX")) {
+    return "VTEX";
+  }
+
+  return null;
+}
+
 function inferStatus(fields: JiraIssueFields): "PENDING" | "IN_REVIEW" | "RESPONDED" | "COMPLETED" {
   const status = fields.status?.name?.toLowerCase() ?? "";
 
@@ -516,11 +571,7 @@ export function extractEntityFromJiraIssue(
   const languagePreference =
     findValueInObject(payload, ["vendor language preferences", "language preference", "idioma", "language"]) ??
     findFieldValue(description, ["vendor language preferences", "language preference", "idioma"]);
-  const companyGroupFromForm =
-    normalizeCompanyGroup(
-      findValueInObject(payload, ["company", "company group", "grupo", "business unit"]) ??
-        findFieldValue(description, ["company", "company group", "grupo", "business unit"]),
-    );
+  const companyGroupFromForm = findCompanyGroupFromPayload(payload, description);
   const capNumber =
     findValueInObject(payload, ["cap number", "cap"]) ?? findFieldValue(description, ["cap number", "cap"]);
   const scope =
