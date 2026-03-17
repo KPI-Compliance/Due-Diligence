@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 
@@ -17,22 +17,28 @@ export type WorkspaceFilterControl = {
 
 function TextFilterInput({
   filter,
+  currentValue,
   disabled,
   onCommit,
 }: {
   filter: WorkspaceFilterControl;
+  currentValue: string;
   disabled: boolean;
   onCommit: (name: string, value: string) => void;
 }) {
   const [value, setValue] = useState(filter.value ?? "");
 
   useEffect(() => {
+    if (value.trim() === currentValue.trim()) {
+      return;
+    }
+
     const timeout = window.setTimeout(() => {
       onCommit(filter.name, value);
     }, 350);
 
     return () => window.clearTimeout(timeout);
-  }, [filter.name, onCommit, value]);
+  }, [currentValue, filter.name, onCommit, value]);
 
   return (
     <input
@@ -58,7 +64,7 @@ export function WorkspaceFilters({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  const updateQuery = (name: string, value: string) => {
+  const updateQuery = useCallback((name: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString());
     const normalized = value.trim();
 
@@ -70,9 +76,12 @@ export function WorkspaceFilters({
 
     startTransition(() => {
       const query = params.toString();
+      if (query === searchParams.toString()) {
+        return;
+      }
       router.replace(query ? `${pathname}?${query}` : pathname);
     });
-  };
+  }, [pathname, router, searchParams]);
 
   return (
     <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-4 shadow-sm">
@@ -86,6 +95,7 @@ export function WorkspaceFilters({
               <TextFilterInput
                 key={`${filter.name}:${filter.value ?? ""}`}
                 filter={filter}
+                currentValue={searchParams.get(filter.name) ?? ""}
                 disabled={isPending}
                 onCommit={updateQuery}
               />
