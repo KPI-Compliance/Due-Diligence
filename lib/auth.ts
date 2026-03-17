@@ -175,3 +175,7 @@ export async function getAuthenticatedSession() {
   const cookieStore = await cookies();
   return readSessionToken(cookieStore.get(SESSION_COOKIE)?.value);
 }
+
+export function isDevAuthBypassEnabled() {
+  return process.env.NODE_ENV !== "production" && sanitizeEnvValue(process.env.DEV_AUTH_BYPASS) === "true";
+}

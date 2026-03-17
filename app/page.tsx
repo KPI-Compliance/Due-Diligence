@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getAuthenticatedSession } from "@/lib/auth";
+import { getAuthenticatedSession, isDevAuthBypassEnabled } from "@/lib/auth";
 
 const loginErrorMessages: Record<string, string> = {
   google_access_denied: "O acesso com Google foi cancelado antes da conclusão do login.",
@@ -8,6 +8,7 @@ const loginErrorMessages: Record<string, string> = {
   google_token_exchange_failed: "Não foi possível validar o login com o Google.",
   google_userinfo_failed: "O Google autenticou a conta, mas não retornou os dados do usuário.",
   google_sso_failed: "O login corporativo falhou por um erro inesperado.",
+  dev_login_disabled: "O bypass de login local está desativado neste ambiente.",
 };
 
 export default async function HomePage({
@@ -17,6 +18,7 @@ export default async function HomePage({
 }) {
   const params = searchParams ? await searchParams : undefined;
   const session = await getAuthenticatedSession();
+  const devAuthBypassEnabled = isDevAuthBypassEnabled();
   const errorCode = params?.error ?? "";
   const errorMessage = loginErrorMessages[errorCode];
 
@@ -122,6 +124,15 @@ export default async function HomePage({
                   </svg>
                   Entrar com SSO Corporativo
                 </Link>
+
+                {devAuthBypassEnabled ? (
+                  <Link
+                    href="/api/auth/dev-login"
+                    className="flex w-full items-center justify-center rounded-lg bg-[var(--color-secondary)] px-4 py-4 text-sm font-semibold text-white transition hover:brightness-95"
+                  >
+                    Entrar com Bypass Local
+                  </Link>
+                ) : null}
 
                 <div className="rounded-lg border border-dashed border-[var(--color-secondary)]/15 bg-[var(--color-secondary)]/3 px-4 py-3 text-xs leading-6 text-[var(--color-neutral-700)]">
                   O acesso agora usa autenticação Google OAuth. Se ocorrer erro de redirecionamento, confira se a URL do callback autorizada no Google
