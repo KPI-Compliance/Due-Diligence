@@ -41,12 +41,16 @@ function base64UrlDecode(value: string) {
   return Buffer.from(value, "base64url").toString("utf8");
 }
 
+function sanitizeEnvValue(value: string | undefined) {
+  return value?.trim().replace(/^"(.*)"$/, "$1");
+}
+
 function getGoogleOAuthConfig() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const authUri = process.env.GOOGLE_AUTH_URI ?? "https://accounts.google.com/o/oauth2/auth";
-  const tokenUri = process.env.GOOGLE_TOKEN_URI ?? "https://oauth2.googleapis.com/token";
-  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI;
+  const clientId = sanitizeEnvValue(process.env.GOOGLE_CLIENT_ID);
+  const clientSecret = sanitizeEnvValue(process.env.GOOGLE_CLIENT_SECRET);
+  const authUri = sanitizeEnvValue(process.env.GOOGLE_AUTH_URI) ?? "https://accounts.google.com/o/oauth2/v2/auth";
+  const tokenUri = sanitizeEnvValue(process.env.GOOGLE_TOKEN_URI) ?? "https://oauth2.googleapis.com/token";
+  const redirectUri = sanitizeEnvValue(process.env.GOOGLE_OAUTH_REDIRECT_URI);
 
   if (clientId && clientSecret) {
     return {
@@ -63,6 +67,10 @@ function getGoogleOAuthConfig() {
   const parsed = JSON.parse(rawFile) as GoogleOAuthFile;
 
   return parsed.web;
+}
+
+function normalizeUrl(value: string) {
+  return value.replace(/\/$/, "");
 }
 
 function getSessionSecret() {
@@ -98,11 +106,14 @@ function readSessionToken(token: string | undefined): SessionPayload | null {
   }
 }
 
-export function getGoogleOAuthSettings() {
+export function getGoogleOAuthSettings(requestOrigin?: string) {
   const config = getGoogleOAuthConfig();
-  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+  const normalizedOrigin = requestOrigin ? normalizeUrl(requestOrigin) : "";
+  const originRedirectUri = normalizedOrigin ? `${normalizedOrigin}/api/auth/callback/google` : "";
+  const baseUrl = normalizeUrl(sanitizeEnvValue(process.env.NEXT_PUBLIC_APP_URL) ?? "");
   const redirectUri =
-    process.env.GOOGLE_OAUTH_REDIRECT_URI ??
+    (originRedirectUri && config.redirect_uris.includes(originRedirectUri) ? originRedirectUri : undefined) ??
+    sanitizeEnvValue(process.env.GOOGLE_OAUTH_REDIRECT_URI) ??
     config.redirect_uris.find((uri) => baseUrl && uri.startsWith(baseUrl)) ??
     config.redirect_uris[0];
 

@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { clientId, clientSecret, tokenUri, redirectUri } = getGoogleOAuthSettings();
+    const { clientId, clientSecret, tokenUri, redirectUri } = getGoogleOAuthSettings(url.origin);
 
     const tokenResponse = await fetch(tokenUri, {
       method: "POST",
