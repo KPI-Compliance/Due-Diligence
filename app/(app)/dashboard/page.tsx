@@ -2,46 +2,13 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { StatCard } from "@/components/ui/StatCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { getDashboardData } from "@/lib/data";
 
-const recentActivities = [
-  {
-    company: "CloudScale Inc.",
-    type: "Vendor",
-    status: "low" as const,
-    owner: "Alex Reed",
-    updatedAt: "24 out 2025",
-  },
-  {
-    company: "SwiftLogix",
-    type: "Partner",
-    status: "in_review" as const,
-    owner: "Sarah Chen",
-    updatedAt: "22 out 2025",
-  },
-  {
-    company: "DataGuard Systems",
-    type: "Vendor",
-    status: "critical" as const,
-    owner: "Marcio Silva",
-    updatedAt: "19 out 2025",
-  },
-  {
-    company: "Nexus Flows",
-    type: "Partner",
-    status: "pending" as const,
-    owner: "Elena Gomez",
-    updatedAt: "15 out 2025",
-  },
-];
+type DashboardBadgeStatus = React.ComponentProps<typeof StatusBadge>["status"];
 
-const riskDistribution = [
-  { label: "Critical", value: "12", height: "h-12", fill: "bg-[var(--color-primary)]/40" },
-  { label: "High", value: "26", height: "h-24", fill: "bg-[var(--color-primary)]/60" },
-  { label: "Medium", value: "44", height: "h-32", fill: "bg-[var(--color-primary)]/80" },
-  { label: "Low", value: "68", height: "h-40", fill: "bg-[var(--color-primary)]" },
-];
+export default async function DashboardPage() {
+  const dashboard = await getDashboardData();
 
-export default function DashboardPage() {
   return (
     <PageContainer
       title="Dashboard"
@@ -49,11 +16,11 @@ export default function DashboardPage() {
       className="space-y-8"
     >
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-5">
-        <StatCard label="Total Vendors" value="1,284" trend="2.4%" trendDirection="up" />
-        <StatCard label="Total Partners" value="452" trend="1.1%" trendDirection="up" />
-        <StatCard label="Pending Quests" value="28" trend="5.2%" trendDirection="down" />
-        <StatCard label="Reviews in Analysis" value="15" trend="3.0%" trendDirection="up" />
-        <StatCard label="High Risk Entities" value="12" trend="Stable" trendDirection="neutral" highlighted />
+        <StatCard label="Total Vendors" value={dashboard.stats.totalVendors.toString()} trend="Dados reais" trendDirection="neutral" />
+        <StatCard label="Total Partners" value={dashboard.stats.totalPartners.toString()} trend="Dados reais" trendDirection="neutral" />
+        <StatCard label="Pending Quests" value={dashboard.stats.pendingQuestionnaires.toString()} trend="Assessments pendentes ou enviados" trendDirection="neutral" />
+        <StatCard label="Reviews in Analysis" value={dashboard.stats.reviewsInAnalysis.toString()} trend="Assessments em revisão" trendDirection="neutral" />
+        <StatCard label="High Risk Entities" value={dashboard.stats.highRiskEntities.toString()} trend="Risco alto ou crítico" trendDirection="neutral" highlighted />
       </section>
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -63,10 +30,10 @@ export default function DashboardPage() {
           className="p-6"
         >
           <div className="flex h-48 items-end justify-between gap-4 px-2">
-            {riskDistribution.map((risk) => (
+            {dashboard.riskDistribution.map((risk) => (
               <div key={risk.label} className="flex flex-1 flex-col items-center gap-2">
-                <div className={`relative w-full overflow-hidden rounded-lg bg-[var(--color-neutral-100)] ${risk.height}`}>
-                  <div className={`absolute bottom-0 w-full ${risk.fill} h-full`} />
+                <div className="relative flex w-full items-end overflow-hidden rounded-lg bg-[var(--color-neutral-100)]" style={risk.heightStyle}>
+                  <div className={`absolute bottom-0 h-full w-full ${risk.fillClass}`} />
                 </div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">{risk.label}</p>
                 <p className="text-xs font-semibold text-[var(--color-text)]">{risk.value}</p>
@@ -76,23 +43,17 @@ export default function DashboardPage() {
         </SectionCard>
 
         <SectionCard
-          title="Assessment Completion Rate"
-          description="Evolução de conclusão de assessments nos últimos 6 meses."
+          title="Assessment Status"
+          description="Distribuição atual dos assessments por estágio operacional."
           className="p-6"
         >
-          <div className="h-48">
-            <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="h-full w-full">
-              <path d="M0,35 Q10,25 20,28 T40,15 T60,22 T80,10 T100,18 L100,40 L0,40 Z" fill="rgba(247, 25, 100, 0.12)" />
-              <path d="M0,35 Q10,25 20,28 T40,15 T60,22 T80,10 T100,18" fill="none" stroke="#F71964" strokeWidth="1.5" />
-            </svg>
-          </div>
-          <div className="mt-2 flex justify-between text-[10px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
-            <span>Jan</span>
-            <span>Feb</span>
-            <span>Mar</span>
-            <span>Apr</span>
-            <span>May</span>
-            <span>Jun</span>
+          <div className="space-y-4">
+            {dashboard.assessmentStatus.map((item) => (
+              <div key={item.label} className="flex items-center justify-between rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)]/60 px-4 py-3">
+                <p className="text-sm font-semibold text-[var(--color-text)]">{item.label}</p>
+                <p className="text-2xl font-black text-[var(--color-primary)]">{item.value}</p>
+              </div>
+            ))}
           </div>
         </SectionCard>
       </section>
@@ -120,8 +81,8 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {recentActivities.map((activity) => (
-                <tr key={activity.company} className="border-b border-[var(--color-neutral-100)] hover:bg-[var(--color-neutral-100)]/40">
+              {dashboard.recentActivity.map((activity) => (
+                <tr key={activity.id} className="border-b border-[var(--color-neutral-100)] hover:bg-[var(--color-neutral-100)]/40">
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded bg-[var(--color-neutral-100)] text-xs font-bold text-[var(--color-neutral-600)]">
@@ -132,7 +93,7 @@ export default function DashboardPage() {
                   </td>
                   <td className="px-4 py-4 text-[var(--color-neutral-700)]">{activity.type}</td>
                   <td className="px-4 py-4">
-                    <StatusBadge status={activity.status} />
+                    <StatusBadge status={activity.status as DashboardBadgeStatus} />
                   </td>
                   <td className="px-4 py-4 text-[var(--color-neutral-700)]">{activity.owner}</td>
                   <td className="px-4 py-4 text-[var(--color-neutral-700)]">{activity.updatedAt}</td>
@@ -156,7 +117,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-4 flex items-center justify-between border-t border-[var(--color-neutral-100)] pt-4">
-          <p className="text-sm text-[var(--color-neutral-600)]">Showing 1 to 4 of 1,736 entities</p>
+          <p className="text-sm text-[var(--color-neutral-600)]">Mostrando {dashboard.recentActivity.length} entidades atualizadas mais recentemente</p>
           <div className="flex gap-2">
             <button
               type="button"

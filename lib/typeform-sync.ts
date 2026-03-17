@@ -1,5 +1,6 @@
 import { sql } from "@/lib/db";
 import { fetchJiraIssueCreatedAt } from "@/lib/jira";
+import { normalizeComparable } from "@/lib/normalization";
 import { getIntegrationSettings, type JiraConfig } from "@/lib/settings-data";
 import { getTypeformApiCredentials } from "@/lib/typeform-admin";
 import {
@@ -43,14 +44,6 @@ type QuestionMappingRow = {
   question_order: number;
   section: "COMMON" | "COMPLIANCE" | "PRIVACY" | "SECURITY";
 };
-
-function normalizeComparable(value: string | undefined) {
-  return (value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-}
 
 async function getJiraCreatedAt(issueKey: string | null | undefined) {
   if (!issueKey) return null;

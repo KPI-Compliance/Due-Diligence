@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
     <aside className="hidden h-screen w-64 shrink-0 border-r border-[var(--color-primary)]/10 bg-white lg:fixed lg:inset-y-0 lg:flex lg:flex-col">
       <div className="flex items-center gap-3 px-6 py-6">
         <div className="flex h-10 w-24 shrink-0 items-center justify-start">
-          <img src="/Logo_VTEX.png" alt="VTEX" className="h-full w-full object-contain" />
+          <Image src="/Logo_VTEX.png" alt="VTEX" width={96} height={40} className="h-full w-full object-contain" priority />
         </div>
         <div>
           <h1 className="whitespace-nowrap text-sm font-extrabold leading-tight tracking-[-0.02em] text-[var(--color-text)]">

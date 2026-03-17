@@ -1,6 +1,7 @@
 import { sql } from "@/lib/db";
 import type { DetailTabKey, EntityDetailData, RiskLevel } from "@/lib/entity-detail-data";
 import { readInternalQuestionnaireFromGoogleSheets } from "@/lib/google-sheets";
+import { normalizeLooseLookup } from "@/lib/normalization";
 import { getTypeformForms } from "@/lib/settings-data";
 
 type UiStatus = "pending" | "sent" | "responded" | "in_review" | "completed";
@@ -207,12 +208,7 @@ function mapPartnerQuestionSection(section: string | null | undefined): "Common"
 }
 
 function normalizePartnerQuestionLookup(value: string | null | undefined) {
-  return (value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/gi, " ")
-    .trim()
-    .toLowerCase();
+  return normalizeLooseLookup(value);
 }
 
 function cleanOverviewValue(value: string | null | undefined) {
@@ -1219,6 +1215,138 @@ export async function getAssessmentsList() {
       sentDate: formatDate(row.sent_at),
     };
   });
+}
+
+export async function getDashboardData() {
+  const [entityCountsRows, assessmentCountsRows, riskDistributionRows, recentActivityRows] = await Promise.all([
+    sql`
+      SELECT
+        COUNT(*) FILTER (WHERE kind = 'VENDOR' AND id::text NOT LIKE '10000000-0000-0000-0000-%')::int AS total_vendors,
+        COUNT(*) FILTER (WHERE kind = 'PARTNER')::int AS total_partners,
+        COUNT(*) FILTER (WHERE COALESCE(risk_level::text, '') IN ('HIGH', 'CRITICAL'))::int AS high_risk_entities
+      FROM entities
+    `,
+    sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status IN ('PENDING', 'SENT'))::int AS pending_questionnaires,
+        COUNT(*) FILTER (WHERE status = 'IN_REVIEW')::int AS reviews_in_analysis,
+        COUNT(*) FILTER (WHERE status = 'COMPLETED')::int AS completed_assessments
+      FROM assessments
+    `,
+    sql`
+      SELECT risk_level::text AS risk_level, COUNT(*)::int AS total
+      FROM entities
+      WHERE risk_level IS NOT NULL
+      GROUP BY risk_level
+    `,
+    sql`
+      SELECT
+        e.slug,
+        e.name,
+        e.kind::text AS kind,
+        e.status::text AS entity_status,
+        e.risk_level::text AS risk_level,
+        COALESCE(u.full_name, 'Unassigned') AS owner,
+        GREATEST(
+          COALESCE(e.last_review_at, to_timestamp(0)),
+          COALESCE(e.updated_at, to_timestamp(0)),
+          COALESCE(e.created_at, to_timestamp(0))
+        ) AS updated_at
+      FROM entities e
+      LEFT JOIN users u ON u.id = e.owner_user_id
+      WHERE e.id::text NOT LIKE '10000000-0000-0000-0000-%'
+      ORDER BY updated_at DESC, e.name ASC
+      LIMIT 6
+    `,
+  ]);
+
+  const entityCounts = entityCountsRows[0] as {
+    total_vendors: number;
+    total_partners: number;
+    high_risk_entities: number;
+  };
+  const assessmentCounts = assessmentCountsRows[0] as {
+    pending_questionnaires: number;
+    reviews_in_analysis: number;
+    completed_assessments: number;
+  };
+
+  const riskCountMap = new Map(
+    (riskDistributionRows as Array<{ risk_level: string; total: number }>).map((row) => [row.risk_level, row.total]),
+  );
+  const maxRiskCount = Math.max(...Array.from(riskCountMap.values()), 1);
+  const riskDistribution = [
+    { label: "Critical", value: riskCountMap.get("CRITICAL") ?? 0 },
+    { label: "High", value: riskCountMap.get("HIGH") ?? 0 },
+    { label: "Medium", value: riskCountMap.get("MEDIUM") ?? 0 },
+    { label: "Low", value: riskCountMap.get("LOW") ?? 0 },
+  ].map((item, index) => {
+    const minHeight = 48;
+    const maxHeight = 160;
+    const proportionalHeight = Math.round((item.value / maxRiskCount) * maxHeight);
+    const height = Math.max(minHeight, proportionalHeight);
+    const fillClasses = [
+      "bg-[var(--color-primary)]/40",
+      "bg-[var(--color-primary)]/60",
+      "bg-[var(--color-primary)]/80",
+      "bg-[var(--color-primary)]",
+    ];
+
+    return {
+      ...item,
+      heightStyle: { height: `${height}px` },
+      fillClass: fillClasses[index] ?? "bg-[var(--color-primary)]",
+    };
+  });
+
+  const assessmentStatus = [
+    { label: "Pendentes", value: assessmentCounts.pending_questionnaires },
+    { label: "Em revisão", value: assessmentCounts.reviews_in_analysis },
+    { label: "Concluídos", value: assessmentCounts.completed_assessments },
+  ];
+
+  const recentActivity = (recentActivityRows as Array<{
+    slug: string;
+    name: string;
+    kind: string;
+    entity_status: string;
+    risk_level: string | null;
+    owner: string;
+    updated_at: string;
+  }>).map((row) => {
+    const status =
+      row.risk_level?.toLowerCase() === "critical"
+        ? "critical"
+        : row.risk_level?.toLowerCase() === "high"
+          ? "high"
+          : row.risk_level?.toLowerCase() === "medium"
+            ? "medium"
+            : row.risk_level?.toLowerCase() === "low"
+              ? "low"
+              : mapStatus(row.entity_status);
+
+    return {
+      id: row.slug,
+      company: row.name,
+      type: toUiKind(row.kind),
+      status,
+      owner: row.owner,
+      updatedAt: formatDateNumeric(row.updated_at),
+    };
+  });
+
+  return {
+    stats: {
+      totalVendors: entityCounts.total_vendors,
+      totalPartners: entityCounts.total_partners,
+      pendingQuestionnaires: assessmentCounts.pending_questionnaires,
+      reviewsInAnalysis: assessmentCounts.reviews_in_analysis,
+      highRiskEntities: entityCounts.high_risk_entities,
+    },
+    riskDistribution,
+    assessmentStatus,
+    recentActivity,
+  };
 }
 
 export async function markAssessmentRespondedManually(assessmentId: string) {

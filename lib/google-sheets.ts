@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import type { ReviewStatus } from "@/lib/entity-detail-data";
+import { normalizeComparable } from "@/lib/normalization";
 import { getIntegrationSettings, type GoogleSheetsConfig } from "@/lib/settings-data";
 
 export type GoogleSheetsQuestion = {
@@ -45,14 +46,6 @@ function hasServiceAccountCredentials() {
 
 function normalizeHeader(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, "_");
-}
-
-function normalizeComparable(value: string | undefined) {
-  return (value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
 }
 
 function parseCsv(text: string): string[][] {

@@ -15,6 +15,39 @@ export type WorkspaceFilterControl = {
   value?: string;
 };
 
+function TextFilterInput({
+  filter,
+  disabled,
+  onCommit,
+}: {
+  filter: WorkspaceFilterControl;
+  disabled: boolean;
+  onCommit: (name: string, value: string) => void;
+}) {
+  const [value, setValue] = useState(filter.value ?? "");
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      onCommit(filter.name, value);
+    }, 350);
+
+    return () => window.clearTimeout(timeout);
+  }, [filter.name, onCommit, value]);
+
+  return (
+    <input
+      type="text"
+      placeholder={filter.placeholder}
+      value={value}
+      onChange={(event) => {
+        setValue(event.target.value);
+      }}
+      disabled={disabled}
+      className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm outline-none transition focus:border-[var(--color-primary)]/40 focus:ring-2 focus:ring-[var(--color-primary)]/10 disabled:cursor-not-allowed disabled:opacity-70"
+    />
+  );
+}
+
 export function WorkspaceFilters({
   filters,
 }: {
@@ -24,15 +57,6 @@ export function WorkspaceFilters({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
-  const [textValues, setTextValues] = useState<Record<string, string>>(
-    Object.fromEntries(filters.filter((filter) => filter.kind === "text").map((filter) => [filter.name, filter.value ?? ""])),
-  );
-
-  useEffect(() => {
-    setTextValues(
-      Object.fromEntries(filters.filter((filter) => filter.kind === "text").map((filter) => [filter.name, filter.value ?? ""])),
-    );
-  }, [filters]);
 
   const updateQuery = (name: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -50,22 +74,6 @@ export function WorkspaceFilters({
     });
   };
 
-  useEffect(() => {
-    const entries = Object.entries(textValues);
-    if (entries.length === 0) return;
-
-    const timeout = window.setTimeout(() => {
-      for (const [name, value] of entries) {
-        const currentValue = searchParams.get(name) ?? "";
-        if (currentValue !== value.trim()) {
-          updateQuery(name, value);
-        }
-      }
-    }, 350);
-
-    return () => window.clearTimeout(timeout);
-  }, [textValues, searchParams]);
-
   return (
     <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-4 shadow-sm">
       <div className="flex flex-wrap gap-3">
@@ -75,15 +83,11 @@ export function WorkspaceFilters({
               {filter.label}
             </label>
             {filter.kind === "text" ? (
-              <input
-                type="text"
-                placeholder={filter.placeholder}
-                value={textValues[filter.name] ?? ""}
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  setTextValues((current) => ({ ...current, [filter.name]: nextValue }));
-                }}
-                className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm outline-none transition focus:border-[var(--color-primary)]/40 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+              <TextFilterInput
+                key={`${filter.name}:${filter.value ?? ""}`}
+                filter={filter}
+                disabled={isPending}
+                onCommit={updateQuery}
               />
             ) : null}
             {filter.kind === "select" ? (

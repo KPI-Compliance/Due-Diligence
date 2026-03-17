@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { getAuthenticatedSession, isDevAuthBypassEnabled } from "@/lib/auth";
 
@@ -29,7 +30,7 @@ export default async function HomePage({
         <section className="relative hidden overflow-hidden bg-[var(--color-secondary)] px-12 py-12 text-white lg:flex xl:px-20 xl:py-16">
           <div className="absolute left-12 top-12 z-20 flex flex-col items-start gap-2 xl:left-20 xl:top-16">
             <div className="flex h-16 w-40 items-center justify-center">
-              <img src="/Logo_branco.png" alt="VTEX" className="h-full w-full object-contain" />
+              <Image src="/Logo_branco.png" alt="VTEX" width={160} height={64} className="h-full w-full object-contain" priority />
             </div>
             <div className="text-2xl font-extrabold tracking-tight">
               <span>Due Diligence System</span>
@@ -65,7 +66,7 @@ export default async function HomePage({
           <div className="w-full max-w-md">
             <div className="mb-10 flex flex-col items-center justify-center gap-2 lg:hidden">
               <div className="flex h-12 w-32 items-center justify-center">
-                <img src="/Logo_branco.png" alt="VTEX" className="h-full w-full object-contain" />
+                <Image src="/Logo_branco.png" alt="VTEX" width={128} height={48} className="h-full w-full object-contain" priority />
               </div>
               <div className="text-xl font-extrabold tracking-tight text-[var(--color-secondary)]">
                 <span>Due Diligence System</span>

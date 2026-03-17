@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --eval \"console.log('No automated tests configured yet')\"",
     "backfill:partner-typeform": "node scripts/backfill-partner-typeform-responses.mjs",
     "backfill:partner-risk-scores": "node scripts/backfill-partner-risk-scores.mjs"
   },
