@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -16,19 +16,16 @@ const navItems: NavItem[] = [
   { href: "/settings", label: "Settings" },
 ];
 
+type AppSidebarProps = {
+  userName: string;
+};
+
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function AppSidebar() {
+export function AppSidebar({ userName }: AppSidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
-
-  function handleLogout() {
-    document.cookie = "dd_session=; path=/; max-age=0; SameSite=Lax";
-    router.push("/");
-    router.refresh();
-  }
 
   return (
     <aside className="hidden h-screen w-64 shrink-0 border-r border-[var(--color-primary)]/10 bg-white lg:fixed lg:inset-y-0 lg:flex lg:flex-col">
@@ -66,9 +63,12 @@ export function AppSidebar() {
       </nav>
 
       <div className="border-t border-[var(--color-primary)]/5 p-4">
-        <button
-          type="button"
-          onClick={handleLogout}
+        <div className="mb-3 rounded-xl border border-[var(--color-primary)]/10 bg-[var(--color-primary)]/5 px-4 py-3">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-primary)]">Sessão ativa</p>
+          <p className="mt-1 truncate text-sm font-semibold text-[var(--color-text)]">{userName}</p>
+        </div>
+        <Link
+          href="/api/auth/logout"
           className="flex w-full items-center justify-between rounded-xl border border-[var(--color-primary)]/10 bg-[var(--color-primary)]/5 px-4 py-3 text-left transition hover:border-[var(--color-primary)]/20 hover:bg-[var(--color-primary)]/10"
         >
           <div>
@@ -80,7 +80,7 @@ export function AppSidebar() {
             <path d="m16 17 5-5-5-5" />
             <path d="M21 12H9" />
           </svg>
-        </button>
+        </Link>
       </div>
     </aside>
   );

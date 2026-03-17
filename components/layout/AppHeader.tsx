@@ -3,9 +3,24 @@
 import { usePathname } from "next/navigation";
 import { formatSectionTitle } from "@/lib/utils";
 
-export function AppHeader() {
+type AppHeaderProps = {
+  userName: string;
+  userEmail: string;
+};
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+export function AppHeader({ userName, userEmail }: AppHeaderProps) {
   const pathname = usePathname();
   const sectionTitle = formatSectionTitle(pathname);
+  const initials = getInitials(userName);
 
   return (
     <header className="sticky top-0 z-20 border-b border-[var(--color-primary)]/10 bg-white">
@@ -35,11 +50,11 @@ export function AppHeader() {
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-2 rounded-lg border border-[var(--color-neutral-200)] bg-white px-2 py-1.5">
             <div className="hidden text-right md:block">
-              <p className="text-sm font-bold text-[var(--color-text)] leading-tight">Jeff Brito</p>
-              <p className="text-[11px] font-medium text-[var(--color-neutral-600)]">Risk Administrator</p>
+              <p className="text-sm font-bold text-[var(--color-text)] leading-tight">{userName}</p>
+              <p className="text-[11px] font-medium text-[var(--color-neutral-600)]">{userEmail}</p>
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[var(--color-primary)]/20 bg-[var(--color-neutral-100)] text-xs font-bold text-[var(--color-secondary)]">
-              JB
+              {initials || "DD"}
             </div>
           </div>
         </div>

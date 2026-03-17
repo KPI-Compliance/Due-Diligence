@@ -1,24 +1,24 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AppSidebar } from "@/components/layout/AppSidebar";
+import { getAuthenticatedSession } from "@/lib/auth";
 
 export default async function AppLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = (await cookies()).get("dd_session")?.value;
+  const session = await getAuthenticatedSession();
 
-  if (session !== "authenticated") {
+  if (!session) {
     redirect("/");
   }
 
   return (
     <div className="min-h-screen bg-[var(--color-surface)]">
-      <AppSidebar />
+      <AppSidebar userName={session.name} />
       <div className="lg:pl-64">
-        <AppHeader />
+        <AppHeader userName={session.name} userEmail={session.email} />
         <main className="px-4 py-8 sm:px-6 lg:px-8">{children}</main>
       </div>
     </div>

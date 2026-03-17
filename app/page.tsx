@@ -1,17 +1,24 @@
-"use client";
+import Link from "next/link";
+import { getAuthenticatedSession } from "@/lib/auth";
 
-import { FormEvent } from "react";
-import { useRouter } from "next/navigation";
+const loginErrorMessages: Record<string, string> = {
+  google_access_denied: "O acesso com Google foi cancelado antes da conclusão do login.",
+  google_missing_code: "O Google não retornou o código de autorização esperado.",
+  google_invalid_state: "A validação de segurança do SSO expirou. Tente entrar novamente.",
+  google_token_exchange_failed: "Não foi possível validar o login com o Google.",
+  google_userinfo_failed: "O Google autenticou a conta, mas não retornou os dados do usuário.",
+  google_sso_failed: "O login corporativo falhou por um erro inesperado.",
+};
 
-export default function HomePage() {
-  const router = useRouter();
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    document.cookie = "dd_session=authenticated; path=/; max-age=28800; SameSite=Lax";
-    router.push("/dashboard");
-    router.refresh();
-  }
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ error?: string }>;
+}) {
+  const params = searchParams ? await searchParams : undefined;
+  const session = await getAuthenticatedSession();
+  const errorCode = params?.error ?? "";
+  const errorMessage = loginErrorMessages[errorCode];
 
   return (
     <main className="min-h-screen bg-white">
@@ -65,78 +72,67 @@ export default function HomePage() {
             <div className="mb-10 text-center lg:text-left">
               <h2 className="text-3xl font-extrabold text-[var(--color-secondary)]">Entrar no sistema</h2>
               <p className="mt-3 text-base font-medium text-[var(--color-neutral-700)]">
-                Use seu acesso corporativo para abrir o painel de due diligence.
+                Use sua conta corporativa Google para abrir o painel de due diligence.
               </p>
             </div>
 
-            <form className="space-y-6" onSubmit={handleSubmit}>
-              <label className="block space-y-2">
-                <span className="block text-sm font-semibold text-gray-700">Email</span>
-                <input
-                  type="email"
-                  name="email"
-                  placeholder="seu@email.com.br"
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none transition-all focus:border-[var(--color-secondary)] focus:ring-2 focus:ring-[var(--color-secondary)]/15"
-                />
-              </label>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-gray-700">Senha</span>
-                  <button type="button" className="text-sm font-semibold text-[var(--color-secondary)] hover:underline">
-                    Esqueci minha senha
-                  </button>
-                </div>
-                <input
-                  type="password"
-                  name="password"
-                  placeholder="••••••••"
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none transition-all focus:border-[var(--color-secondary)] focus:ring-2 focus:ring-[var(--color-secondary)]/15"
-                />
+            {errorMessage ? (
+              <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                {errorMessage}
               </div>
+            ) : null}
 
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
-                />
-                <span className="ml-2 text-sm text-gray-700">Lembrar deste dispositivo</span>
-              </label>
-
-              <button
-                type="submit"
-                className="w-full rounded-lg bg-[var(--color-primary)] py-4 text-base font-bold text-white shadow-lg shadow-pink-200 transition-all hover:bg-[#d91658] active:scale-[0.98]"
-              >
-                Entrar
-              </button>
-
-              <div className="relative py-2">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200" />
+            {session ? (
+              <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-6">
+                <div>
+                  <p className="text-sm font-semibold text-emerald-700">Sessão ativa</p>
+                  <p className="mt-1 text-lg font-bold text-[var(--color-secondary)]">{session.name}</p>
+                  <p className="text-sm text-[var(--color-neutral-700)]">{session.email}</p>
                 </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="bg-gray-50 px-2 font-medium uppercase tracking-wider text-gray-500 lg:bg-white">Ou</span>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Link
+                    href="/dashboard"
+                    className="flex items-center justify-center rounded-lg bg-[var(--color-primary)] px-4 py-3 text-sm font-bold text-white transition hover:brightness-95"
+                  >
+                    Ir para o painel
+                  </Link>
+                  <Link
+                    href="/api/auth/logout"
+                    className="flex items-center justify-center rounded-lg border border-[var(--color-neutral-300)] bg-white px-4 py-3 text-sm font-semibold text-[var(--color-secondary)] transition hover:border-[var(--color-secondary)]"
+                  >
+                    Trocar de conta
+                  </Link>
                 </div>
               </div>
+            ) : (
+              <div className="space-y-6">
+                <Link
+                  href="/api/auth/google"
+                  className="flex w-full items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white py-4 text-sm font-semibold text-[var(--color-secondary)] transition-all hover:border-[var(--color-secondary)]"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="#EA4335"
+                      d="M12 10.2v3.9h5.4c-.2 1.3-1.6 3.9-5.4 3.9-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.9 3.4 14.7 2.5 12 2.5 6.8 2.5 2.5 6.8 2.5 12s4.3 9.5 9.5 9.5c5.5 0 9.1-3.9 9.1-9.3 0-.6-.1-1.1-.2-1.6H12Z"
+                    />
+                    <path fill="#34A853" d="M2.5 12c0 1.7.5 3.3 1.4 4.6l3.2-2.5c-.4-.6-.6-1.3-.6-2.1s.2-1.5.6-2.1L3.9 7.4A9.4 9.4 0 0 0 2.5 12Z" />
+                    <path fill="#FBBC05" d="M12 21.5c2.6 0 4.8-.9 6.4-2.5l-3.1-2.4c-.9.6-2 .9-3.3.9-2.5 0-4.6-1.7-5.3-4l-3.2 2.5c1.6 3.2 4.9 5.5 9.5 5.5Z" />
+                    <path fill="#4285F4" d="M21.1 12.2c0-.7-.1-1.3-.2-2H12v3.9h5.4c-.3 1.4-1.1 2.5-2.1 3.4l3.1 2.4c1.8-1.7 2.7-4.2 2.7-7.7Z" />
+                  </svg>
+                  Entrar com SSO Corporativo
+                </Link>
 
-              <button
-                type="button"
-                className="flex w-full items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white py-3 text-sm font-semibold text-[var(--color-secondary)] transition-all hover:border-[var(--color-secondary)]"
-              >
-                <svg className="h-5 w-5 fill-current" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="m12 2.5 2.86 5.8 6.4.93-4.63 4.5 1.1 6.37L12 17.1l-5.73 3.01 1.1-6.37-4.63-4.5 6.4-.93L12 2.5Z" />
-                </svg>
-                Entrar com SSO Corporativo
-              </button>
-            </form>
+                <div className="rounded-lg border border-dashed border-[var(--color-secondary)]/15 bg-[var(--color-secondary)]/3 px-4 py-3 text-xs leading-6 text-[var(--color-neutral-700)]">
+                  O acesso agora usa autenticação Google OAuth. Se ocorrer erro de redirecionamento, confira se a URL do callback autorizada no Google
+                  corresponde ao ambiente atual.
+                </div>
+              </div>
+            )}
 
             <p className="mt-10 text-center text-sm text-gray-500">
               Precisa de ajuda? <span className="font-bold text-[var(--color-secondary)]">Fale com o suporte</span>
             </p>
-
-            <div className="mt-6 rounded-lg border border-dashed border-[var(--color-secondary)]/15 bg-[var(--color-secondary)]/3 px-4 py-3 text-xs leading-6 text-[var(--color-neutral-700)]">
-              Login e SSO ainda não estão integrados. O botão <span className="font-semibold text-[var(--color-secondary)]">Entrar</span> libera o acesso provisoriamente.
-            </div>
           </div>
         </section>
       </div>

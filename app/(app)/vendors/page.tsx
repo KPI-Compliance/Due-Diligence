@@ -4,7 +4,6 @@ import { getVendorsList } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 const MAX_VENDOR_ROWS = 25;
-const CURRENT_TIMESTAMP = Date.now();
 
 function renderWorkflowBadge(label: string) {
   const normalized = label.toLowerCase();
@@ -37,8 +36,7 @@ export default async function VendorsPage({
     initial_questionnaire?: string;
     main_questionnaire?: string;
     risk_level?: string;
-    owner?: string;
-    date_range?: string;
+    company_group?: string;
     updated?: string;
   }>;
 }) {
@@ -48,10 +46,9 @@ export default async function VendorsPage({
   const initialQuestionnaire = (params?.initial_questionnaire ?? "All").trim();
   const mainQuestionnaire = (params?.main_questionnaire ?? "All").trim();
   const riskLevel = (params?.risk_level ?? "All Risks").trim();
-  const owner = (params?.owner ?? "All Owners").trim();
-  const dateRange = (params?.date_range ?? "All Periods").trim();
+  const companyGroup = (params?.company_group ?? "Todos").trim();
 
-  const ownerOptions = ["All Owners", ...Array.from(new Set(vendors.map((item) => item.owner).filter(Boolean))).sort((a, b) => a.localeCompare(b))];
+  const companyGroupOptions = ["Todos", ...Array.from(new Set(vendors.map((item) => item.companyGroup).filter(Boolean))).sort((a, b) => a.localeCompare(b))];
 
   const filters = [
     {
@@ -83,29 +80,13 @@ export default async function VendorsPage({
       value: riskLevel,
     },
     {
-      name: "owner",
-      label: "Responsável",
+      name: "company_group",
+      label: "Grupo empresarial",
       kind: "select" as const,
-      options: ownerOptions,
-      value: owner,
-    },
-    {
-      name: "date_range",
-      label: "Período",
-      kind: "select" as const,
-      options: ["All Periods", "Last 30 Days", "Last 90 Days", "Last 180 Days", "Last 365 Days"],
-      value: dateRange,
-      className: "sm:max-w-[220px]",
+      options: companyGroupOptions,
+      value: companyGroup,
     },
   ];
-
-  const dateRangeMap: Record<string, number | null> = {
-    "All Periods": null,
-    "Last 30 Days": 30,
-    "Last 90 Days": 90,
-    "Last 180 Days": 180,
-    "Last 365 Days": 365,
-  };
 
   const filteredVendors = vendors.filter((item) => {
     const matchesVendor =
@@ -122,22 +103,15 @@ export default async function VendorsPage({
     const matchesRiskLevel =
       riskLevel === "All Risks" || item.risk === riskLevel;
 
-    const matchesOwner =
-      owner === "All Owners" || item.owner === owner;
-
-    const selectedRangeInDays = dateRangeMap[dateRange] ?? null;
-    const referenceTimestamp = item.referenceDate ? new Date(item.referenceDate).getTime() : Number.NaN;
-    const matchesDateRange =
-      selectedRangeInDays === null ||
-      (Number.isFinite(referenceTimestamp) && CURRENT_TIMESTAMP - referenceTimestamp <= selectedRangeInDays * 24 * 60 * 60 * 1000);
+    const matchesCompanyGroup =
+      companyGroup === "Todos" || item.companyGroup === companyGroup;
 
     return (
       matchesVendor &&
       matchesInitialQuestionnaire &&
       matchesMainQuestionnaire &&
       matchesRiskLevel &&
-      matchesOwner &&
-      matchesDateRange
+      matchesCompanyGroup
     );
   });
 
@@ -152,13 +126,12 @@ export default async function VendorsPage({
         secondaryActionLabel="Export"
         filters={filters}
         columns={[
-          "Company",
-          "Jira Ticket",
-          "Empresa",
-          "Segment",
+          "Fornecedor",
+          "Chamado Jira",
+          "Grupo Empresarial",
           "Questionário Inicial",
           "Questionário Principal",
-          "Redteam",
+          "Red Team",
           "Risco Final",
           "Última Revisão",
         ]}
@@ -206,7 +179,6 @@ export default async function VendorsPage({
               <Link href={`/vendors/${item.id}`} className="block">{item.jiraTicket ?? "-"}</Link>
             </td>
             <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/vendors/${item.id}`} className="block">{item.companyGroup}</Link></td>
-            <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]"><Link href={`/vendors/${item.id}`} className="block">{item.segment}</Link></td>
             <td className="px-6 py-4"><Link href={`/vendors/${item.id}`} className="block">{renderWorkflowBadge(item.intakeStatus)}</Link></td>
             <td className="px-6 py-4"><Link href={`/vendors/${item.id}`} className="block">{renderWorkflowBadge(item.principalQuestionnaireStatus)}</Link></td>
             <td className="px-6 py-4"><Link href={`/vendors/${item.id}`} className="block">{renderTechnicalReviewBadge(item.technicalReviewStatus)}</Link></td>

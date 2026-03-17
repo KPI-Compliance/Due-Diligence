@@ -20,6 +20,30 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Google SSO Login
+
+The login page uses Google OAuth. In production, prefer environment variables. For local fallback, the app can still read:
+
+- `client_secret_1026620199601-b7sj26vpj8aap7h8pavjg5239hpslajc.apps.googleusercontent.com.json`
+
+Environment variables:
+
+```bash
+NEXT_PUBLIC_APP_URL="https://your-app-domain.vercel.app"
+GOOGLE_CLIENT_ID="your_google_client_id.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="your_google_client_secret"
+GOOGLE_OAUTH_REDIRECT_URI="https://your-app-domain.vercel.app/api/auth/callback/google"
+DD_AUTH_SECRET="replace_with_a_long_random_secret"
+```
+
+Notes:
+
+- In Vercel, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` should be configured as environment variables instead of relying on the local JSON file.
+- `GOOGLE_OAUTH_REDIRECT_URI` must exactly match one of the authorized redirect URIs in Google Cloud.
+- `DD_AUTH_SECRET` is recommended so the app session cookie does not rely on the OAuth client secret fallback.
+- For local development, authorize the exact local callback URL you intend to use.
+- The protected app shell now relies on the server-side session cookie created after the Google callback.
+
 ## Google Sheets Integration (Questionnaire Answers)
 
 You can use Google Sheets as the questionnaire source (instead of direct Typeform webhook processing).
