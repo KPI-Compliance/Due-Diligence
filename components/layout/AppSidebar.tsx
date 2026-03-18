@@ -68,20 +68,22 @@ export function AppSidebar({ userName }: AppSidebarProps) {
           <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-primary)]">Sessão ativa</p>
           <p className="mt-1 truncate text-sm font-semibold text-[var(--color-text)]">{userName}</p>
         </div>
-        <Link
-          href="/api/auth/logout"
-          className="flex w-full items-center justify-between rounded-xl border border-[var(--color-primary)]/10 bg-[var(--color-primary)]/5 px-4 py-3 text-left transition hover:border-[var(--color-primary)]/20 hover:bg-[var(--color-primary)]/10"
-        >
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-primary)]">Logoff</p>
-            <p className="mt-1 text-[11px] text-[var(--color-neutral-600)]">Sair do sistema e voltar para a tela de login.</p>
-          </div>
-          <svg className="h-5 w-5 shrink-0 text-[var(--color-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <path d="m16 17 5-5-5-5" />
-            <path d="M21 12H9" />
-          </svg>
-        </Link>
+        <form action="/api/auth/logout" method="post">
+          <button
+            type="submit"
+            className="flex w-full items-center justify-between rounded-xl border border-[var(--color-primary)]/10 bg-[var(--color-primary)]/5 px-4 py-3 text-left transition hover:border-[var(--color-primary)]/20 hover:bg-[var(--color-primary)]/10"
+          >
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-primary)]">Logoff</p>
+              <p className="mt-1 text-[11px] text-[var(--color-neutral-600)]">Sair do sistema e voltar para a tela de login.</p>
+            </div>
+            <svg className="h-5 w-5 shrink-0 text-[var(--color-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="m16 17 5-5-5-5" />
+              <path d="M21 12H9" />
+            </svg>
+          </button>
+        </form>
       </div>
     </aside>
   );

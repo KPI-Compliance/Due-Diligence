@@ -104,12 +104,14 @@ export default async function HomePage({
                   >
                     Ir para o painel
                   </Link>
-                  <Link
-                    href="/api/auth/logout"
-                    className="flex items-center justify-center rounded-lg border border-[var(--color-neutral-300)] bg-white px-4 py-3 text-sm font-semibold text-[var(--color-secondary)] transition hover:border-[var(--color-secondary)]"
-                  >
-                    Trocar de conta
-                  </Link>
+                  <form action="/api/auth/logout" method="post">
+                    <button
+                      type="submit"
+                      className="flex w-full items-center justify-center rounded-lg border border-[var(--color-neutral-300)] bg-white px-4 py-3 text-sm font-semibold text-[var(--color-secondary)] transition hover:border-[var(--color-secondary)]"
+                    >
+                      Trocar de conta
+                    </button>
+                  </form>
                 </div>
               </div>
             ) : (
