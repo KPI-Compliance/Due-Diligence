@@ -999,7 +999,6 @@ export async function getPartnersList() {
       e.risk_level,
       e.company_group,
       COALESCE(
-        latest_partner_review.reviewed_at,
         latest_decision.updated_at,
         e.last_review_at
       ) AS last_review_at,
@@ -1028,80 +1027,6 @@ export async function getPartnersList() {
       WHERE ad.assessment_id = latest_assessment.id
       LIMIT 1
     ) latest_decision ON true
-    LEFT JOIN LATERAL (
-      SELECT MAX(reviewed_at) AS reviewed_at
-      FROM (
-        SELECT analyzed_at AS reviewed_at
-        FROM partner_typeform_assessment_ptbr_responses
-        WHERE
-          (latest_assessment.id IS NOT NULL AND assessment_id = latest_assessment.id)
-          OR (
-            latest_assessment.typeform_response_token IS NOT NULL
-            AND typeform_response_token = latest_assessment.typeform_response_token
-          )
-          OR (
-            lower(company_name) = lower(e.name)
-            AND (
-              latest_assessment.typeform_form_id IS NULL
-              OR typeform_form_id = latest_assessment.typeform_form_id
-            )
-          )
-
-        UNION ALL
-
-        SELECT analyzed_at AS reviewed_at
-        FROM partner_typeform_assessment_en_responses
-        WHERE
-          (latest_assessment.id IS NOT NULL AND assessment_id = latest_assessment.id)
-          OR (
-            latest_assessment.typeform_response_token IS NOT NULL
-            AND typeform_response_token = latest_assessment.typeform_response_token
-          )
-          OR (
-            lower(company_name) = lower(e.name)
-            AND (
-              latest_assessment.typeform_form_id IS NULL
-              OR typeform_form_id = latest_assessment.typeform_form_id
-            )
-          )
-
-        UNION ALL
-
-        SELECT analyzed_at AS reviewed_at
-        FROM partner_typeform_assessment_pt_v2_responses
-        WHERE
-          (latest_assessment.id IS NOT NULL AND assessment_id = latest_assessment.id)
-          OR (
-            latest_assessment.typeform_response_token IS NOT NULL
-            AND typeform_response_token = latest_assessment.typeform_response_token
-          )
-          OR (
-            lower(company_name) = lower(e.name)
-            AND (
-              latest_assessment.typeform_form_id IS NULL
-              OR typeform_form_id = latest_assessment.typeform_form_id
-            )
-          )
-
-        UNION ALL
-
-        SELECT analyzed_at AS reviewed_at
-        FROM partner_typeform_assessment_en_v2_responses
-        WHERE
-          (latest_assessment.id IS NOT NULL AND assessment_id = latest_assessment.id)
-          OR (
-            latest_assessment.typeform_response_token IS NOT NULL
-            AND typeform_response_token = latest_assessment.typeform_response_token
-          )
-          OR (
-            lower(company_name) = lower(e.name)
-            AND (
-              latest_assessment.typeform_form_id IS NULL
-              OR typeform_form_id = latest_assessment.typeform_form_id
-            )
-          )
-      ) partner_reviews
-    ) latest_partner_review ON true
     WHERE e.kind = 'PARTNER'
     GROUP BY
       e.id,
@@ -1113,8 +1038,7 @@ export async function getPartnersList() {
       latest_decision.security_level,
       latest_decision.privacy_level,
       latest_decision.compliance_level,
-      latest_decision.updated_at,
-      latest_partner_review.reviewed_at
+      latest_decision.updated_at
     ORDER BY e.created_at DESC, e.name ASC
   `) as Array<{
     slug: string;

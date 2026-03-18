@@ -570,16 +570,24 @@ async function getPartnerAssessmentIds(typeformFormId?: string) {
   `) as Array<{ assessment_id: string }>;
 }
 
+async function recalculatePartnerAssessmentDecisionBatch(assessmentIds: string[]) {
+  await Promise.allSettled(assessmentIds.map((assessmentId) => recalculatePartnerAssessmentDecisionByAssessmentId(assessmentId)));
+}
+
 export async function recalculatePartnerAssessmentDecisionsForForm(typeformFormId: string) {
   const contexts = await getPartnerAssessmentIds(typeformFormId);
-  for (const context of contexts) {
-    await recalculatePartnerAssessmentDecisionByAssessmentId(context.assessment_id);
+  for (let index = 0; index < contexts.length; index += 5) {
+    await recalculatePartnerAssessmentDecisionBatch(
+      contexts.slice(index, index + 5).map((context) => context.assessment_id),
+    );
   }
 }
 
 export async function recalculateAllPartnerAssessmentDecisions() {
   const contexts = await getPartnerAssessmentIds();
-  for (const context of contexts) {
-    await recalculatePartnerAssessmentDecisionByAssessmentId(context.assessment_id);
+  for (let index = 0; index < contexts.length; index += 5) {
+    await recalculatePartnerAssessmentDecisionBatch(
+      contexts.slice(index, index + 5).map((context) => context.assessment_id),
+    );
   }
 }

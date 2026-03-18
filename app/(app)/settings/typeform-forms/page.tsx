@@ -191,47 +191,34 @@ export default async function TypeformFormsSettingsPage({
   const typeformForms = await getTypeformForms();
   const formMappingStatusEntries = await Promise.all(
     typeformForms.map(async (form) => {
-      const [mappings, fields] = await Promise.all([
-        getTypeformFormQuestionMappings(form.id),
-        fetchTypeformFormFields(form.form_id).catch(() => []),
-      ]);
-      const questions = flattenTypeformFieldDefinitions(fields).filter((field) => field.title || field.ref);
-      const totalQuestions = questions.length;
+      const mappings = await getTypeformFormQuestionMappings(form.id);
       const mappedCount = mappings.length;
       const allWeightsValid = mappings.every((item) => item.weight > 0);
 
       const status: FormMappingStatus =
-        totalQuestions === 0
+        mappedCount === 0
           ? {
               mappedCount,
-              totalQuestions,
-              tone: "bg-slate-100 text-slate-600",
-              label: "Sem leitura API",
-              detail: "Não foi possível validar a definição do formulário agora.",
+              totalQuestions: 0,
+              tone: "bg-amber-100 text-amber-700",
+              label: "Pendente",
+              detail: "Nenhuma pergunta mapeada ainda.",
             }
-          : mappedCount === 0
+          : !allWeightsValid
             ? {
                 mappedCount,
-                totalQuestions,
-                tone: "bg-amber-100 text-amber-700",
-                label: "Pendente",
-                detail: "Nenhuma pergunta mapeada ainda.",
+                totalQuestions: mappedCount,
+                tone: "bg-orange-100 text-orange-700",
+                label: "Parcial",
+                detail: `${mappedCount} perguntas mapeadas, revise os pesos.`,
               }
-            : mappedCount < totalQuestions || !allWeightsValid
-              ? {
-                  mappedCount,
-                  totalQuestions,
-                  tone: "bg-orange-100 text-orange-700",
-                  label: "Parcial",
-                  detail: `${mappedCount}/${totalQuestions} perguntas configuradas.`,
-                }
-              : {
-                  mappedCount,
-                  totalQuestions,
-                  tone: "bg-emerald-100 text-emerald-700",
-                  label: "Completo",
-                  detail: `${mappedCount}/${totalQuestions} perguntas configuradas.`,
-                };
+            : {
+                mappedCount,
+                totalQuestions: mappedCount,
+                tone: "bg-emerald-100 text-emerald-700",
+                label: "Configurado",
+                detail: `${mappedCount} perguntas mapeadas.`,
+              };
 
       return [form.id, status] as const;
     }),
