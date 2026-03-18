@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 const HEARTBEAT_INTERVAL_MS = 4 * 60 * 1000;
+const MAX_CONSECUTIVE_FAILURES = 2;
 
 export function SessionHeartbeat() {
+  const consecutiveFailuresRef = useRef(0);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -18,12 +21,18 @@ export function SessionHeartbeat() {
 
         if (!response.ok) {
           const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-          if (!cancelled) {
+          consecutiveFailuresRef.current += 1;
+
+          if (!cancelled && consecutiveFailuresRef.current >= MAX_CONSECUTIVE_FAILURES) {
             window.location.href = `/?error=${encodeURIComponent(payload?.error ?? "session_invalid")}`;
           }
+          return;
         }
+
+        consecutiveFailuresRef.current = 0;
       } catch {
         // Ignore transient network failures and retry on the next heartbeat.
+        consecutiveFailuresRef.current = 0;
       }
     }
 

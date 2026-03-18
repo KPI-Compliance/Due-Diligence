@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import {
-  clearAuthenticatedSession,
   getAuthenticatedSessionResult,
   getSessionErrorCode,
   refreshAuthenticatedSession,
@@ -10,7 +9,6 @@ export async function GET() {
   const result = await getAuthenticatedSessionResult();
 
   if (!result.session) {
-    await clearAuthenticatedSession();
     return NextResponse.json(
       { ok: false, reason: result.reason, error: getSessionErrorCode(result.reason) },
       { status: 401 },
