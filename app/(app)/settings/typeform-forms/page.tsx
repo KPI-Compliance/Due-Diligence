@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { TypeformQuestionMappingModal } from "@/components/settings/TypeformQuestionMappingModal";
 import { SectionCard } from "@/components/ui/SectionCard";
+import { getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
 import {
   deleteTypeformForm,
   getIntegrationSettings,
@@ -32,6 +33,13 @@ const appUrl =
 const typeformApiTokenConfigured = Boolean(process.env.TYPEFORM_API_TOKEN ?? process.env.TYPEFORM_ACCESS_TOKEN);
 
 export const dynamic = "force-dynamic";
+
+async function requireServerActionSession(context: string) {
+  const sessionResult = await refreshServerActionSession(context);
+  if (!sessionResult.session) {
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+}
 
 type FormMappingStatus = {
   mappedCount: number;
@@ -93,6 +101,7 @@ function RiskScoringLegend({ settings }: { settings: RiskScoringSettings }) {
 
 async function saveTypeformForm(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.typeformForms.saveTypeformForm");
 
   const rawEntityKind = String(formData.get("entity_kind") ?? "ANY").toUpperCase();
   const entity_kind = rawEntityKind === "VENDOR" || rawEntityKind === "PARTNER" ? rawEntityKind : "ANY";
@@ -120,6 +129,7 @@ async function saveTypeformForm(formData: FormData) {
 
 async function removeTypeformForm(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.typeformForms.removeTypeformForm");
 
   const id = String(formData.get("id") ?? "").trim();
   if (id) {
@@ -133,6 +143,7 @@ async function removeTypeformForm(formData: FormData) {
 
 async function saveQuestionMappings(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.typeformForms.saveQuestionMappings");
 
   const formConfigId = String(formData.get("form_config_id") ?? "").trim();
   if (!formConfigId) {

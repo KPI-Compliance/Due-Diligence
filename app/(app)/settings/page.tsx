@@ -5,6 +5,7 @@ import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings
 import { RiskScoringSettingsPanel } from "@/components/settings/RiskScoringSettingsPanel";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SectionCard } from "@/components/ui/SectionCard";
+import { getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
 import {
   deleteTypeformForm as deleteTypeformFormRow,
   getTypeformForms,
@@ -76,6 +77,13 @@ const slackTokenConfigured = Boolean(process.env.SLACK_BOT_TOKEN);
 
 export const dynamic = "force-dynamic";
 
+async function requireServerActionSession(context: string) {
+  const sessionResult = await refreshServerActionSession(context);
+  if (!sessionResult.session) {
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+}
+
 function getSetting<T>(
   list: Array<{ provider: IntegrationProvider; enabled: boolean; config: unknown }>,
   provider: IntegrationProvider,
@@ -135,6 +143,7 @@ function isValidRiskProfile(profile: RiskScoringProfile) {
 
 async function saveTypeformSettings(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.saveTypeformSettings");
 
   const enabled = formData.get("enabled") === "on";
 
@@ -157,6 +166,7 @@ async function saveTypeformSettings(formData: FormData) {
 
 async function saveTypeformForm(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.saveTypeformForm");
 
   const rawEntityKind = String(formData.get("entity_kind") ?? "ANY").toUpperCase();
   const entity_kind = rawEntityKind === "VENDOR" || rawEntityKind === "PARTNER" ? rawEntityKind : "ANY";
@@ -192,6 +202,7 @@ async function saveTypeformForm(formData: FormData) {
 
 async function deleteTypeformForm(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.deleteTypeformForm");
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) {
@@ -206,6 +217,7 @@ async function deleteTypeformForm(formData: FormData) {
 
 async function saveJiraSettings(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.saveJiraSettings");
 
   const enabled = formData.get("enabled") === "on";
 
@@ -232,6 +244,7 @@ async function saveJiraSettings(formData: FormData) {
 
 async function saveSlackSettings(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.saveSlackSettings");
 
   const enabled = formData.get("enabled") === "on";
 
@@ -248,6 +261,7 @@ async function saveSlackSettings(formData: FormData) {
 
 async function saveGoogleSheetsSettings(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.saveGoogleSheetsSettings");
 
   const enabled = formData.get("enabled") === "on";
   const rawEmails = String(formData.get("service_account_emails_json") ?? "[]");
@@ -309,6 +323,7 @@ async function saveGoogleSheetsSettings(formData: FormData) {
 
 async function saveGeneralSettings(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.saveGeneralSettings");
 
   const primaryBusinessUnit = String(formData.get("primary_business_unit") ?? "VTEX").toUpperCase() === "WENI" ? "WENI" : "VTEX";
   const defaultRiskLevel = String(formData.get("default_risk_level") ?? "MEDIUM").toUpperCase();
@@ -334,6 +349,7 @@ async function saveGeneralSettings(formData: FormData) {
 
 async function saveRiskScoringSettings(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.saveRiskScoringSettings");
 
   const currentSettings = await getPlatformSettings("RISK_SCORING", normalizeRiskScoringSettings);
 
@@ -384,6 +400,7 @@ async function saveRiskScoringSettings(formData: FormData) {
 
 async function saveNotificationSettings(formData: FormData) {
   "use server";
+  await requireServerActionSession("settings.saveNotificationSettings");
 
   const payload: NotificationSettings = {
     notify_on_responded: formData.get("notify_on_responded") === "on",

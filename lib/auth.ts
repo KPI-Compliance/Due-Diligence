@@ -271,6 +271,21 @@ export async function refreshAuthenticatedSession(session: SessionPayload) {
   });
 }
 
+export async function refreshServerActionSession(context: string) {
+  const result = await getAuthenticatedSessionResult();
+
+  if (!result.session) {
+    console.error("[auth] Missing session during server action", {
+      context,
+      reason: result.reason,
+    });
+    return result;
+  }
+
+  await refreshAuthenticatedSession(result.session);
+  return result;
+}
+
 export function getSessionErrorCode(reason: SessionFailureReason | null) {
   if (reason === "expired") return "session_expired";
   if (reason === "invalid_signature" || reason === "invalid_payload" || reason === "malformed_token") {

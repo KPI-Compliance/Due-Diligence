@@ -2,9 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
 import { ensureVendorQuestionnaireSelection } from "@/lib/vendor-external-questionnaire";
 
 export async function saveVendorExternalQuestionnaire(formData: FormData) {
+  const sessionResult = await refreshServerActionSession("vendors.saveVendorExternalQuestionnaire");
+  if (!sessionResult.session) {
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+
   const entitySlug = String(formData.get("entity_slug") ?? "").trim();
   const assessmentId = String(formData.get("assessment_id") ?? "").trim();
   const selectedFormId = String(formData.get("typeform_form_id") ?? "").trim();

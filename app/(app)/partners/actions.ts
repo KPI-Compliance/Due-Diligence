@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { addInternalCommentToConfiguredJiraIssue } from "@/lib/jira";
 import { recalculatePartnerAssessmentDecision } from "@/lib/partner-risk-scoring";
@@ -61,6 +62,11 @@ async function getRepresentativeResponseIdForAssessment(tableName: string, asses
 }
 
 export async function savePartnerExternalQuestionnaireSection(formData: FormData) {
+  const sessionResult = await refreshServerActionSession("partners.savePartnerExternalQuestionnaireSection");
+  if (!sessionResult.session) {
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+
   const entitySlug = String(formData.get("entity_slug") ?? "").trim();
   const assessmentId = String(formData.get("assessment_id") ?? "").trim() || null;
   const tableName = String(formData.get("response_table") ?? "").trim();
