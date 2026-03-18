@@ -18,6 +18,8 @@ type EntityDetailViewProps = {
   activeTab: DetailTabKey;
   activeQuestionnaireSection?: string;
   saveStatus?: string;
+  jiraErrorStatus?: string;
+  jiraSyncStatus?: string;
 };
 
 const vendorTabs: Array<{ key: DetailTabKey; label: string }> = [
@@ -65,6 +67,14 @@ const levelBadgeStyles: Record<RiskLevel, string> = {
   Medium: "bg-amber-100 text-amber-700",
   High: "bg-red-100 text-red-700",
   Pending: "bg-slate-100 text-slate-700",
+};
+
+const analystEvaluationSummaryLabels: Record<Exclude<AnalystEvaluationStatus, "NOT_EVALUATED"> | "NOT_EVALUATED", string> = {
+  DOES_NOT_MEET: "Não atende",
+  PARTIALLY: "Parcialmente",
+  FULLY: "Totalmente",
+  NA: "N/A",
+  NOT_EVALUATED: "Não avaliado",
 };
 
 type ExternalSection = "Common" | "Compliance" | "Privacy" | "Security";
@@ -475,7 +485,7 @@ function QuestionnaireResponseCard({
             name={responseId ? `observations_${responseId}` : `${cardKey}-notes`}
             defaultValue={analystObservations ?? ""}
             readOnly={!editable}
-            placeholder="Registre observacoes, evidencias e condicionantes para este item."
+            placeholder="Registre observações, evidências e condicionantes para este item."
             className="w-full resize-none rounded-lg border border-[var(--color-primary)]/10 bg-white px-3 py-3 text-sm outline-none"
           />
         </div>
@@ -484,7 +494,7 @@ function QuestionnaireResponseCard({
   );
 }
 
-export function EntityDetailView({ kind, basePath, detail, activeTab, activeQuestionnaireSection, saveStatus }: EntityDetailViewProps) {
+export function EntityDetailView({ kind, basePath, detail, activeTab, activeQuestionnaireSection, saveStatus, jiraErrorStatus, jiraSyncStatus }: EntityDetailViewProps) {
   const backHref = kind === "vendor" ? "/vendors" : "/partners";
   const visibleTabs = kind === "partner" ? partnerTabs : vendorTabs;
   const availableExternalSections = getAvailableExternalSections(kind);
@@ -497,8 +507,37 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
       ? activeQuestionnaireSection
       : "Common"
   ) as ExternalSection;
+  const supportsSectionFinalObservation =
+    kind === "partner" &&
+    (normalizedActiveSection === "Compliance" || normalizedActiveSection === "Privacy" || normalizedActiveSection === "Security");
   const selectedExternalSection =
     externalQuestionsBySection.find((entry) => entry.section === normalizedActiveSection) ?? externalQuestionsBySection[0];
+  const selectedSectionFinalObservation =
+    normalizedActiveSection === "Compliance" || normalizedActiveSection === "Privacy" || normalizedActiveSection === "Security"
+      ? detail.externalQuestionnaire.sectionNotes?.[normalizedActiveSection] ?? ""
+      : "";
+  const activeDecisionSection =
+    normalizedActiveSection === "Security"
+      ? detail.decision.security
+      : normalizedActiveSection === "Privacy"
+        ? detail.decision.privacy
+        : normalizedActiveSection === "Compliance"
+          ? detail.decision.compliance
+          : null;
+  const selectedSectionItems = selectedExternalSection?.items ?? [];
+  const selectedSectionEvaluationSummary = selectedSectionItems.reduce<Record<string, number>>((acc, item) => {
+    const key = item.analystEvaluation ?? "NOT_EVALUATED";
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+  const selectedSectionReviewedCount = selectedSectionItems.filter((item) => (item.analystEvaluation ?? "NOT_EVALUATED") !== "NOT_EVALUATED").length;
+  const selectedSectionTopOutcomes = (["FULLY", "PARTIALLY", "DOES_NOT_MEET", "NA", "NOT_EVALUATED"] as const)
+    .map((key) => ({
+      key,
+      label: analystEvaluationSummaryLabels[key],
+      count: selectedSectionEvaluationSummary[key] ?? 0,
+    }))
+    .filter((item) => item.count > 0);
 
   return (
     <div className="space-y-6">
@@ -615,7 +654,18 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Jira Ticket</p>
-                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
+                        {detail.jiraTicket && detail.jiraTicketHref ? (
+                          <a
+                            href={detail.jiraTicketHref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-1 inline-flex break-words text-sm font-semibold text-[var(--color-primary)] hover:underline"
+                          >
+                            {detail.jiraTicket}
+                          </a>
+                        ) : (
+                          <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
+                        )}
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Phone Number</p>
@@ -639,7 +689,18 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Jira Ticket</p>
-                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
+                        {detail.jiraTicket && detail.jiraTicketHref ? (
+                          <a
+                            href={detail.jiraTicketHref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-1 inline-flex break-words text-sm font-semibold text-[var(--color-primary)] hover:underline"
+                          >
+                            {detail.jiraTicket}
+                          </a>
+                        ) : (
+                          <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.jiraTicket ?? "-"}</p>
+                        )}
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Empresa</p>
@@ -866,7 +927,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
         <section className="space-y-6">
           <QuestionnaireHero
             sectionLabel="External Questionnaire"
-            title="Questionario Externo"
+            title="Questionário Externo"
             description={
               kind === "partner"
                 ? "Centralize as respostas recebidas do parceiro em um fluxo de revisão visual, com contexto da fonte, resposta original e espaço reservado para a avaliação do analista."
@@ -916,6 +977,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                     <input type="hidden" name="entity_slug" value={detail.id} />
                     <input type="hidden" name="assessment_id" value={detail.externalQuestionnaire.assessmentId ?? ""} />
                     <input type="hidden" name="response_table" value={detail.externalQuestionnaire.responseTable ?? ""} />
+                    <input type="hidden" name="jira_issue_key" value={detail.jiraTicket ?? ""} />
                     <input type="hidden" name="active_tab" value="external_questionnaire" />
                     <input type="hidden" name="active_section" value={selectedExternalSection?.section ?? "Common"} />
                     {saveStatus === "1" ? (
@@ -923,29 +985,160 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                         Avaliações salvas com sucesso.
                       </div>
                     ) : null}
-                    {(selectedExternalSection?.items ?? []).map((item, index) => (
-                      <QuestionnaireResponseCard
-                        key={`external-${selectedExternalSection?.section}-${index}-${item.domain}-${item.question}`}
-                        cardKey={`external-${selectedExternalSection?.section}-${index}`}
-                        badge={`Question ${String(index + 1).padStart(2, "0")} • ${getQuestionCategoryLabel(item.domain, index)}`}
-                        sourceLabel={getQuestionSourceLabel(item.source ?? "database")}
-                        question={item.question}
-                        answer={item.answer}
-                        answerLabel={kind === "partner" ? "Partner Response" : "Vendor Response"}
-                        reviewStatus={item.status}
-                        responseId={item.responseId}
-                        analystEvaluation={item.analystEvaluation}
-                        analystObservations={item.analystObservations}
-                        editable={kind === "partner" && Boolean(detail.externalQuestionnaire.responseTable)}
-                      />
-                    ))}
-                    <div className="flex justify-end">
-                      <button
-                        type="submit"
-                        className="rounded-lg bg-[var(--color-primary)] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-[var(--color-primary)]/20 transition hover:brightness-95"
-                      >
-                        Salvar avaliações de {selectedExternalSection?.section ?? "Common"}
-                      </button>
+                    {jiraSyncStatus === "1" ? (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                        Comentário interno enviado ao Jira com sucesso.
+                      </div>
+                    ) : null}
+                    {jiraErrorStatus === "1" ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                        As avaliações foram salvas, mas não foi possível replicar a observação interna no Jira para este ticket.
+                      </div>
+                    ) : null}
+                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+                      <div className={supportsSectionFinalObservation ? "space-y-6 xl:col-span-8" : "space-y-6 xl:col-span-12"}>
+                        {(selectedExternalSection?.items ?? []).map((item, index) => (
+                          <QuestionnaireResponseCard
+                            key={`external-${selectedExternalSection?.section}-${index}-${item.domain}-${item.question}`}
+                            cardKey={`external-${selectedExternalSection?.section}-${index}`}
+                            badge={`Question ${String(index + 1).padStart(2, "0")} • ${getQuestionCategoryLabel(item.domain, index)}`}
+                            sourceLabel={getQuestionSourceLabel(item.source ?? "database")}
+                            question={item.question}
+                            answer={item.answer}
+                            answerLabel={kind === "partner" ? "Partner Response" : "Vendor Response"}
+                            reviewStatus={item.status}
+                            responseId={item.responseId}
+                            analystEvaluation={item.analystEvaluation}
+                            analystObservations={item.analystObservations}
+                            editable={kind === "partner" && Boolean(detail.externalQuestionnaire.responseTable)}
+                          />
+                        ))}
+                        <div className="flex justify-end">
+                          <button
+                            type="submit"
+                            name="submit_intent"
+                            value="save_section"
+                            className="rounded-lg bg-[var(--color-primary)] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-[var(--color-primary)]/20 transition hover:brightness-95"
+                          >
+                            Salvar avaliações de {selectedExternalSection?.section ?? "Common"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {supportsSectionFinalObservation ? (
+                        <aside className="xl:col-span-4">
+                          <div className="rounded-2xl border border-[var(--color-primary)]/10 bg-white shadow-sm xl:sticky xl:top-4">
+                            <div className="flex flex-col">
+                              <div className="space-y-5 p-5 xl:max-h-[calc(100vh-12rem)] xl:overflow-y-auto xl:pr-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+                                      Observação final da aba
+                                    </p>
+                                    <h3 className="mt-2 text-lg font-bold text-[var(--color-text)]">
+                                      {normalizedActiveSection} Final Observation
+                                    </h3>
+                                  </div>
+                                  <span className="rounded-full bg-[var(--color-primary)]/8 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[var(--color-primary)]">
+                                    {normalizedActiveSection}
+                                  </span>
+                                </div>
+
+                                <p className="text-sm leading-relaxed text-[var(--color-neutral-600)]">
+                                  Use este campo para registrar a conclusão consolidada da aba selecionada, com contexto, ressalvas e próximos passos.
+                                </p>
+
+                                <section className="rounded-2xl border border-[var(--color-primary)]/10 bg-[var(--color-neutral-100)]/35 p-4">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
+                                        Resultado da análise
+                                      </p>
+                                      <h4 className="mt-1 text-base font-bold text-[var(--color-text)]">
+                                        Resumo de {normalizedActiveSection}
+                                      </h4>
+                                    </div>
+                                    {activeDecisionSection ? (
+                                      <span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${levelBadgeStyles[activeDecisionSection.level]}`}>
+                                        {activeDecisionSection.level}
+                                      </span>
+                                    ) : null}
+                                  </div>
+
+                                  <div className="mt-4 grid grid-cols-2 gap-3">
+                                    <div className="rounded-xl bg-white px-3 py-3">
+                                      <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Score da seção</p>
+                                      <p className="mt-1 text-xl font-black text-[var(--color-text)]">{activeDecisionSection?.score ?? "-"}</p>
+                                    </div>
+                                    <div className="rounded-xl bg-white px-3 py-3">
+                                      <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Questões avaliadas</p>
+                                      <p className="mt-1 text-xl font-black text-[var(--color-text)]">
+                                        {selectedSectionReviewedCount}/{selectedSectionItems.length}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-4 rounded-xl bg-white p-3">
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Distribuição das avaliações</p>
+                                    <div className="mt-3 space-y-2">
+                                      {selectedSectionTopOutcomes.length > 0 ? (
+                                        selectedSectionTopOutcomes.map((item) => (
+                                          <div key={item.key} className="flex items-center justify-between gap-3 text-sm">
+                                            <span className="text-[var(--color-neutral-700)]">{item.label}</span>
+                                            <span className="rounded-full bg-[var(--color-primary)]/8 px-2.5 py-1 text-xs font-bold text-[var(--color-primary)]">
+                                              {item.count}
+                                            </span>
+                                          </div>
+                                        ))
+                                      ) : (
+                                        <p className="text-sm text-[var(--color-neutral-600)]">Nenhuma avaliação registrada nesta aba ainda.</p>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {activeDecisionSection?.note ? (
+                                    <div className="mt-4 rounded-xl border border-[var(--color-primary)]/10 bg-white p-3">
+                                      <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Resultado encontrado</p>
+                                      <p className="mt-2 text-sm leading-relaxed text-[var(--color-neutral-700)]">{activeDecisionSection.note}</p>
+                                    </div>
+                                  ) : null}
+                                </section>
+
+                                <div>
+                                  <label
+                                    className="mb-2 block text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]"
+                                    htmlFor="section-final-observation"
+                                  >
+                                    Observação final
+                                  </label>
+                                  <textarea
+                                    id="section-final-observation"
+                                    name="section_final_observation"
+                                    rows={8}
+                                    defaultValue={selectedSectionFinalObservation}
+                                    placeholder={`Registre a observação final de ${normalizedActiveSection.toLowerCase()} desta avaliação.`}
+                                    className="w-full resize-none rounded-xl border border-[var(--color-primary)]/10 bg-[var(--color-neutral-100)]/30 px-4 py-3 text-sm outline-none transition focus:border-[var(--color-primary)]/30 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="space-y-3 border-t border-[var(--color-primary)]/10 bg-white px-5 pb-5 pt-4">
+                              <button
+                                type="submit"
+                                name="submit_intent"
+                                value="finalize_review"
+                                className="w-full rounded-xl bg-[var(--color-text)] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:opacity-95"
+                              >
+                                Finalizar revisão
+                              </button>
+                              <p className="text-xs leading-relaxed text-[var(--color-neutral-600)]">
+                                Salva as avaliações e a observação final desta aba antes de abrir a etapa de decisão.
+                              </p>
+                              </div>
+                            </div>
+                          </div>
+                        </aside>
+                      ) : null}
                     </div>
                   </form>
                 )

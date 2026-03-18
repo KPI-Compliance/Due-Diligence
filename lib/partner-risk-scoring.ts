@@ -347,7 +347,7 @@ async function recalculatePartnerAssessmentDecisionByAssessmentId(
   preferredTableName?: PartnerResponseTableName,
 ) {
   const assessmentContext = (await getAssessmentMetadata(assessmentId))[0];
-  if (!assessmentContext?.typeform_form_id) {
+  if (!assessmentContext) {
     return;
   }
 
@@ -363,8 +363,35 @@ async function recalculatePartnerAssessmentDecisionByAssessmentId(
     }
   }
 
+  const inferredFormId =
+    assessmentContext.typeform_form_id ??
+    responses.find((response) => response.typeform_form_id)?.typeform_form_id ??
+    null;
+  const inferredResponseToken =
+    assessmentContext.typeform_response_token ??
+    responses.find((response) => response.typeform_response_token)?.typeform_response_token ??
+    null;
+
+  if (!inferredFormId) {
+    return;
+  }
+
+  if (
+    assessmentContext.typeform_form_id !== inferredFormId ||
+    (!assessmentContext.typeform_response_token && inferredResponseToken)
+  ) {
+    await sql`
+      UPDATE assessments
+      SET
+        typeform_form_id = ${inferredFormId},
+        typeform_response_token = COALESCE(typeform_response_token, ${inferredResponseToken}),
+        updated_at = now()
+      WHERE id = ${assessmentId}::uuid
+    `;
+  }
+
   const [mappings, riskScoringSettings] = await Promise.all([
-    getMappingsByFormId(assessmentContext.typeform_form_id),
+    getMappingsByFormId(inferredFormId),
     getPlatformSettings("RISK_SCORING", normalizeRiskScoringSettings),
   ]);
   const partnerRiskScoring = riskScoringSettings.partner;

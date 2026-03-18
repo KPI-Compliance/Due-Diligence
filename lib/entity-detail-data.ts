@@ -16,6 +16,7 @@ export type EntityDetailData = {
   id: string;
   name: string;
   jiraTicket: string | null;
+  jiraTicketHref?: string | null;
   externalQuestionnaire: {
     assessmentId?: string | null;
     formId: string | null;
@@ -29,6 +30,7 @@ export type EntityDetailData = {
       hiddenAssessmentField: string;
     }>;
     responseTable?: string | null;
+    sectionNotes?: Partial<Record<"Compliance" | "Privacy" | "Security", string>>;
     source: "typeform" | "google_sheets" | "database";
     submittedAt?: string;
   };

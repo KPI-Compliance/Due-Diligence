@@ -1,3 +1,5 @@
+import { getIntegrationSettings, type JiraConfig } from "@/lib/settings-data";
+
 type JiraPrimitive = string | number | boolean | null | undefined;
 
 type JiraAdfNode = {
@@ -77,10 +79,18 @@ type JiraJqlMatchResponse = {
 };
 
 type JiraIssueDetailResponse = {
+  id?: string | null;
   fields?: {
     created?: string | null;
   };
 };
+
+function getJiraSetting<T>(
+  list: Array<{ provider: string; enabled: boolean; config: unknown }>,
+  provider: string,
+) {
+  return list.find((item) => item.provider === provider) as { provider: string; enabled: boolean; config: T } | undefined;
+}
 
 function adfToText(node: JiraPrimitive | JiraAdfNode): string {
   if (typeof node === "string") {
@@ -317,6 +327,32 @@ async function fetchJiraJson<T>(url: string, email: string, token: string, init?
   return (await response.json()) as T;
 }
 
+async function postJiraJson<T>(url: string, email: string, token: string, body: unknown, init?: RequestInit) {
+  const response = await fetch(url, {
+    ...init,
+    method: init?.method ?? "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: buildJiraBasicAuthHeader(email, token),
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Jira API request failed (${response.status}) for ${url}: ${errorText}`);
+  }
+
+  if (response.status === 204) {
+    return null as T;
+  }
+
+  return (await response.json()) as T;
+}
+
 async function fetchServiceDeskId(baseUrl: string, email: string, token: string, projectKey: string) {
   const payload = await fetchJiraJson<JiraServiceDeskResponse>(
     `${baseUrl.replace(/\/$/, "")}/rest/servicedeskapi/servicedesk`,
@@ -373,6 +409,21 @@ export async function fetchJiraIssueCreatedAt(input: {
   return payload.fields?.created?.trim() || null;
 }
 
+async function fetchJiraIssueId(input: {
+  baseUrl: string;
+  email: string;
+  token: string;
+  issueKey: string;
+}) {
+  const payload = await fetchJiraJson<JiraIssueDetailResponse>(
+    `${input.baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}?fields=created`,
+    input.email,
+    input.token,
+  );
+
+  return payload.id?.trim() || null;
+}
+
 export async function resolveKindFromJiraQueues(input: {
   baseUrl: string;
   email: string;
@@ -416,6 +467,93 @@ export async function resolveKindFromJiraQueues(input: {
   }
 
   return null;
+}
+
+export async function addInternalCommentToConfiguredJiraIssue(input: {
+  issueKey: string;
+  entityKind: "VENDOR" | "PARTNER";
+  commentBody: string;
+}) {
+  const settings = await getIntegrationSettings();
+  const jiraSetting = getJiraSetting<JiraConfig>(settings, "JIRA");
+
+  if (!jiraSetting?.enabled) {
+    throw new Error("Jira integration is disabled.");
+  }
+
+  const config = jiraSetting.config;
+  const baseUrl = config.base_url.trim();
+  const email = config.api_email.trim() || process.env.JIRA_API_EMAIL || "";
+  const token = config.api_token.trim() || process.env.JIRA_API_TOKEN || "";
+
+  if (!baseUrl || !email || !token) {
+    throw new Error("Jira integration credentials are incomplete.");
+  }
+
+  const queueConfig = input.entityKind === "PARTNER" ? config.partners : config.vendors;
+  const projectKey = queueConfig.project_key.trim();
+  const queueId = parseQueueId(queueConfig.queue_url);
+
+  if (!projectKey || !queueId) {
+    throw new Error(`Jira queue configuration is invalid for ${input.entityKind}.`);
+  }
+
+  const issueId = await fetchJiraIssueId({
+    baseUrl,
+    email,
+    token,
+    issueKey: input.issueKey,
+  });
+
+  if (!issueId) {
+    throw new Error(`Jira issue ${input.issueKey} was not found.`);
+  }
+
+  const serviceDeskId = await fetchServiceDeskId(baseUrl, email, token, projectKey);
+  if (!serviceDeskId) {
+    throw new Error(`Service desk for project ${projectKey} was not found.`);
+  }
+
+  const queueJql = await fetchQueueJql(baseUrl, email, token, serviceDeskId, queueId);
+  if (!queueJql) {
+    throw new Error(`Queue JQL for ${input.entityKind} could not be resolved.`);
+  }
+
+  const matchesQueue = await issueMatchesJql(baseUrl, email, token, Number(issueId), queueJql);
+  if (!matchesQueue) {
+    throw new Error(`Jira issue ${input.issueKey} does not belong to the configured ${input.entityKind} queue.`);
+  }
+
+  await postJiraJson(
+    `${baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}/comment`,
+    email,
+    token,
+    {
+      body: {
+        version: 1,
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: input.commentBody,
+              },
+            ],
+          },
+        ],
+      },
+      properties: [
+        {
+          key: "sd.public.comment",
+          value: {
+            internal: true,
+          },
+        },
+      ],
+    },
+  );
 }
 
 function inferCompanyGroup(fields: JiraIssueFields, description: string): "VTEX" | "WENI" {

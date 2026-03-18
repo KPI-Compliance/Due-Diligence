@@ -17,6 +17,20 @@ type SessionPayload = {
   email: string;
   name: string;
   picture?: string;
+  issuedAt?: number;
+  expiresAt?: number;
+};
+
+export type SessionFailureReason =
+  | "missing_cookie"
+  | "malformed_token"
+  | "invalid_signature"
+  | "invalid_payload"
+  | "expired";
+
+export type SessionReadResult = {
+  session: SessionPayload | null;
+  reason: SessionFailureReason | null;
 };
 
 type GoogleOAuthConfig = {
@@ -96,26 +110,46 @@ function sign(value: string) {
 }
 
 function createSessionToken(payload: SessionPayload) {
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const now = Math.floor(Date.now() / 1000);
+  const enrichedPayload: SessionPayload = {
+    ...payload,
+    issuedAt: now,
+    expiresAt: now + SESSION_DURATION_SECONDS,
+  };
+  const encodedPayload = base64UrlEncode(JSON.stringify(enrichedPayload));
   const signature = sign(encodedPayload);
   return `${encodedPayload}.${signature}`;
 }
 
-function readSessionToken(token: string | undefined): SessionPayload | null {
+function readSessionToken(token: string | undefined): SessionReadResult {
   if (!token) {
-    return null;
+    return { session: null, reason: "missing_cookie" };
   }
 
   const [encodedPayload, signature] = token.split(".");
 
-  if (!encodedPayload || !signature || sign(encodedPayload) !== signature) {
-    return null;
+  if (!encodedPayload || !signature) {
+    return { session: null, reason: "malformed_token" };
+  }
+
+  if (sign(encodedPayload) !== signature) {
+    return { session: null, reason: "invalid_signature" };
   }
 
   try {
-    return JSON.parse(base64UrlDecode(encodedPayload)) as SessionPayload;
+    const payload = JSON.parse(base64UrlDecode(encodedPayload)) as SessionPayload;
+    if (!payload?.email || !payload?.name) {
+      return { session: null, reason: "invalid_payload" };
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.expiresAt && payload.expiresAt <= now) {
+      return { session: null, reason: "expired" };
+    }
+
+    return { session: payload, reason: null };
   } catch {
-    return null;
+    return { session: null, reason: "invalid_payload" };
   }
 }
 
@@ -220,8 +254,29 @@ export async function clearAuthenticatedSession() {
 }
 
 export async function getAuthenticatedSession() {
+  const result = await getAuthenticatedSessionResult();
+  return result.session;
+}
+
+export async function getAuthenticatedSessionResult(): Promise<SessionReadResult> {
   const cookieStore = await cookies();
   return readSessionToken(cookieStore.get(SESSION_COOKIE)?.value);
+}
+
+export async function refreshAuthenticatedSession(session: SessionPayload) {
+  await setAuthenticatedSession({
+    email: session.email,
+    name: session.name,
+    picture: session.picture,
+  });
+}
+
+export function getSessionErrorCode(reason: SessionFailureReason | null) {
+  if (reason === "expired") return "session_expired";
+  if (reason === "invalid_signature" || reason === "invalid_payload" || reason === "malformed_token") {
+    return "session_invalid";
+  }
+  return "session_missing";
 }
 
 export function isDevAuthBypassEnabled() {

@@ -127,19 +127,48 @@ async function getResponses(table, assessment) {
 }
 
 async function recalculateAssessment(assessment, settings) {
-  if (!assessment.typeform_form_id) {
-    return { updated: false, reason: "missing_form_id" };
-  }
-
-  const mappings = await getMappings(assessment.typeform_form_id);
-  const mappingByKey = new Map(mappings.filter((item) => item.question_key).map((item) => [item.question_key, item]));
-  const mappingByText = new Map(mappings.map((item) => [normalize(item.question_text), item]));
-
   let responses = [];
   for (const table of partnerTables) {
     responses = await getResponses(table, assessment);
     if (responses.length > 0) break;
   }
+
+  const inferredFormId =
+    assessment.typeform_form_id ??
+    responses.find((response) => response.typeform_form_id)?.typeform_form_id ??
+    null;
+  const inferredResponseToken =
+    assessment.typeform_response_token ??
+    responses.find((response) => response.typeform_response_token)?.typeform_response_token ??
+    null;
+
+  if (!inferredFormId) {
+    return { updated: false, reason: "missing_form_id" };
+  }
+
+  if (
+    assessment.typeform_form_id !== inferredFormId ||
+    (!assessment.typeform_response_token && inferredResponseToken)
+  ) {
+    await sql.query(
+      `
+        UPDATE assessments
+        SET
+          typeform_form_id = $2,
+          typeform_response_token = COALESCE(typeform_response_token, $3),
+          updated_at = now()
+        WHERE id = $1::uuid
+      `,
+      [assessment.assessment_id, inferredFormId, inferredResponseToken],
+    );
+
+    assessment.typeform_form_id = inferredFormId;
+    assessment.typeform_response_token = inferredResponseToken;
+  }
+
+  const mappings = await getMappings(inferredFormId);
+  const mappingByKey = new Map(mappings.filter((item) => item.question_key).map((item) => [item.question_key, item]));
+  const mappingByText = new Map(mappings.map((item) => [normalize(item.question_text), item]));
 
   const sectionTotals = new Map([
     ["SECURITY", { weightedScore: 0, totalWeight: 0, answeredCount: 0 }],

@@ -2,7 +2,7 @@ import { sql } from "@/lib/db";
 import type { DetailTabKey, EntityDetailData, RiskLevel } from "@/lib/entity-detail-data";
 import { readInternalQuestionnaireFromGoogleSheets } from "@/lib/google-sheets";
 import { normalizeLooseLookup } from "@/lib/normalization";
-import { getTypeformForms } from "@/lib/settings-data";
+import { getIntegrationSettings, getTypeformForms, type JiraConfig } from "@/lib/settings-data";
 
 type UiStatus = "pending" | "sent" | "responded" | "in_review" | "completed";
 
@@ -73,6 +73,13 @@ function toUiKind(kind: string): UiKind {
 
 function toCompanyGroup(value: string) {
   return value.toUpperCase() === "WENI" ? "WENI" : "VTEX";
+}
+
+function getSetting<T>(
+  list: Array<{ provider: string; enabled: boolean; config: unknown }>,
+  provider: string,
+) {
+  return list.find((item) => item.provider === provider) as { provider: string; enabled: boolean; config: T } | undefined;
 }
 
 function toWorkflowStatus(status: string | null): UiStatus | null {
@@ -1446,6 +1453,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
 
   const entity = entityRows[0];
   if (!entity) return null;
+  const integrationSettings = await getIntegrationSettings();
+  const jiraSetting = getSetting<JiraConfig>(integrationSettings, "JIRA");
+  const jiraBaseUrl = jiraSetting?.enabled ? jiraSetting.config.base_url.trim().replace(/\/$/, "") : "";
+  const jiraTicketHref = entity.jira_issue_key && jiraBaseUrl ? `${jiraBaseUrl}/browse/${encodeURIComponent(entity.jira_issue_key)}` : null;
   const jiraFormData =
     entity.jira_form_data && typeof entity.jira_form_data === "object" && !Array.isArray(entity.jira_form_data)
       ? entity.jira_form_data
@@ -1659,6 +1670,12 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     finalized_at: string | null;
   }> = [];
 
+  let assessmentNoteRows: Array<{
+    section: string;
+    notes: string | null;
+    updated_at: string | null;
+  }> = [];
+
   if (latestAssessment) {
     try {
       decisionRows = (await sql`
@@ -1708,9 +1725,22 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
         throw error;
       }
     }
+
+    assessmentNoteRows = (await sql`
+      SELECT section, notes, updated_at
+      FROM assessment_notes
+      WHERE assessment_id = ${latestAssessment.id}
+      ORDER BY updated_at DESC NULLS LAST, created_at DESC
+    `) as typeof assessmentNoteRows;
   }
 
   const decision = decisionRows[0];
+  const sectionNotes = assessmentNoteRows.reduce<Partial<Record<"Compliance" | "Privacy" | "Security", string>>>((acc, row) => {
+    if ((row.section === "Compliance" || row.section === "Privacy" || row.section === "Security") && acc[row.section] === undefined) {
+      acc[row.section] = row.notes ?? "";
+    }
+    return acc;
+  }, {});
   const securityScore = normalizeDecimal(decision?.security_score);
   const privacyScore = normalizeDecimal(decision?.privacy_score);
   const complianceScore = normalizeDecimal(decision?.compliance_score);
@@ -1831,6 +1861,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     id: entity.slug,
     name: entity.name,
     jiraTicket: entity.jira_issue_key,
+    jiraTicketHref,
     externalQuestionnaire: {
       assessmentId: latestAssessment?.id ?? null,
       formId: resolvedTypeformFormId,
@@ -1840,6 +1871,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       recipientEmail: kind === "vendor" ? (vendorEmail ?? entity.contact_email ?? null) : null,
       availableForms: kind === "vendor" ? vendorTypeformForms : [],
       responseTable: partnerFormTable,
+      sectionNotes,
       source: resolvedTypeformFormId ? "typeform" : "database",
       submittedAt: latestAssessment?.typeform_submitted_at
         ? formatDate(latestAssessment.typeform_submitted_at)

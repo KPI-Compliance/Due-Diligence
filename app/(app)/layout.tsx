@@ -1,21 +1,24 @@
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AppSidebar } from "@/components/layout/AppSidebar";
-import { getAuthenticatedSession } from "@/lib/auth";
+import { SessionHeartbeat } from "@/components/layout/SessionHeartbeat";
+import { getAuthenticatedSessionResult, getSessionErrorCode } from "@/lib/auth";
 
 export default async function AppLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await getAuthenticatedSession();
+  const sessionResult = await getAuthenticatedSessionResult();
+  const session = sessionResult.session;
 
   if (!session) {
-    redirect("/");
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
   }
 
   return (
     <div className="min-h-screen bg-[var(--color-surface)]">
+      <SessionHeartbeat />
       <AppSidebar userName={session.name} />
       <div className="lg:pl-64">
         <AppHeader userName={session.name} userEmail={session.email} />

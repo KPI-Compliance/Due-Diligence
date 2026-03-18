@@ -10,6 +10,9 @@ const loginErrorMessages: Record<string, string> = {
   google_userinfo_failed: "O Google autenticou a conta, mas não retornou os dados do usuário.",
   google_unauthorized_account: "Sua conta Google não está autorizada para acessar este ambiente.",
   google_sso_failed: "O login corporativo falhou por um erro inesperado.",
+  session_expired: "Sua sessão expirou. Entre novamente para continuar.",
+  session_invalid: "Sua sessão ficou inválida neste ambiente. Entre novamente para continuar.",
+  session_missing: "Sua sessão não foi encontrada. Entre novamente para continuar.",
   dev_login_disabled: "O bypass de login local está desativado neste ambiente.",
 };
 
