@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { TypeformQuestionMappingModal } from "@/components/settings/TypeformQuestionMappingModal";
@@ -122,8 +121,6 @@ async function saveTypeformForm(formData: FormData) {
     enabled: formData.get("enabled") === "on",
   });
 
-  revalidatePath("/settings");
-  revalidatePath("/settings/typeform-forms");
   redirect("/settings/typeform-forms?saved=form");
 }
 
@@ -136,8 +133,6 @@ async function removeTypeformForm(formData: FormData) {
     await deleteTypeformForm(id);
   }
 
-  revalidatePath("/settings");
-  revalidatePath("/settings/typeform-forms");
   redirect("/settings/typeform-forms?saved=deleted");
 }
 
@@ -179,7 +174,6 @@ async function saveQuestionMappings(formData: FormData) {
     await recalculatePartnerAssessmentDecisionsForForm(selectedForm.form_id);
   }
 
-  revalidatePath("/settings/typeform-forms");
   redirect("/settings/typeform-forms?saved=mapping");
 }
 

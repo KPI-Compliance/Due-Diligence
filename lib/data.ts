@@ -1453,7 +1453,39 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
 
   const entity = entityRows[0];
   if (!entity) return null;
-  const integrationSettings = await getIntegrationSettings();
+  const [integrationSettings, assessments, breakdownRows, timelineRows] = await Promise.all([
+    getIntegrationSettings(),
+    sql`
+      SELECT id, status, risk_level, created_at, completed_at, typeform_response_token, typeform_form_id, typeform_submitted_at
+      FROM assessments
+      WHERE entity_id = ${entity.id}
+      ORDER BY created_at DESC
+      LIMIT 1
+    ` as Promise<
+      Array<{
+        id: string;
+        status: string;
+        risk_level: string | null;
+        created_at: string;
+        completed_at: string | null;
+        typeform_response_token: string | null;
+        typeform_form_id: string | null;
+        typeform_submitted_at: string | null;
+      }>
+    >,
+    sql`
+      SELECT dimension, score, level
+      FROM entity_risk_breakdowns
+      WHERE entity_id = ${entity.id}
+      ORDER BY dimension ASC
+    ` as Promise<Array<{ dimension: string; score: number; level: string }>>,
+    sql`
+      SELECT title, note, event_at, is_current
+      FROM entity_timeline_events
+      WHERE entity_id = ${entity.id}
+      ORDER BY sort_order ASC
+    ` as Promise<Array<{ title: string; note: string | null; event_at: string | null; is_current: boolean }>>,
+  ]);
   const jiraSetting = getSetting<JiraConfig>(integrationSettings, "JIRA");
   const jiraBaseUrl = jiraSetting?.enabled ? jiraSetting.config.base_url.trim().replace(/\/$/, "") : "";
   const jiraTicketHref = entity.jira_issue_key && jiraBaseUrl ? `${jiraBaseUrl}/browse/${encodeURIComponent(entity.jira_issue_key)}` : null;
@@ -1482,23 +1514,6 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   const vendorResponsibleEmail = cleanOverviewValue(
     typeof jiraFormData.vtexResponsibleEmail === "string" ? jiraFormData.vtexResponsibleEmail : entity.owner_email,
   );
-
-  const assessments = (await sql`
-    SELECT id, status, risk_level, created_at, completed_at, typeform_response_token, typeform_form_id, typeform_submitted_at
-    FROM assessments
-    WHERE entity_id = ${entity.id}
-    ORDER BY created_at DESC
-    LIMIT 1
-  `) as Array<{
-    id: string;
-    status: string;
-    risk_level: string | null;
-    created_at: string;
-    completed_at: string | null;
-    typeform_response_token: string | null;
-    typeform_form_id: string | null;
-    typeform_submitted_at: string | null;
-  }>;
 
   const latestAssessment = assessments[0];
   const initialTypeformFormRows =
@@ -1638,20 +1653,6 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       source: "database" as const,
     }));
   }
-
-  const breakdownRows = (await sql`
-    SELECT dimension, score, level
-    FROM entity_risk_breakdowns
-    WHERE entity_id = ${entity.id}
-    ORDER BY dimension ASC
-  `) as Array<{ dimension: string; score: number; level: string }>;
-
-  const timelineRows = (await sql`
-    SELECT title, note, event_at, is_current
-    FROM entity_timeline_events
-    WHERE entity_id = ${entity.id}
-    ORDER BY sort_order ASC
-  `) as Array<{ title: string; note: string | null; event_at: string | null; is_current: boolean }>;
 
   let decisionRows: Array<{
     security_score: number | string | null;

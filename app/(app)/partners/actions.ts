@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
 import { sql } from "@/lib/db";
@@ -191,7 +190,6 @@ export async function savePartnerExternalQuestionnaireSection(formData: FormData
     }
   }
 
-  revalidatePath(`/partners/${entitySlug}`);
   if (submitIntent === "finalize_review") {
     let jiraSynced = false;
 

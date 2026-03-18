@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings";
 import { RiskScoringSettingsPanel } from "@/components/settings/RiskScoringSettingsPanel";
@@ -160,7 +159,6 @@ async function saveTypeformSettings(formData: FormData) {
   };
 
   await upsertIntegrationSetting("TYPEFORM", enabled, config);
-  revalidatePath("/settings");
   redirect("/settings?tab=integracoes&saved=typeform");
 }
 
@@ -196,7 +194,6 @@ async function saveTypeformForm(formData: FormData) {
     enabled: formData.get("enabled") === "on",
   });
 
-  revalidatePath("/settings");
   redirect("/settings?tab=integracoes&saved=typeform-form");
 }
 
@@ -211,7 +208,6 @@ async function deleteTypeformForm(formData: FormData) {
 
   await deleteTypeformFormRow(id);
 
-  revalidatePath("/settings");
   redirect("/settings?tab=integracoes&saved=typeform-form");
 }
 
@@ -238,7 +234,6 @@ async function saveJiraSettings(formData: FormData) {
   };
 
   await upsertIntegrationSetting("JIRA", enabled, config);
-  revalidatePath("/settings");
   redirect("/settings?tab=integracoes&saved=jira");
 }
 
@@ -255,7 +250,6 @@ async function saveSlackSettings(formData: FormData) {
   };
 
   await upsertIntegrationSetting("SLACK", enabled, config);
-  revalidatePath("/settings");
   redirect("/settings?tab=integracoes&saved=slack");
 }
 
@@ -317,7 +311,6 @@ async function saveGoogleSheetsSettings(formData: FormData) {
   };
 
   await upsertIntegrationSetting("GOOGLE_SHEETS", enabled, config);
-  revalidatePath("/settings");
   redirect("/settings?tab=integracoes&saved=google-sheets");
 }
 
@@ -343,7 +336,6 @@ async function saveGeneralSettings(formData: FormData) {
   };
 
   await upsertPlatformSettings("GENERAL", payload);
-  revalidatePath("/settings");
   redirect("/settings?tab=geral&saved=geral");
 }
 
@@ -394,7 +386,6 @@ async function saveRiskScoringSettings(formData: FormData) {
 
   await upsertPlatformSettings("RISK_SCORING", payload);
   await recalculateAllPartnerAssessmentDecisions();
-  revalidatePath("/settings");
   redirect("/settings?tab=pontuacao&saved=pontuacao");
 }
 
@@ -411,7 +402,6 @@ async function saveNotificationSettings(formData: FormData) {
   };
 
   await upsertPlatformSettings("NOTIFICATIONS", payload);
-  revalidatePath("/settings");
   redirect("/settings?tab=notificacoes&saved=notificacoes");
 }
 
@@ -634,12 +624,14 @@ export default async function SettingsPage({
 }: {
   searchParams?: Promise<{ saved?: string; tab?: string; error?: string }>;
 }) {
-  const settings = await getIntegrationSettings();
-  const typeformForms = await getTypeformForms();
-  const generalSettings = await getPlatformSettings("GENERAL", normalizeGeneralSettings);
-  const riskScoringSettings = await getPlatformSettings("RISK_SCORING", normalizeRiskScoringSettings);
-  const notificationSettings = await getPlatformSettings("NOTIFICATIONS", normalizeNotificationSettings);
-  const params = searchParams ? await searchParams : undefined;
+  const [settings, typeformForms, generalSettings, riskScoringSettings, notificationSettings, params] = await Promise.all([
+    getIntegrationSettings(),
+    getTypeformForms(),
+    getPlatformSettings("GENERAL", normalizeGeneralSettings),
+    getPlatformSettings("RISK_SCORING", normalizeRiskScoringSettings),
+    getPlatformSettings("NOTIFICATIONS", normalizeNotificationSettings),
+    searchParams ? searchParams : Promise.resolve(undefined),
+  ]);
 
   const typeform = getSetting<TypeformConfig>(settings, "TYPEFORM");
   const jira = getSetting<JiraConfig>(settings, "JIRA");

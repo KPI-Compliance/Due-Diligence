@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
 import { ensureVendorQuestionnaireSelection } from "@/lib/vendor-external-questionnaire";
@@ -25,6 +24,5 @@ export async function saveVendorExternalQuestionnaire(formData: FormData) {
     selectedFormId,
   });
 
-  revalidatePath(`/vendors/${entitySlug}`);
   redirect(`/vendors/${entitySlug}?tab=overview&questionnaire=saved`);
 }
