@@ -4,7 +4,7 @@ import { getEntityDetailBySlug, normalizePartnerTab } from "@/lib/data";
 
 type PartnerDetailPageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string; section?: string; saved?: string; jira_error?: string; jira_synced?: string }>;
+  searchParams: Promise<{ tab?: string; section?: string; saved?: string; note_saved?: string; jira_error?: string; jira_synced?: string }>;
 };
 
 export const dynamic = "force-dynamic";
@@ -28,6 +28,7 @@ export default async function PartnerDetailPage({ params, searchParams }: Partne
       activeTab={tab}
       activeQuestionnaireSection={resolvedSearchParams.section}
       saveStatus={resolvedSearchParams.saved}
+      noteSaveStatus={resolvedSearchParams.note_saved}
       jiraErrorStatus={resolvedSearchParams.jira_error}
       jiraSyncStatus={resolvedSearchParams.jira_synced}
     />

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { savePartnerExternalQuestionnaireSection } from "@/app/(app)/partners/actions";
 import { AnalystEvaluationControl } from "@/components/ui/AnalystEvaluationControl";
+import { ExternalQuestionnairePendingNotice, SubmitActionButton } from "@/components/ui/ExternalQuestionnaireSubmitControls";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { VendorExternalQuestionnaireCard } from "@/components/ui/VendorExternalQuestionnaireCard";
 import type {
@@ -18,6 +19,7 @@ type EntityDetailViewProps = {
   activeTab: DetailTabKey;
   activeQuestionnaireSection?: string;
   saveStatus?: string;
+  noteSaveStatus?: string;
   jiraErrorStatus?: string;
   jiraSyncStatus?: string;
 };
@@ -494,7 +496,17 @@ function QuestionnaireResponseCard({
   );
 }
 
-export function EntityDetailView({ kind, basePath, detail, activeTab, activeQuestionnaireSection, saveStatus, jiraErrorStatus, jiraSyncStatus }: EntityDetailViewProps) {
+export function EntityDetailView({
+  kind,
+  basePath,
+  detail,
+  activeTab,
+  activeQuestionnaireSection,
+  saveStatus,
+  noteSaveStatus,
+  jiraErrorStatus,
+  jiraSyncStatus,
+}: EntityDetailViewProps) {
   const backHref = kind === "vendor" ? "/vendors" : "/partners";
   const visibleTabs = kind === "partner" ? partnerTabs : vendorTabs;
   const availableExternalSections = getAvailableExternalSections(kind);
@@ -985,6 +997,11 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                         Avaliações salvas com sucesso.
                       </div>
                     ) : null}
+                    {noteSaveStatus === "1" ? (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                        Observação final salva com sucesso.
+                      </div>
+                    ) : null}
                     {jiraSyncStatus === "1" ? (
                       <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
                         Comentário interno enviado ao Jira com sucesso.
@@ -995,6 +1012,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                         As avaliações foram salvas, mas não foi possível replicar a observação interna no Jira para este ticket.
                       </div>
                     ) : null}
+                    <ExternalQuestionnairePendingNotice />
                     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
                       <div className={supportsSectionFinalObservation ? "space-y-6 xl:col-span-8" : "space-y-6 xl:col-span-12"}>
                         {(selectedExternalSection?.items ?? []).map((item, index) => (
@@ -1014,14 +1032,12 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                           />
                         ))}
                         <div className="flex justify-end">
-                          <button
-                            type="submit"
-                            name="submit_intent"
-                            value="save_section"
+                          <SubmitActionButton
+                            intent="save_section"
+                            idleLabel={`Salvar avaliações de ${selectedExternalSection?.section ?? "Common"}`}
+                            pendingLabel="Salvando avaliações..."
                             className="rounded-lg bg-[var(--color-primary)] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-[var(--color-primary)]/20 transition hover:brightness-95"
-                          >
-                            Salvar avaliações de {selectedExternalSection?.section ?? "Common"}
-                          </button>
+                          />
                         </div>
                       </div>
 
@@ -1029,7 +1045,7 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                         <aside className="xl:col-span-4">
                           <div className="rounded-2xl border border-[var(--color-primary)]/10 bg-white shadow-sm xl:sticky xl:top-4">
                             <div className="flex flex-col">
-                              <div className="space-y-5 p-5 xl:max-h-[calc(100vh-12rem)] xl:overflow-y-auto xl:pr-4">
+                              <div className="space-y-5 p-5">
                                 <div className="flex items-start justify-between gap-3">
                                   <div>
                                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">
@@ -1124,17 +1140,21 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                               </div>
 
                               <div className="space-y-3 border-t border-[var(--color-primary)]/10 bg-white px-5 pb-5 pt-4">
-                              <button
-                                type="submit"
-                                name="submit_intent"
-                                value="finalize_review"
-                                className="w-full rounded-xl bg-[var(--color-text)] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:opacity-95"
-                              >
-                                Finalizar revisão
-                              </button>
-                              <p className="text-xs leading-relaxed text-[var(--color-neutral-600)]">
-                                Salva as avaliações e a observação final desta aba antes de abrir a etapa de decisão.
-                              </p>
+                                <SubmitActionButton
+                                  intent="save_final_observation"
+                                  idleLabel="Salvar observação"
+                                  pendingLabel="Salvando observação..."
+                                  className="w-full rounded-xl border border-[var(--color-primary)]/15 bg-white px-4 py-3 text-sm font-bold text-[var(--color-text)] shadow-sm transition hover:bg-[var(--color-neutral-100)]/70"
+                                />
+                                <SubmitActionButton
+                                  intent="finalize_review"
+                                  idleLabel="Finalizar revisão"
+                                  pendingLabel="Finalizando revisão..."
+                                  className="w-full rounded-xl bg-[var(--color-text)] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:opacity-95"
+                                />
+                                <p className="text-xs leading-relaxed text-[var(--color-neutral-600)]">
+                                  Salvar observação grava apenas este texto no banco. Finalizar revisão salva a aba e replica a observação no Jira.
+                                </p>
                               </div>
                             </div>
                           </div>
