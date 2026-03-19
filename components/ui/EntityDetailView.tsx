@@ -1107,12 +1107,13 @@ export function EntityDetailView({ kind, basePath, detail, activeTab, activeQues
                                 <div>
                                   <label
                                     className="mb-2 block text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]"
-                                    htmlFor="section-final-observation"
+                                    htmlFor={`section-final-observation-${normalizedActiveSection.toLowerCase()}`}
                                   >
                                     Observação final
                                   </label>
                                   <textarea
-                                    id="section-final-observation"
+                                    key={normalizedActiveSection}
+                                    id={`section-final-observation-${normalizedActiveSection.toLowerCase()}`}
                                     name="section_final_observation"
                                     rows={8}
                                     defaultValue={selectedSectionFinalObservation}
