@@ -111,12 +111,26 @@ function normalizeWhitespace(value: string) {
   return value.replace(/\r/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function findFieldValue(description: string, keys: string[]) {
   for (const key of keys) {
-    const pattern = new RegExp(`(?:^|\\n)\\s*${key}\\s*[:|-]\\s*(.+)`, "i");
-    const match = description.match(pattern);
-    if (match?.[1]) {
-      return match[1].trim();
+    const escapedKey = escapeRegex(key);
+    const inlinePattern = new RegExp(`(?:^|\\n)\\s*${escapedKey}\\s*[:|-]\\s*(.+)`, "i");
+    const inlineMatch = description.match(inlinePattern);
+    if (inlineMatch?.[1]) {
+      return inlineMatch[1].trim();
+    }
+
+    // Jira Forms often render as:
+    // "Field Label *"
+    // "Field value"
+    const multilinePattern = new RegExp(`(?:^|\\n)\\s*${escapedKey}\\s*\\*?\\s*\\n\\s*([^\\n]+)`, "i");
+    const multilineMatch = description.match(multilinePattern);
+    if (multilineMatch?.[1]) {
+      return multilineMatch[1].trim();
     }
   }
 
