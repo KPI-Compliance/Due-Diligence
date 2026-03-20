@@ -130,8 +130,6 @@ export default async function VendorsPage({
           "Chamado Jira",
           "Jira Status",
           "Grupo Empresarial",
-          "Questionário Inicial",
-          "Questionário Principal",
           "Red Team",
           "Risco Final",
           "Última Revisão",
@@ -182,8 +180,6 @@ export default async function VendorsPage({
             </td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]"><Link href={`/vendors/${item.id}`} className="block">{item.jiraStatus}</Link></td>
             <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/vendors/${item.id}`} className="block">{item.companyGroup}</Link></td>
-            <td className="px-6 py-4"><Link href={`/vendors/${item.id}`} className="block">{renderWorkflowBadge(item.intakeStatus)}</Link></td>
-            <td className="px-6 py-4"><Link href={`/vendors/${item.id}`} className="block">{renderWorkflowBadge(item.principalQuestionnaireStatus)}</Link></td>
             <td className="px-6 py-4"><Link href={`/vendors/${item.id}`} className="block">{renderTechnicalReviewBadge(item.technicalReviewStatus)}</Link></td>
             <td className="px-6 py-4">
               <Link href={`/vendors/${item.id}`} className="block space-y-1">
