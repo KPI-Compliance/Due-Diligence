@@ -659,7 +659,7 @@ export function EntityDetailView({
                 <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">{kind === "partner" ? "Company Details" : "Detalhes do Ticket"}</h3>
                 {kind === "partner" ? (
                   <>
-                    <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-6 md:grid-cols-5">
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Contact Name</p>
                         <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.contactName}</p>
@@ -687,6 +687,10 @@ export function EntityDetailView({
                         <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Email</p>
                         <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">{detail.overview.contactEmail}</p>
                       </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status do Jira</p>
+                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.jiraStatus ?? "-"}</p>
+                      </div>
                     </div>
                     <p className="mt-8 border-t border-[var(--color-neutral-100)] pt-6 text-sm leading-relaxed text-[var(--color-neutral-700)]">
                       {detail.overview.description}
@@ -694,7 +698,7 @@ export function EntityDetailView({
                   </>
                 ) : (
                   <>
-                    <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-6 md:grid-cols-5">
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail do Vendor</p>
                         <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">{detail.overview.vendorEmail ?? "-"}</p>
@@ -731,6 +735,10 @@ export function EntityDetailView({
                         ) : (
                           <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">-</p>
                         )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status do Jira</p>
+                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.jiraStatus ?? "-"}</p>
                       </div>
                     </div>
                     <div className="mt-8 border-t border-[var(--color-neutral-100)] pt-6">

@@ -1611,6 +1611,9 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     entity.jira_form_data && typeof entity.jira_form_data === "object" && !Array.isArray(entity.jira_form_data)
       ? entity.jira_form_data
       : {};
+  const jiraStatus = cleanOverviewValue(
+    typeof jiraFormData.jiraStatus === "string" ? jiraFormData.jiraStatus : entity.status_label,
+  );
   const vendorLanguage = cleanOverviewValue(
     typeof jiraFormData.languagePreference === "string" ? jiraFormData.languagePreference : entity.category,
   );
@@ -2014,9 +2017,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       priority: kind === "vendor" ? (vendorPriority ?? "-") : undefined,
       capNumber: kind === "vendor" ? (vendorCapNumber ?? "-") : undefined,
       scope: kind === "vendor" ? (vendorScope ?? entity.description ?? "-") : undefined,
-      contactName: kind === "partner" ? (partnerOverviewFromCommon?.contactName ?? "-") : "-",
+      contactName: kind === "partner" ? (partnerOverviewFromCommon?.contactName ?? entity.name ?? "-") : "-",
       contactPhone: kind === "partner" ? (partnerOverviewFromCommon?.contactPhone ?? "-") : "-",
-      contactEmail: kind === "partner" ? (partnerOverviewFromCommon?.contactEmail ?? "-") : "-",
+      contactEmail: kind === "partner" ? (partnerOverviewFromCommon?.contactEmail ?? entity.contact_email ?? "-") : "-",
+      jiraStatus: jiraStatus ?? "-",
       internalFocalPoint: {
         name: entity.focal_name ?? entity.owner_name ?? "-",
         role: entity.focal_role ?? entity.owner_role ?? "-",
@@ -2026,7 +2030,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       },
       description:
         kind === "partner"
-          ? (partnerOverviewFromCommon?.description ?? "No description available.")
+          ? (partnerOverviewFromCommon?.description ?? entity.description ?? "No description available.")
           : (entity.description ?? "No description available."),
       riskBreakdown:
         riskBreakdown.length > 0

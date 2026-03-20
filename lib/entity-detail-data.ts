@@ -77,6 +77,7 @@ export type EntityDetailData = {
     contactName?: string;
     contactPhone?: string;
     contactEmail?: string;
+    jiraStatus?: string;
     internalFocalPoint: {
       name: string;
       role: string;
