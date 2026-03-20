@@ -128,12 +128,14 @@ export default async function VendorsPage({
         columns={[
           "Fornecedor",
           "Chamado Jira",
+          "Jira Status",
           "Grupo Empresarial",
           "Questionário Inicial",
           "Questionário Principal",
           "Red Team",
           "Risco Final",
           "Última Revisão",
+          "DT criação jira",
         ]}
         tableFooterText={
           filteredVendors.length === 0
@@ -178,6 +180,7 @@ export default async function VendorsPage({
             <td className="px-6 py-4 text-sm font-semibold text-[var(--color-secondary)]">
               <Link href={`/vendors/${item.id}`} className="block">{item.jiraTicket ?? "-"}</Link>
             </td>
+            <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]"><Link href={`/vendors/${item.id}`} className="block">{item.jiraStatus}</Link></td>
             <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/vendors/${item.id}`} className="block">{item.companyGroup}</Link></td>
             <td className="px-6 py-4"><Link href={`/vendors/${item.id}`} className="block">{renderWorkflowBadge(item.intakeStatus)}</Link></td>
             <td className="px-6 py-4"><Link href={`/vendors/${item.id}`} className="block">{renderWorkflowBadge(item.principalQuestionnaireStatus)}</Link></td>
@@ -194,6 +197,7 @@ export default async function VendorsPage({
               </Link>
             </td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]"><Link href={`/vendors/${item.id}`} className="block">{item.lastReview}</Link></td>
+            <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]"><Link href={`/vendors/${item.id}`} className="block">{item.jiraCreatedAt}</Link></td>
           </tr>
         ))}
       />

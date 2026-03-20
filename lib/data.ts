@@ -857,70 +857,13 @@ async function getPartnerFormQuestionRowsByCompany(tableName: string, companyNam
 }
 
 export async function getVendorsList() {
-  const rows = (await sql`
-    SELECT
-      e.slug,
-      e.name,
-      e.jira_issue_key,
-      e.domain,
-      e.segment,
-      e.status,
-      e.risk_level,
-      e.company_group,
-      e.created_at,
-      e.last_review_at,
-      COALESCE(u.full_name, 'Unassigned') AS owner,
-      latest_assessment.id AS latest_assessment_id,
-      latest_assessment.status AS latest_assessment_status,
-      latest_assessment.created_at AS latest_assessment_created_at,
-      latest_assessment.response_count AS latest_response_count,
-      latest_decision.security_level AS latest_security_level,
-      latest_decision.privacy_level AS latest_privacy_level,
-      latest_decision.updated_at AS latest_decision_updated_at,
-      COUNT(a.id) FILTER (
-        WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
-      )::int AS open_assessments
-    FROM entities e
-    LEFT JOIN users u ON u.id = e.owner_user_id
-    LEFT JOIN assessments a ON a.entity_id = e.id
-    LEFT JOIN LATERAL (
-      SELECT
-        aa.id,
-        aa.status,
-        aa.created_at,
-        (
-          SELECT COUNT(*)
-          FROM assessment_question_responses aqr
-          WHERE aqr.assessment_id = aa.id
-        )::int AS response_count
-      FROM assessments aa
-      WHERE aa.entity_id = e.id
-      ORDER BY aa.created_at DESC
-      LIMIT 1
-    ) latest_assessment ON true
-    LEFT JOIN LATERAL (
-      SELECT security_level, privacy_level, updated_at
-      FROM assessment_decisions ad
-      WHERE ad.assessment_id = latest_assessment.id
-      LIMIT 1
-    ) latest_decision ON true
-    WHERE e.kind = 'VENDOR'
-      AND e.id::text NOT LIKE '10000000-0000-0000-0000-%'
-    GROUP BY
-      e.id,
-      u.full_name,
-      latest_assessment.id,
-      latest_assessment.status,
-      latest_assessment.created_at,
-      latest_assessment.response_count,
-      latest_decision.security_level,
-      latest_decision.privacy_level,
-      latest_decision.updated_at
-    ORDER BY e.created_at DESC, e.name ASC
-  `) as Array<{
+  type VendorListRow = {
     slug: string;
     name: string;
     jira_issue_key: string | null;
+    jira_issue_created_at: string | null;
+    status_label: string | null;
+    jira_form_data: Record<string, unknown> | null;
     domain: string | null;
     segment: string | null;
     status: string;
@@ -937,7 +880,152 @@ export async function getVendorsList() {
     latest_privacy_level: string | null;
     latest_decision_updated_at: string | null;
     open_assessments: number;
-  }>;
+  };
+
+  const runQueryWithJiraIssueCreatedAt = async () =>
+    (await sql`
+      SELECT
+        e.slug,
+        e.name,
+        e.jira_issue_key,
+        e.jira_issue_created_at,
+        e.status_label,
+        e.jira_form_data,
+        e.domain,
+        e.segment,
+        e.status,
+        e.risk_level,
+        e.company_group,
+        e.created_at,
+        e.last_review_at,
+        COALESCE(u.full_name, 'Unassigned') AS owner,
+        latest_assessment.id AS latest_assessment_id,
+        latest_assessment.status AS latest_assessment_status,
+        latest_assessment.created_at AS latest_assessment_created_at,
+        latest_assessment.response_count AS latest_response_count,
+        latest_decision.security_level AS latest_security_level,
+        latest_decision.privacy_level AS latest_privacy_level,
+        latest_decision.updated_at AS latest_decision_updated_at,
+        COUNT(a.id) FILTER (
+          WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
+        )::int AS open_assessments
+      FROM entities e
+      LEFT JOIN users u ON u.id = e.owner_user_id
+      LEFT JOIN assessments a ON a.entity_id = e.id
+      LEFT JOIN LATERAL (
+        SELECT
+          aa.id,
+          aa.status,
+          aa.created_at,
+          (
+            SELECT COUNT(*)
+            FROM assessment_question_responses aqr
+            WHERE aqr.assessment_id = aa.id
+          )::int AS response_count
+        FROM assessments aa
+        WHERE aa.entity_id = e.id
+        ORDER BY aa.created_at DESC
+        LIMIT 1
+      ) latest_assessment ON true
+      LEFT JOIN LATERAL (
+        SELECT security_level, privacy_level, updated_at
+        FROM assessment_decisions ad
+        WHERE ad.assessment_id = latest_assessment.id
+        LIMIT 1
+      ) latest_decision ON true
+      WHERE e.kind = 'VENDOR'
+        AND e.id::text NOT LIKE '10000000-0000-0000-0000-%'
+      GROUP BY
+        e.id,
+        u.full_name,
+        latest_assessment.id,
+        latest_assessment.status,
+        latest_assessment.created_at,
+        latest_assessment.response_count,
+        latest_decision.security_level,
+        latest_decision.privacy_level,
+        latest_decision.updated_at
+      ORDER BY e.jira_issue_created_at DESC NULLS LAST, e.created_at DESC, e.name ASC
+    `) as VendorListRow[];
+
+  const runQueryWithoutJiraIssueCreatedAt = async () =>
+    (await sql`
+      SELECT
+        e.slug,
+        e.name,
+        e.jira_issue_key,
+        NULL::timestamptz AS jira_issue_created_at,
+        e.status_label,
+        e.jira_form_data,
+        e.domain,
+        e.segment,
+        e.status,
+        e.risk_level,
+        e.company_group,
+        e.created_at,
+        e.last_review_at,
+        COALESCE(u.full_name, 'Unassigned') AS owner,
+        latest_assessment.id AS latest_assessment_id,
+        latest_assessment.status AS latest_assessment_status,
+        latest_assessment.created_at AS latest_assessment_created_at,
+        latest_assessment.response_count AS latest_response_count,
+        latest_decision.security_level AS latest_security_level,
+        latest_decision.privacy_level AS latest_privacy_level,
+        latest_decision.updated_at AS latest_decision_updated_at,
+        COUNT(a.id) FILTER (
+          WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
+        )::int AS open_assessments
+      FROM entities e
+      LEFT JOIN users u ON u.id = e.owner_user_id
+      LEFT JOIN assessments a ON a.entity_id = e.id
+      LEFT JOIN LATERAL (
+        SELECT
+          aa.id,
+          aa.status,
+          aa.created_at,
+          (
+            SELECT COUNT(*)
+            FROM assessment_question_responses aqr
+            WHERE aqr.assessment_id = aa.id
+          )::int AS response_count
+        FROM assessments aa
+        WHERE aa.entity_id = e.id
+        ORDER BY aa.created_at DESC
+        LIMIT 1
+      ) latest_assessment ON true
+      LEFT JOIN LATERAL (
+        SELECT security_level, privacy_level, updated_at
+        FROM assessment_decisions ad
+        WHERE ad.assessment_id = latest_assessment.id
+        LIMIT 1
+      ) latest_decision ON true
+      WHERE e.kind = 'VENDOR'
+        AND e.id::text NOT LIKE '10000000-0000-0000-0000-%'
+      GROUP BY
+        e.id,
+        u.full_name,
+        latest_assessment.id,
+        latest_assessment.status,
+        latest_assessment.created_at,
+        latest_assessment.response_count,
+        latest_decision.security_level,
+        latest_decision.privacy_level,
+        latest_decision.updated_at
+      ORDER BY e.created_at DESC, e.name ASC
+    `) as VendorListRow[];
+
+  let rows: VendorListRow[];
+
+  try {
+    rows = await runQueryWithJiraIssueCreatedAt();
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    const message = error instanceof Error ? error.message : "";
+    if (code !== "42703" || !message.includes("jira_issue_created_at")) {
+      throw error;
+    }
+    rows = await runQueryWithoutJiraIssueCreatedAt();
+  }
 
   return rows.map((row) => {
     const finalRisk = resolveVendorFinalRisk(
@@ -957,10 +1045,23 @@ export async function getVendorsList() {
       row.latest_decision_updated_at ??
       row.latest_assessment_created_at ??
       row.created_at;
+    const jiraFormData =
+      row.jira_form_data && typeof row.jira_form_data === "object" && !Array.isArray(row.jira_form_data)
+        ? row.jira_form_data
+        : null;
+    const jiraStatus =
+      typeof jiraFormData?.jiraStatus === "string" && jiraFormData.jiraStatus.trim()
+        ? jiraFormData.jiraStatus.trim()
+        : row.status_label ?? "-";
+    const jiraCreatedAt =
+      row.jira_issue_created_at ??
+      (typeof jiraFormData?.jiraIssueCreatedAt === "string" ? jiraFormData.jiraIssueCreatedAt : null);
 
     return {
       id: row.slug,
       jiraTicket: row.jira_issue_key,
+      jiraCreatedAt: formatDateNumeric(jiraCreatedAt),
+      jiraStatus,
       companyGroup: toCompanyGroup(row.company_group),
       company: row.name,
       domain: row.domain ?? "-",
@@ -988,62 +1089,13 @@ export async function getVendorsList() {
 }
 
 export async function getPartnersList() {
-  const rows = (await sql`
-    SELECT
-      e.slug,
-      e.name,
-      e.jira_issue_key,
-      e.domain,
-      e.segment,
-      e.status,
-      e.risk_level,
-      e.company_group,
-      COALESCE(
-        latest_decision.updated_at,
-        e.last_review_at
-      ) AS last_review_at,
-      COALESCE(u.full_name, 'Unassigned') AS owner,
-      latest_assessment.id AS latest_assessment_id,
-      latest_assessment.status AS latest_assessment_status,
-      latest_decision.security_level AS latest_security_level,
-      latest_decision.privacy_level AS latest_privacy_level,
-      latest_decision.compliance_level AS latest_compliance_level,
-      COUNT(a.id) FILTER (
-        WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
-      )::int AS open_assessments
-    FROM entities e
-    LEFT JOIN users u ON u.id = e.owner_user_id
-    LEFT JOIN assessments a ON a.entity_id = e.id
-    LEFT JOIN LATERAL (
-      SELECT aa.id, aa.status, aa.typeform_response_token, aa.typeform_form_id
-      FROM assessments aa
-      WHERE aa.entity_id = e.id
-      ORDER BY aa.created_at DESC
-      LIMIT 1
-    ) latest_assessment ON true
-    LEFT JOIN LATERAL (
-      SELECT security_level, privacy_level, compliance_level, updated_at
-      FROM assessment_decisions ad
-      WHERE ad.assessment_id = latest_assessment.id
-      LIMIT 1
-    ) latest_decision ON true
-    WHERE e.kind = 'PARTNER'
-    GROUP BY
-      e.id,
-      u.full_name,
-      latest_assessment.id,
-      latest_assessment.status,
-      latest_assessment.typeform_response_token,
-      latest_assessment.typeform_form_id,
-      latest_decision.security_level,
-      latest_decision.privacy_level,
-      latest_decision.compliance_level,
-      latest_decision.updated_at
-    ORDER BY e.created_at DESC, e.name ASC
-  `) as Array<{
+  type PartnerListRow = {
     slug: string;
     name: string;
     jira_issue_key: string | null;
+    jira_issue_created_at: string | null;
+    status_label: string | null;
+    jira_form_data: Record<string, unknown> | null;
     domain: string | null;
     segment: string | null;
     status: string;
@@ -1057,7 +1109,136 @@ export async function getPartnersList() {
     latest_privacy_level: string | null;
     latest_compliance_level: string | null;
     open_assessments: number;
-  }>;
+  };
+
+  const runQueryWithJiraIssueCreatedAt = async () =>
+    (await sql`
+      SELECT
+        e.slug,
+        e.name,
+        e.jira_issue_key,
+        e.jira_issue_created_at,
+        e.status_label,
+        e.jira_form_data,
+        e.domain,
+        e.segment,
+        e.status,
+        e.risk_level,
+        e.company_group,
+        COALESCE(
+          latest_decision.updated_at,
+          e.last_review_at
+        ) AS last_review_at,
+        COALESCE(u.full_name, 'Unassigned') AS owner,
+        latest_assessment.id AS latest_assessment_id,
+        latest_assessment.status AS latest_assessment_status,
+        latest_decision.security_level AS latest_security_level,
+        latest_decision.privacy_level AS latest_privacy_level,
+        latest_decision.compliance_level AS latest_compliance_level,
+        COUNT(a.id) FILTER (
+          WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
+        )::int AS open_assessments
+      FROM entities e
+      LEFT JOIN users u ON u.id = e.owner_user_id
+      LEFT JOIN assessments a ON a.entity_id = e.id
+      LEFT JOIN LATERAL (
+        SELECT aa.id, aa.status, aa.typeform_response_token, aa.typeform_form_id
+        FROM assessments aa
+        WHERE aa.entity_id = e.id
+        ORDER BY aa.created_at DESC
+        LIMIT 1
+      ) latest_assessment ON true
+      LEFT JOIN LATERAL (
+        SELECT security_level, privacy_level, compliance_level, updated_at
+        FROM assessment_decisions ad
+        WHERE ad.assessment_id = latest_assessment.id
+        LIMIT 1
+      ) latest_decision ON true
+      WHERE e.kind = 'PARTNER'
+      GROUP BY
+        e.id,
+        u.full_name,
+        latest_assessment.id,
+        latest_assessment.status,
+        latest_assessment.typeform_response_token,
+        latest_assessment.typeform_form_id,
+        latest_decision.security_level,
+        latest_decision.privacy_level,
+        latest_decision.compliance_level,
+        latest_decision.updated_at
+      ORDER BY e.created_at DESC, e.name ASC
+    `) as PartnerListRow[];
+
+  const runQueryWithoutJiraIssueCreatedAt = async () =>
+    (await sql`
+      SELECT
+        e.slug,
+        e.name,
+        e.jira_issue_key,
+        NULL::timestamptz AS jira_issue_created_at,
+        e.status_label,
+        e.jira_form_data,
+        e.domain,
+        e.segment,
+        e.status,
+        e.risk_level,
+        e.company_group,
+        COALESCE(
+          latest_decision.updated_at,
+          e.last_review_at
+        ) AS last_review_at,
+        COALESCE(u.full_name, 'Unassigned') AS owner,
+        latest_assessment.id AS latest_assessment_id,
+        latest_assessment.status AS latest_assessment_status,
+        latest_decision.security_level AS latest_security_level,
+        latest_decision.privacy_level AS latest_privacy_level,
+        latest_decision.compliance_level AS latest_compliance_level,
+        COUNT(a.id) FILTER (
+          WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
+        )::int AS open_assessments
+      FROM entities e
+      LEFT JOIN users u ON u.id = e.owner_user_id
+      LEFT JOIN assessments a ON a.entity_id = e.id
+      LEFT JOIN LATERAL (
+        SELECT aa.id, aa.status, aa.typeform_response_token, aa.typeform_form_id
+        FROM assessments aa
+        WHERE aa.entity_id = e.id
+        ORDER BY aa.created_at DESC
+        LIMIT 1
+      ) latest_assessment ON true
+      LEFT JOIN LATERAL (
+        SELECT security_level, privacy_level, compliance_level, updated_at
+        FROM assessment_decisions ad
+        WHERE ad.assessment_id = latest_assessment.id
+        LIMIT 1
+      ) latest_decision ON true
+      WHERE e.kind = 'PARTNER'
+      GROUP BY
+        e.id,
+        u.full_name,
+        latest_assessment.id,
+        latest_assessment.status,
+        latest_assessment.typeform_response_token,
+        latest_assessment.typeform_form_id,
+        latest_decision.security_level,
+        latest_decision.privacy_level,
+        latest_decision.compliance_level,
+        latest_decision.updated_at
+      ORDER BY e.created_at DESC, e.name ASC
+    `) as PartnerListRow[];
+
+  let rows: PartnerListRow[];
+
+  try {
+    rows = await runQueryWithJiraIssueCreatedAt();
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    const message = error instanceof Error ? error.message : "";
+    if (code !== "42703" || !message.includes("jira_issue_created_at")) {
+      throw error;
+    }
+    rows = await runQueryWithoutJiraIssueCreatedAt();
+  }
 
   return rows.map((row) => {
     const finalRisk = resolvePartnerFinalRisk(
@@ -1068,10 +1249,23 @@ export async function getPartnersList() {
       row.risk_level,
     );
     const riskUi = finalRisk ? riskClasses(finalRisk) : null;
+    const jiraFormData =
+      row.jira_form_data && typeof row.jira_form_data === "object" && !Array.isArray(row.jira_form_data)
+        ? row.jira_form_data
+        : null;
+    const jiraStatus =
+      typeof jiraFormData?.jiraStatus === "string" && jiraFormData.jiraStatus.trim()
+        ? jiraFormData.jiraStatus.trim()
+        : row.status_label ?? "-";
+    const jiraCreatedAt =
+      row.jira_issue_created_at ??
+      (typeof jiraFormData?.jiraIssueCreatedAt === "string" ? jiraFormData.jiraIssueCreatedAt : null);
 
     return {
       id: row.slug,
       jiraTicket: row.jira_issue_key,
+      jiraCreatedAt: formatDateNumeric(jiraCreatedAt),
+      jiraStatus,
       companyGroup: toCompanyGroup(row.company_group),
       company: row.name,
       domain: row.domain ?? "-",

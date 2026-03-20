@@ -108,11 +108,13 @@ export default async function PartnersPage({
         columns={[
           "Company",
           "Jira Ticket",
+          "Jira Status",
           "Empresa",
           "Assessment Status",
           "Redteam",
           "Final Risk",
           "Last Review",
+          "DT criação jira",
         ]}
         tableFooterText={`Showing 1 to ${visiblePartners.length} of ${filteredPartners.length} partners`}
         summary={[
@@ -151,6 +153,7 @@ export default async function PartnersPage({
               </Link>
             </td>
             <td className="px-6 py-4 text-sm font-semibold text-[var(--color-secondary)]"><Link href={`/partners/${item.id}`} className="block">{item.jiraTicket ?? "-"}</Link></td>
+            <td className="px-6 py-4 text-sm text-[var(--color-neutral-700)]"><Link href={`/partners/${item.id}`} className="block">{item.jiraStatus}</Link></td>
             <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/partners/${item.id}`} className="block">{item.companyGroup}</Link></td>
             <td className="px-6 py-4"><Link href={`/partners/${item.id}`} className="block">{renderAssessmentBadge(item.assessmentStatus)}</Link></td>
             <td className="px-6 py-4"><Link href={`/partners/${item.id}`} className="block">{renderTechnicalReviewBadge(item.technicalReviewStatus)}</Link></td>
@@ -166,6 +169,7 @@ export default async function PartnersPage({
               </Link>
             </td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]"><Link href={`/partners/${item.id}`} className="block">{item.lastReview}</Link></td>
+            <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]"><Link href={`/partners/${item.id}`} className="block">{item.jiraCreatedAt}</Link></td>
           </tr>
         ))}
       />

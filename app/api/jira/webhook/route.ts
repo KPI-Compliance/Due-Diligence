@@ -1,7 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { extractEntityFromJiraIssue, isSupportedJiraWebhookEvent, resolveKindFromJiraQueues, type JiraWebhookPayload } from "@/lib/jira";
+import {
+  extractEntityFromJiraIssue,
+  fetchJiraIssueCreatedAt,
+  isSupportedJiraWebhookEvent,
+  resolveKindFromJiraQueues,
+  type JiraWebhookPayload,
+} from "@/lib/jira";
 import type { JiraConfig } from "@/lib/settings-data";
 
 export const runtime = "nodejs";
@@ -10,6 +16,89 @@ type JiraIntegrationRow = {
   enabled: boolean;
   config: JiraConfig | null;
 };
+
+function resolveExplicitEntityKind(payload: JiraWebhookPayload): "VENDOR" | "PARTNER" | null {
+  const candidates = [
+    payload["entity-kind"],
+    payload["entity_kind"],
+    payload["entity kind"],
+    payload.kind,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = String(candidate ?? "").trim().toUpperCase();
+    if (normalized === "VENDOR" || normalized === "PARTNER") {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+function escapeControlCharactersInJsonStrings(raw: string) {
+  let result = "";
+  let inString = false;
+  let isEscaped = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+
+    if (inString) {
+      if (isEscaped) {
+        result += char;
+        isEscaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        result += char;
+        isEscaped = true;
+        continue;
+      }
+
+      if (char === "\"") {
+        result += char;
+        inString = false;
+        continue;
+      }
+
+      const code = char.charCodeAt(0);
+      if (code <= 0x1f) {
+        if (char === "\n") result += "\\n";
+        else if (char === "\r") result += "\\r";
+        else if (char === "\t") result += "\\t";
+        else result += `\\u${code.toString(16).padStart(4, "0")}`;
+        continue;
+      }
+    } else if (char === "\"") {
+      inString = true;
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+async function parseJiraWebhookPayload(request: Request) {
+  const rawBody = await request.text();
+
+  try {
+    return JSON.parse(rawBody) as JiraWebhookPayload;
+  } catch (originalError) {
+    const sanitizedBody = escapeControlCharactersInJsonStrings(rawBody);
+
+    try {
+      return JSON.parse(sanitizedBody) as JiraWebhookPayload;
+    } catch {
+      const message = originalError instanceof Error ? originalError.message : "Invalid JSON payload.";
+
+      throw new Error(
+        `${message} Make sure Jira smart values use .asJsonString for string fields in the custom data payload.`,
+      );
+    }
+  }
+}
 
 function secretMatches(headerValue: string | null, configuredSecret: string) {
   if (!headerValue) return false;
@@ -55,7 +144,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, message: "Invalid Jira webhook secret." }, { status: 401 });
     }
 
-    const payload = (await request.json()) as JiraWebhookPayload;
+    const payload = await parseJiraWebhookPayload(request);
+    const explicitKind = resolveExplicitEntityKind(payload);
 
     if (!isSupportedJiraWebhookEvent(payload)) {
       return NextResponse.json({ ok: true, message: "Event ignored (not issue_created/issue_updated)." });
@@ -88,6 +178,10 @@ export async function POST(request: Request) {
       }
     }
 
+    if (!resolvedKind && explicitKind) {
+      resolvedKind = explicitKind;
+    }
+
     if (queueResolutionConfigured && !resolvedKind) {
       return NextResponse.json({
         ok: true,
@@ -99,6 +193,20 @@ export async function POST(request: Request) {
     const entity = extractEntityFromJiraIssue(payload, resolvedKind);
     if (!entity) {
       return NextResponse.json({ ok: false, message: "Missing Jira issue key or summary." }, { status: 400 });
+    }
+
+    let jiraIssueCreatedAt: string | null = null;
+    if (jiraSetting.config?.base_url && jiraApiEmail && jiraApiToken) {
+      try {
+        jiraIssueCreatedAt = await fetchJiraIssueCreatedAt({
+          baseUrl: jiraSetting.config.base_url,
+          email: jiraApiEmail,
+          token: jiraApiToken,
+          issueKey: entity.issueKey,
+        });
+      } catch (error) {
+        console.warn("Jira issue created_at fetch failed:", error instanceof Error ? error.message : String(error));
+      }
     }
 
     const browserIssueUrl = jiraSetting.config?.base_url
@@ -124,6 +232,11 @@ export async function POST(request: Request) {
     `) as Array<{ id: string; slug: string }>;
 
     const currentSlug = existingRows[0]?.slug ?? null;
+    const persistedJiraFormData = {
+      ...entity.jiraFormData,
+      jiraStatus: payload.issue?.fields?.status?.name?.trim() || null,
+      jiraIssueCreatedAt,
+    };
 
     await sql`
       INSERT INTO entities (
@@ -145,6 +258,7 @@ export async function POST(request: Request) {
         owner_user_id,
         jira_issue_key,
         jira_issue_url,
+        jira_issue_created_at,
         jira_synced_at
       )
       VALUES (
@@ -162,10 +276,11 @@ export async function POST(request: Request) {
         ${entity.statusLabel},
         ${entity.status}::assessment_status,
         ${entity.riskLevel}::risk_level,
-        ${JSON.stringify(entity.jiraFormData)}::jsonb,
+        ${JSON.stringify(persistedJiraFormData)}::jsonb,
         ${ownerUserId}::uuid,
         ${entity.issueKey},
         ${browserIssueUrl},
+        ${jiraIssueCreatedAt ? new Date(jiraIssueCreatedAt) : null},
         now()
       )
       ON CONFLICT (jira_issue_key)
@@ -186,6 +301,7 @@ export async function POST(request: Request) {
         jira_form_data = COALESCE(entities.jira_form_data, '{}'::jsonb) || COALESCE(EXCLUDED.jira_form_data, '{}'::jsonb),
         owner_user_id = COALESCE(EXCLUDED.owner_user_id, entities.owner_user_id),
         jira_issue_url = COALESCE(EXCLUDED.jira_issue_url, entities.jira_issue_url),
+        jira_issue_created_at = COALESCE(EXCLUDED.jira_issue_created_at, entities.jira_issue_created_at),
         jira_synced_at = now()
     `;
 
