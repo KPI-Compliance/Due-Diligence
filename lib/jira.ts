@@ -1,5 +1,4 @@
 import { getIntegrationSettings, type JiraConfig } from "@/lib/settings-data";
-import { PDFParse } from "pdf-parse";
 
 type JiraPrimitive = string | number | boolean | null | undefined;
 
@@ -553,6 +552,18 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
   token: string;
   issueKey: string;
 }) {
+  let PDFParseCtor: typeof import("pdf-parse").PDFParse | null = null;
+  try {
+    const pdfParseModule = await import("pdf-parse");
+    PDFParseCtor = pdfParseModule.PDFParse;
+  } catch (error) {
+    console.warn(
+      `[jira] pdf parser unavailable while enriching attachments for ${input.issueKey}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+
   const issue = await fetchJiraJson<JiraIssueDetailResponse>(
     `${input.baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}?fields=attachment`,
     input.email,
@@ -587,7 +598,8 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
     if (!response.ok) continue;
 
     const fileBuffer = Buffer.from(await response.arrayBuffer());
-    const parser = new PDFParse({ data: fileBuffer });
+    if (!PDFParseCtor) continue;
+    const parser = new PDFParseCtor({ data: fileBuffer });
     const parsed = await parser.getText();
     await parser.destroy();
 
