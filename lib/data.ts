@@ -293,6 +293,15 @@ function mapVendorQuestionSection(input: {
   return "Common";
 }
 
+function mapVendorSectionFromOverride(section: string | undefined): "Common" | "Privacy" | "Security" | null {
+  const normalized = (section ?? "").trim().toUpperCase();
+  if (normalized === "COMMON") return "Common";
+  if (normalized === "PRIVACY") return "Privacy";
+  if (normalized === "SECURITY") return "Security";
+  if (normalized === "COMPLIANCE") return "Common";
+  return null;
+}
+
 function normalizePartnerQuestionLookup(value: string | null | undefined) {
   return normalizeLooseLookup(value);
 }
@@ -1971,6 +1980,8 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       source: "database" as const,
     }));
   } else {
+    const sectionOverrides =
+      kind === "vendor" ? await getTypeformQuestionSectionOverrides(resolvedTypeformFormId) : new Map<string, string>();
     const questions = latestAssessment
       ? ((await sql`
           SELECT domain, question_text, answer_text, review_status
@@ -1986,13 +1997,18 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       : [];
 
     finalQuestions = questions.map((q) => {
+      const overrideSection =
+        kind === "vendor"
+          ? mapVendorSectionFromOverride(sectionOverrides.get(`text:${q.question_text.trim().toLowerCase()}`))
+          : null;
       const section =
         kind === "vendor"
-          ? mapVendorQuestionSection({
+          ? (overrideSection ??
+            mapVendorQuestionSection({
               question: q.question_text,
               domain: q.domain,
               formName: resolvedTypeformFormName ?? resolvedTypeformFormId,
-            })
+            }))
           : undefined;
 
       return {
