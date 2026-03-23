@@ -677,7 +677,9 @@ export function IntegrationsSettings({
                     <div className="flex items-start justify-between gap-3">
                       <dt className="text-[var(--color-neutral-600)]">Credencial Google Workspace</dt>
                       <dd className={`font-semibold ${googleWorkspaceCredentialsConfigured ? "text-emerald-700" : "text-amber-700"}`}>
-                        {googleWorkspaceCredentialsConfigured ? "OK" : "Faltando GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON/FILE"}
+                        {googleWorkspaceCredentialsConfigured
+                          ? "OK"
+                          : "Faltando credenciais Google Workspace (JSON, JSON_BASE64, FILE ou CLIENT_EMAIL/PRIVATE_KEY)"}
                       </dd>
                     </div>
                     <div className="flex items-start justify-between gap-3">

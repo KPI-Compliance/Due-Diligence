@@ -75,7 +75,10 @@ const jiraTokenConfigured = Boolean(process.env.JIRA_API_TOKEN);
 const jiraWebhookSecretConfigured = Boolean(process.env.JIRA_WEBHOOK_SECRET);
 const slackTokenConfigured = Boolean(process.env.SLACK_BOT_TOKEN);
 const googleWorkspaceCredentialsConfigured = Boolean(
-  process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON?.trim() || process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_FILE?.trim(),
+  process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON?.trim() ||
+    process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64?.trim() ||
+    process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_FILE?.trim() ||
+    (process.env.GOOGLE_WORKSPACE_CLIENT_EMAIL?.trim() && process.env.GOOGLE_WORKSPACE_PRIVATE_KEY?.trim()),
 );
 const googleWorkspaceImpersonatedConfigured = Boolean(
   process.env.GOOGLE_WORKSPACE_IMPERSONATED_USER?.trim() || process.env.EMAIL_FROM?.trim(),

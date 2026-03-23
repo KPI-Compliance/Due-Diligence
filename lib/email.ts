@@ -10,16 +10,52 @@ type GoogleServiceAccount = {
   private_key?: string;
 };
 
+function normalizePrivateKey(value: string | undefined) {
+  if (!value) return "";
+  return value.replace(/\\n/g, "\n").trim();
+}
+
+function normalizeServiceAccount(raw: GoogleServiceAccount | null | undefined): GoogleServiceAccount {
+  return {
+    client_email: raw?.client_email?.trim() || "",
+    private_key: normalizePrivateKey(raw?.private_key),
+  };
+}
+
 async function getGoogleServiceAccountCredentials(): Promise<GoogleServiceAccount> {
   const rawJson = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON?.trim();
   if (rawJson) {
-    return JSON.parse(rawJson) as GoogleServiceAccount;
+    return normalizeServiceAccount(JSON.parse(rawJson) as GoogleServiceAccount);
+  }
+
+  const rawBase64 = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64?.trim();
+  if (rawBase64) {
+    const decoded = Buffer.from(rawBase64, "base64").toString("utf8");
+    return normalizeServiceAccount(JSON.parse(decoded) as GoogleServiceAccount);
+  }
+
+  const envClientEmail = process.env.GOOGLE_WORKSPACE_CLIENT_EMAIL?.trim() || "";
+  const envPrivateKey = normalizePrivateKey(process.env.GOOGLE_WORKSPACE_PRIVATE_KEY);
+  if (envClientEmail && envPrivateKey) {
+    return {
+      client_email: envClientEmail,
+      private_key: envPrivateKey,
+    };
   }
 
   const filePath =
     process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_FILE?.trim() || LOCAL_GOOGLE_WORKSPACE_SERVICE_ACCOUNT_FILE;
-  const rawFile = await readFile(filePath, "utf8");
-  return JSON.parse(rawFile) as GoogleServiceAccount;
+  try {
+    const rawFile = await readFile(filePath, "utf8");
+    return normalizeServiceAccount(JSON.parse(rawFile) as GoogleServiceAccount);
+  } catch (error) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "Credenciais Google Workspace ausentes no deploy. Configure GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON, GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 ou GOOGLE_WORKSPACE_CLIENT_EMAIL/GOOGLE_WORKSPACE_PRIVATE_KEY.",
+      );
+    }
+    throw error;
+  }
 }
 
 async function getTypeformSenderEmail() {
