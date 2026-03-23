@@ -104,5 +104,11 @@ export type EntityDetailData = {
     compliance: { level: RiskLevel; note: string; score?: string };
     combinedScore: string;
     classification: string;
+    selectedOption: "APPROVED" | "APPROVED_WITH_RESTRICTIONS" | "REJECTED";
+    conditionsForApproval: string;
+    mitigationPlan: string;
+    approvalExpiresAt: string;
+    approvedFinalObservation: string;
+    finalizedAt: string | null;
   };
 };

@@ -92,6 +92,34 @@ type JiraIssueDetailResponse = {
   };
 };
 
+type JiraIssueEditMetaResponse = {
+  fields?: Record<
+    string,
+    {
+      name?: string;
+      allowedValues?: Array<Record<string, unknown>>;
+    }
+  >;
+};
+
+type JiraIssueStatusResponse = {
+  fields?: {
+    status?: {
+      name?: string | null;
+    } | null;
+  } | null;
+};
+
+type JiraTransitionsResponse = {
+  transitions?: Array<{
+    id?: string | null;
+    name?: string | null;
+    to?: {
+      name?: string | null;
+    } | null;
+  }>;
+};
+
 function getJiraSetting<T>(
   list: Array<{ provider: string; enabled: boolean; config: unknown }>,
   provider: string,
@@ -500,6 +528,132 @@ async function fetchJiraIssueId(input: {
   return payload.id?.trim() || null;
 }
 
+async function resolveConfiguredJiraIssueContext(input: {
+  issueKey: string;
+  entityKind: "VENDOR" | "PARTNER";
+}) {
+  const settings = await getIntegrationSettings();
+  const jiraSetting = getJiraSetting<JiraConfig>(settings, "JIRA");
+
+  if (!jiraSetting?.enabled) {
+    throw new Error("Jira integration is disabled.");
+  }
+
+  const config = jiraSetting.config;
+  const baseUrl = config.base_url.trim();
+  const email = config.api_email.trim() || process.env.JIRA_API_EMAIL || "";
+  const token = config.api_token.trim() || process.env.JIRA_API_TOKEN || "";
+
+  if (!baseUrl || !email || !token) {
+    throw new Error("Jira integration credentials are incomplete.");
+  }
+
+  const queueConfig = input.entityKind === "PARTNER" ? config.partners : config.vendors;
+  const projectKey = queueConfig.project_key.trim();
+  const queueId = parseQueueId(queueConfig.queue_url);
+
+  if (!projectKey || !queueId) {
+    throw new Error(`Jira queue configuration is invalid for ${input.entityKind}.`);
+  }
+
+  const issueId = await fetchJiraIssueId({
+    baseUrl,
+    email,
+    token,
+    issueKey: input.issueKey,
+  });
+
+  if (!issueId) {
+    throw new Error(`Jira issue ${input.issueKey} was not found.`);
+  }
+
+  const serviceDeskId = await fetchServiceDeskId(baseUrl, email, token, projectKey);
+  if (!serviceDeskId) {
+    throw new Error(`Service desk for project ${projectKey} was not found.`);
+  }
+
+  const queueJql = await fetchQueueJql(baseUrl, email, token, serviceDeskId, queueId);
+  if (!queueJql) {
+    throw new Error(`Queue JQL for ${input.entityKind} could not be resolved.`);
+  }
+
+  const matchesQueue = await issueMatchesJql(baseUrl, email, token, Number(issueId), queueJql);
+  if (!matchesQueue) {
+    throw new Error(`Jira issue ${input.issueKey} does not belong to the configured ${input.entityKind} queue.`);
+  }
+
+  return { baseUrl, email, token };
+}
+
+function normalizeSecRiskValue(value: string | null | undefined): "Low" | "Moderate" | "High" | "Extreme" | null {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized || normalized.includes("pending")) return null;
+  if (normalized.includes("extreme") || normalized.includes("critical")) return "Extreme";
+  if (normalized.includes("high")) return "High";
+  if (normalized.includes("moderate") || normalized.includes("medium")) return "Moderate";
+  if (normalized.includes("low")) return "Low";
+  return null;
+}
+
+function normalizeFieldName(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeJiraStatusName(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function jiraStatusMatchesAlias(candidate: string | null | undefined, alias: string) {
+  const normalizedCandidate = normalizeJiraStatusName(candidate);
+  const normalizedAlias = normalizeJiraStatusName(alias);
+  if (!normalizedCandidate || !normalizedAlias) return false;
+  return (
+    normalizedCandidate === normalizedAlias ||
+    normalizedCandidate.includes(normalizedAlias) ||
+    normalizedAlias.includes(normalizedCandidate)
+  );
+}
+
+function getWorkflowStatusAliases(workflowStatusLabel: string) {
+  const normalized = normalizeJiraStatusName(workflowStatusLabel);
+
+  if (normalized === "opened" || normalized === "open") {
+    return ["opened", "open"];
+  }
+
+  if (normalized === "waiting vendor") {
+    return ["waiting vendor", "waiting for vendor", "awaiting response", "waiting for customer"];
+  }
+
+  if (normalized === "received quest." || normalized === "received quest") {
+    return ["received quest.", "received quest", "response received", "received questionnaire"];
+  }
+
+  if (normalized === "red team") {
+    return ["red team", "in review", "security review in progress"];
+  }
+
+  if (normalized === "concluido" || normalized === "concluído") {
+    return ["concluido", "concluído", "completed", "done", "closed", "resolved"];
+  }
+
+  return [];
+}
+
+function findJiraAllowedValueOption(allowedValues: Array<Record<string, unknown>>, target: "Low" | "Moderate" | "High" | "Extreme") {
+  return allowedValues.find((item) => {
+    const value = typeof item.value === "string" ? item.value : "";
+    const name = typeof item.name === "string" ? item.name : "";
+    const label = typeof item.label === "string" ? item.label : "";
+    return [value, name, label].some((candidate) => candidate.trim().toLowerCase() === target.toLowerCase());
+  });
+}
+
 function parseLabeledValueFromLines(lines: string[], labels: string[]) {
   const normalizedLabels = labels.map((label) => normalizeKey(label));
 
@@ -712,55 +866,10 @@ export async function addInternalCommentToConfiguredJiraIssue(input: {
   entityKind: "VENDOR" | "PARTNER";
   commentBody: string;
 }) {
-  const settings = await getIntegrationSettings();
-  const jiraSetting = getJiraSetting<JiraConfig>(settings, "JIRA");
-
-  if (!jiraSetting?.enabled) {
-    throw new Error("Jira integration is disabled.");
-  }
-
-  const config = jiraSetting.config;
-  const baseUrl = config.base_url.trim();
-  const email = config.api_email.trim() || process.env.JIRA_API_EMAIL || "";
-  const token = config.api_token.trim() || process.env.JIRA_API_TOKEN || "";
-
-  if (!baseUrl || !email || !token) {
-    throw new Error("Jira integration credentials are incomplete.");
-  }
-
-  const queueConfig = input.entityKind === "PARTNER" ? config.partners : config.vendors;
-  const projectKey = queueConfig.project_key.trim();
-  const queueId = parseQueueId(queueConfig.queue_url);
-
-  if (!projectKey || !queueId) {
-    throw new Error(`Jira queue configuration is invalid for ${input.entityKind}.`);
-  }
-
-  const issueId = await fetchJiraIssueId({
-    baseUrl,
-    email,
-    token,
+  const { baseUrl, email, token } = await resolveConfiguredJiraIssueContext({
     issueKey: input.issueKey,
+    entityKind: input.entityKind,
   });
-
-  if (!issueId) {
-    throw new Error(`Jira issue ${input.issueKey} was not found.`);
-  }
-
-  const serviceDeskId = await fetchServiceDeskId(baseUrl, email, token, projectKey);
-  if (!serviceDeskId) {
-    throw new Error(`Service desk for project ${projectKey} was not found.`);
-  }
-
-  const queueJql = await fetchQueueJql(baseUrl, email, token, serviceDeskId, queueId);
-  if (!queueJql) {
-    throw new Error(`Queue JQL for ${input.entityKind} could not be resolved.`);
-  }
-
-  const matchesQueue = await issueMatchesJql(baseUrl, email, token, Number(issueId), queueJql);
-  if (!matchesQueue) {
-    throw new Error(`Jira issue ${input.issueKey} does not belong to the configured ${input.entityKind} queue.`);
-  }
 
   await postJiraJson(
     `${baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}/comment`,
@@ -790,6 +899,131 @@ export async function addInternalCommentToConfiguredJiraIssue(input: {
           },
         },
       ],
+    },
+  );
+}
+
+export async function updateConfiguredJiraIssueSecRisk(input: {
+  issueKey: string;
+  entityKind: "VENDOR" | "PARTNER";
+  classification: string | null;
+}) {
+  const { baseUrl, email, token } = await resolveConfiguredJiraIssueContext({
+    issueKey: input.issueKey,
+    entityKind: input.entityKind,
+  });
+
+  const targetRisk = normalizeSecRiskValue(input.classification);
+  const editMeta = await fetchJiraJson<JiraIssueEditMetaResponse>(
+    `${baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}/editmeta`,
+    email,
+    token,
+  );
+
+  const fieldEntry = Object.entries(editMeta.fields ?? {}).find(([, meta]) =>
+    normalizeFieldName(meta?.name) === "[sec] risk",
+  );
+
+  if (!fieldEntry) {
+    throw new Error("Jira field [SEC] Risk was not found in issue edit metadata.");
+  }
+
+  const [fieldId, fieldMeta] = fieldEntry;
+  const allowedValues = Array.isArray(fieldMeta.allowedValues) ? fieldMeta.allowedValues : [];
+
+  let jiraFieldValue: unknown = null;
+  if (targetRisk) {
+    const matchedOption = findJiraAllowedValueOption(allowedValues, targetRisk);
+    if (matchedOption) {
+      if (typeof matchedOption.id === "string" && matchedOption.id.trim()) {
+        jiraFieldValue = { id: matchedOption.id };
+      } else if (typeof matchedOption.value === "string" && matchedOption.value.trim()) {
+        jiraFieldValue = { value: matchedOption.value };
+      } else if (typeof matchedOption.name === "string" && matchedOption.name.trim()) {
+        jiraFieldValue = { name: matchedOption.name };
+      } else {
+        jiraFieldValue = targetRisk;
+      }
+    } else {
+      jiraFieldValue = targetRisk;
+    }
+  }
+
+  await postJiraJson<null>(
+    `${baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}`,
+    email,
+    token,
+    {
+      fields: {
+        [fieldId]: jiraFieldValue,
+      },
+    },
+    {
+      method: "PUT",
+    },
+  );
+}
+
+export async function updateConfiguredJiraIssueWorkflowStatus(input: {
+  issueKey: string;
+  entityKind: "VENDOR" | "PARTNER";
+  workflowStatusLabel: string;
+}) {
+  const aliases = getWorkflowStatusAliases(input.workflowStatusLabel);
+  if (aliases.length === 0) {
+    return;
+  }
+
+  const { baseUrl, email, token } = await resolveConfiguredJiraIssueContext({
+    issueKey: input.issueKey,
+    entityKind: input.entityKind,
+  });
+
+  const issue = await fetchJiraJson<JiraIssueStatusResponse>(
+    `${baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}?fields=status`,
+    email,
+    token,
+  );
+  const currentStatus = normalizeJiraStatusName(issue.fields?.status?.name);
+  if (aliases.some((alias) => jiraStatusMatchesAlias(currentStatus, alias))) {
+    return;
+  }
+
+  const transitionPayload = await fetchJiraJson<JiraTransitionsResponse>(
+    `${baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}/transitions`,
+    email,
+    token,
+  );
+
+  const availableTransitions = transitionPayload.transitions ?? [];
+  let selectedTransitionId: string | null = null;
+  for (const alias of aliases) {
+    const match = availableTransitions.find((transition) => {
+      const transitionName = transition.name;
+      const destinationName = transition.to?.name;
+      return jiraStatusMatchesAlias(transitionName, alias) || jiraStatusMatchesAlias(destinationName, alias);
+    });
+    if (match?.id?.trim()) {
+      selectedTransitionId = match.id.trim();
+      break;
+    }
+  }
+
+  if (!selectedTransitionId) {
+    const available = availableTransitions.map((item) => item.to?.name || item.name || "unknown").join(", ");
+    throw new Error(
+      `No Jira transition found for workflow status "${input.workflowStatusLabel}". Available transitions: ${available || "none"}.`,
+    );
+  }
+
+  await postJiraJson<null>(
+    `${baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}/transitions`,
+    email,
+    token,
+    {
+      transition: {
+        id: selectedTransitionId,
+      },
     },
   );
 }

@@ -299,12 +299,12 @@ export async function POST(request: Request) {
     }
 
     const assessmentRows = (await sql`
-      SELECT a.id::text, e.kind::text AS entity_kind
+      SELECT a.id::text, a.entity_id::text AS entity_id, e.kind::text AS entity_kind
       FROM assessments a
       INNER JOIN entities e ON e.id = a.entity_id
       WHERE a.id = ${assessmentId}::uuid
       LIMIT 1
-    `) as Array<{ id: string; entity_kind: "VENDOR" | "PARTNER" }>;
+    `) as Array<{ id: string; entity_id: string; entity_kind: "VENDOR" | "PARTNER" }>;
 
     if (assessmentRows.length === 0) {
       return NextResponse.json({ ok: false, message: "Assessment not found for resolved Typeform response." }, { status: 404 });
@@ -329,6 +329,17 @@ export async function POST(request: Request) {
         typeform_submitted_at = ${payload.form_response?.submitted_at ?? null}::timestamptz
       WHERE id = ${assessmentId}::uuid
     `;
+
+    if (resolvedEntityKind === "VENDOR") {
+      await sql`
+        UPDATE entities
+        SET
+          status = 'RESPONDED',
+          status_label = 'Received Quest.',
+          updated_at = now()
+        WHERE id = ${assessmentRows[0].entity_id}::uuid
+      `;
+    }
 
     await sql`DELETE FROM assessment_question_responses WHERE assessment_id = ${assessmentId}::uuid`;
 

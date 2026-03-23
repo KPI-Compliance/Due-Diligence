@@ -96,9 +96,9 @@ function getModelOneClassification(input: {
   const finalLevel =
     decisionLevelSeverity(worstSectionLevel) > decisionLevelSeverity(combinedLevel) ? worstSectionLevel : combinedLevel;
 
-  if (finalLevel === "HIGH") return "High Risk";
-  if (finalLevel === "MEDIUM") return "Medium Risk";
-  if (finalLevel === "LOW") return "Low Risk";
+  if (finalLevel === "HIGH") return "High";
+  if (finalLevel === "MEDIUM") return "Moderate";
+  if (finalLevel === "LOW") return "Low";
   return "Pending Review";
 }
 

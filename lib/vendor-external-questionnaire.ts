@@ -79,11 +79,6 @@ export async function ensureVendorQuestionnaireSelection(input: {
     UPDATE assessments
     SET
       typeform_form_id = ${input.selectedFormId},
-      sent_at = COALESCE(sent_at, now()),
-      status = CASE
-        WHEN status = 'PENDING' THEN 'SENT'::assessment_status
-        ELSE status
-      END,
       updated_at = now()
     WHERE id = ${assessmentId}::uuid
   `;
@@ -132,6 +127,25 @@ export async function recordVendorExternalQuestionnaireSend(input: {
   if (!entityId) {
     throw new Error("Assessment entity not found.");
   }
+
+  await sql`
+    UPDATE assessments
+    SET
+      status = 'SENT',
+      sent_at = COALESCE(sent_at, now()),
+      completed_at = NULL,
+      updated_at = now()
+    WHERE id = ${assessmentId}::uuid
+  `;
+
+  await sql`
+    UPDATE entities
+    SET
+      status = 'SENT',
+      status_label = 'Waiting vendor',
+      updated_at = now()
+    WHERE id = ${entityId}::uuid
+  `;
 
   await sql`
     UPDATE entity_timeline_events

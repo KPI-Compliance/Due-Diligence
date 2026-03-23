@@ -323,8 +323,14 @@ export async function POST(request: Request) {
         contact_email = COALESCE(EXCLUDED.contact_email, entities.contact_email),
         description = COALESCE(EXCLUDED.description, entities.description),
         subtitle = COALESCE(EXCLUDED.subtitle, entities.subtitle),
-        status_label = COALESCE(EXCLUDED.status_label, entities.status_label),
-        status = EXCLUDED.status,
+        status_label = CASE
+          WHEN entities.kind = 'VENDOR'::entity_kind THEN entities.status_label
+          ELSE COALESCE(EXCLUDED.status_label, entities.status_label)
+        END,
+        status = CASE
+          WHEN entities.kind = 'VENDOR'::entity_kind THEN entities.status
+          ELSE EXCLUDED.status
+        END,
         risk_level = EXCLUDED.risk_level,
         jira_form_data = COALESCE(entities.jira_form_data, '{}'::jsonb) || COALESCE(EXCLUDED.jira_form_data, '{}'::jsonb),
         owner_user_id = COALESCE(EXCLUDED.owner_user_id, entities.owner_user_id),

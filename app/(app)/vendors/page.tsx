@@ -76,7 +76,7 @@ export default async function VendorsPage({
       name: "risk_level",
       label: "Nível de Risco",
       kind: "select" as const,
-      options: ["All Risks", "Pending", "Low", "Medium", "High", "Critical"],
+      options: ["All Risks", "Pending Review", "Low", "Moderate", "High", "Extreme"],
       value: riskLevel,
     },
     {
@@ -154,8 +154,8 @@ export default async function VendorsPage({
             tone: "success",
           },
           {
-            label: "Critical",
-            value: filteredVendors.filter((v) => v.risk === "Critical").length.toString(),
+            label: "Extreme",
+            value: filteredVendors.filter((v) => v.risk === "Extreme").length.toString(),
             note: "Maior risco final entre Privacy e Security",
             tone: "danger",
           },

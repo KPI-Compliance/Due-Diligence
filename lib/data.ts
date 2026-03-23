@@ -7,6 +7,7 @@ import { getIntegrationSettings, getTypeformForms, type JiraConfig } from "@/lib
 type UiStatus = "pending" | "sent" | "responded" | "in_review" | "completed";
 
 type UiRisk = "Low" | "Medium" | "High" | "Critical";
+type VendorWorkflowLabel = "Opened" | "Waiting vendor" | "Received Quest." | "Red Team" | "Concluido";
 
 type UiKind = "Vendor" | "Partner";
 
@@ -71,6 +72,17 @@ function toUiKind(kind: string): UiKind {
   return kind.toLowerCase() === "partner" ? "Partner" : "Vendor";
 }
 
+function normalizeVendorWorkflowLabel(label: string | null | undefined): VendorWorkflowLabel | null {
+  const normalized = (label ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "opened" || normalized === "open") return "Opened";
+  if (normalized === "waiting vendor" || normalized === "waiting_vendor" || normalized === "awaiting response") return "Waiting vendor";
+  if (normalized === "received quest." || normalized === "received quest" || normalized === "received questionnaire") return "Received Quest.";
+  if (normalized === "red team") return "Red Team";
+  if (normalized === "concluido" || normalized === "concluído" || normalized === "completed") return "Concluido";
+  return null;
+}
+
 function toCompanyGroup(value: string) {
   return value.toUpperCase() === "WENI" ? "WENI" : "VTEX";
 }
@@ -131,10 +143,23 @@ function maxRisk(...levels: Array<string | null>) {
 
 function classificationToUiRisk(classification: string | null | undefined): UiRisk | null {
   const normalized = (classification ?? "").trim().toLowerCase();
+  if (normalized.includes("extreme")) return "Critical";
   if (normalized.includes("high")) return "High";
+  if (normalized.includes("moderate")) return "Medium";
   if (normalized.includes("medium")) return "Medium";
   if (normalized.includes("low")) return "Low";
   if (normalized.includes("critical")) return "Critical";
+  return null;
+}
+
+function normalizeStoredClassificationLabel(classification: string | null | undefined): string | null {
+  const normalized = (classification ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes("pending")) return "Pending Review";
+  if (normalized.includes("extreme") || normalized.includes("critical")) return "Extreme";
+  if (normalized.includes("high")) return "High";
+  if (normalized.includes("moderate") || normalized.includes("medium")) return "Moderate";
+  if (normalized.includes("low")) return "Low";
   return null;
 }
 
@@ -145,6 +170,11 @@ function getModelOneDisplayClassification(input: {
   complianceLevel: string | null;
   storedClassification: string | null;
 }) {
+  const storedClassificationLabel = normalizeStoredClassificationLabel(input.storedClassification);
+  if (storedClassificationLabel) {
+    return storedClassificationLabel;
+  }
+
   const requiredLevels =
     input.kind === "partner"
       ? [input.securityLevel, input.privacyLevel, input.complianceLevel]
@@ -158,14 +188,12 @@ function getModelOneDisplayClassification(input: {
     input.kind === "partner"
       ? maxRisk(input.securityLevel, input.privacyLevel, input.complianceLevel)
       : maxRisk(input.securityLevel, input.privacyLevel);
-  const storedRisk = classificationToUiRisk(input.storedClassification);
-  const finalRisk =
-    storedRisk && compareRiskSeverity(storedRisk) > compareRiskSeverity(worstSectionRisk) ? storedRisk : worstSectionRisk;
+  const finalRisk = worstSectionRisk;
 
-  if (finalRisk === "Critical") return "Critical Risk";
-  if (finalRisk === "High") return "High Risk";
-  if (finalRisk === "Medium") return "Medium Risk";
-  return "Low Risk";
+  if (finalRisk === "Critical") return "Extreme";
+  if (finalRisk === "High") return "High";
+  if (finalRisk === "Medium") return "Moderate";
+  return "Low";
 }
 
 function mapDecisionRisk(level: string | null) {
@@ -965,6 +993,7 @@ export async function getVendorsList() {
     latest_response_count: number;
     latest_security_level: string | null;
     latest_privacy_level: string | null;
+    latest_classification: string | null;
     latest_decision_updated_at: string | null;
     open_assessments: number;
   };
@@ -992,6 +1021,7 @@ export async function getVendorsList() {
         latest_assessment.response_count AS latest_response_count,
         latest_decision.security_level AS latest_security_level,
         latest_decision.privacy_level AS latest_privacy_level,
+        latest_decision.classification AS latest_classification,
         latest_decision.updated_at AS latest_decision_updated_at,
         COUNT(a.id) FILTER (
           WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
@@ -1015,7 +1045,7 @@ export async function getVendorsList() {
         LIMIT 1
       ) latest_assessment ON true
       LEFT JOIN LATERAL (
-        SELECT security_level, privacy_level, updated_at
+        SELECT security_level, privacy_level, classification, updated_at
         FROM assessment_decisions ad
         WHERE ad.assessment_id = latest_assessment.id
         LIMIT 1
@@ -1031,6 +1061,7 @@ export async function getVendorsList() {
         latest_assessment.response_count,
         latest_decision.security_level,
         latest_decision.privacy_level,
+        latest_decision.classification,
         latest_decision.updated_at
       ORDER BY e.jira_issue_created_at DESC NULLS LAST, e.created_at DESC, e.name ASC
     `) as VendorListRow[];
@@ -1058,6 +1089,7 @@ export async function getVendorsList() {
         latest_assessment.response_count AS latest_response_count,
         latest_decision.security_level AS latest_security_level,
         latest_decision.privacy_level AS latest_privacy_level,
+        latest_decision.classification AS latest_classification,
         latest_decision.updated_at AS latest_decision_updated_at,
         COUNT(a.id) FILTER (
           WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
@@ -1081,7 +1113,7 @@ export async function getVendorsList() {
         LIMIT 1
       ) latest_assessment ON true
       LEFT JOIN LATERAL (
-        SELECT security_level, privacy_level, updated_at
+        SELECT security_level, privacy_level, classification, updated_at
         FROM assessment_decisions ad
         WHERE ad.assessment_id = latest_assessment.id
         LIMIT 1
@@ -1097,6 +1129,7 @@ export async function getVendorsList() {
         latest_assessment.response_count,
         latest_decision.security_level,
         latest_decision.privacy_level,
+        latest_decision.classification,
         latest_decision.updated_at
       ORDER BY e.created_at DESC, e.name ASC
     `) as VendorListRow[];
@@ -1121,8 +1154,16 @@ export async function getVendorsList() {
       row.latest_privacy_level,
       row.risk_level,
     );
-    const riskUi = finalRisk
-      ? riskClasses(finalRisk)
+    const riskLabel = getModelOneDisplayClassification({
+      kind: "vendor",
+      securityLevel: row.latest_security_level,
+      privacyLevel: row.latest_privacy_level,
+      complianceLevel: null,
+      storedClassification: row.latest_classification,
+    });
+    const mappedClassificationRisk = classificationToUiRisk(riskLabel);
+    const riskUi = mappedClassificationRisk
+      ? riskClasses(mappedClassificationRisk)
       : {
           riskClass: "text-slate-600",
           riskDot: "bg-slate-400",
@@ -1136,10 +1177,20 @@ export async function getVendorsList() {
       row.jira_form_data && typeof row.jira_form_data === "object" && !Array.isArray(row.jira_form_data)
         ? row.jira_form_data
         : null;
-    const jiraStatus =
-      typeof jiraFormData?.jiraStatus === "string" && jiraFormData.jiraStatus.trim()
-        ? jiraFormData.jiraStatus.trim()
-        : row.status_label ?? "-";
+    const normalizedWorkflowStatus = normalizeVendorWorkflowLabel(row.status_label);
+    const workflowStatusSource = row.latest_assessment_status ?? row.status;
+    const fallbackWorkflowStatus =
+      mapStatus(workflowStatusSource) === "completed"
+        ? "Concluido"
+        : mapStatus(workflowStatusSource) === "in_review"
+          ? "Red Team"
+          : mapStatus(workflowStatusSource) === "responded"
+            ? "Received Quest."
+            : mapStatus(workflowStatusSource) === "sent"
+              ? "Waiting vendor"
+              : "Opened";
+    const jiraStatus = normalizedWorkflowStatus ?? fallbackWorkflowStatus;
+    const redTeamStatus = jiraStatus === "Red Team" ? "Sent" : "Not Sent";
     const jiraCreatedAt =
       row.jira_issue_created_at ??
       (typeof jiraFormData?.jiraIssueCreatedAt === "string" ? jiraFormData.jiraIssueCreatedAt : null);
@@ -1160,14 +1211,14 @@ export async function getVendorsList() {
         row.latest_privacy_level,
         row.latest_security_level,
       ),
-      technicalReviewStatus: mapTechnicalReviewStatus(row.latest_assessment_status),
-      risk: finalRisk ?? "Pending",
+      technicalReviewStatus: redTeamStatus,
+      risk: riskLabel,
       privacyRisk: mapDecisionRisk(row.latest_privacy_level),
       securityRisk: mapDecisionRisk(row.latest_security_level),
       ...riskUi,
       openAssessments: row.open_assessments,
       owner: row.owner,
-      lastReview: formatDateNumeric(row.last_review_at),
+      lastReview: formatDateNumeric(referenceDate),
       referenceDate,
       activeAssessmentId: row.latest_assessment_id,
       activeAssessmentStatus: mapStatusNullable(row.latest_assessment_status),
@@ -2000,6 +2051,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     compliance_note: string | null;
     combined_score: number | string | null;
     classification: string | null;
+    selected_option: "APPROVED" | "APPROVED_WITH_RESTRICTIONS" | "REJECTED" | null;
+    conditions_for_approval: string | null;
+    mitigation_plan: string | null;
+    approval_expires_at: string | null;
     created_at: string | null;
     updated_at: string | null;
     finalized_at: string | null;
@@ -2026,6 +2081,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
           compliance_note,
           combined_score,
           classification,
+          selected_option::text,
+          conditions_for_approval,
+          mitigation_plan,
+          approval_expires_at::text,
           created_at,
           updated_at,
           finalized_at
@@ -2049,6 +2108,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
             compliance_note,
             combined_score,
             classification,
+            NULL::text AS selected_option,
+            NULL::text AS conditions_for_approval,
+            NULL::text AS mitigation_plan,
+            NULL::text AS approval_expires_at,
             created_at,
             updated_at,
             finalized_at
@@ -2076,6 +2139,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     }
     return acc;
   }, {});
+  const decisionFinalObservation = assessmentNoteRows.find((row) => row.section === "Decision")?.notes ?? "";
   const securityScore = normalizeDecimal(decision?.security_score);
   const privacyScore = normalizeDecimal(decision?.privacy_score);
   const complianceScore = normalizeDecimal(decision?.compliance_score);
@@ -2097,12 +2161,31 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
         })
       : [];
 
+  const hasCompletedDecision = Boolean(latestAssessment?.completed_at ?? decision?.finalized_at);
+  const storedWorkflowLabel = normalizeVendorWorkflowLabel(entity.status_label);
+  const sanitizedStoredWorkflowLabel =
+    !hasCompletedDecision && storedWorkflowLabel === "Concluido" ? null : storedWorkflowLabel;
+  const workflowStatusSource = latestAssessment?.status ?? entity.status;
+  const fallbackWorkflowLabel: VendorWorkflowLabel =
+    mapStatus(workflowStatusSource) === "completed"
+      ? "Concluido"
+      : mapStatus(workflowStatusSource) === "in_review"
+        ? "Red Team"
+        : mapStatus(workflowStatusSource) === "responded"
+          ? "Received Quest."
+          : mapStatus(workflowStatusSource) === "sent"
+            ? "Waiting vendor"
+            : "Opened";
+  const workflowLabel: VendorWorkflowLabel = hasCompletedDecision
+    ? "Concluido"
+    : sanitizedStoredWorkflowLabel ?? fallbackWorkflowLabel;
   const statusMode: EntityDetailData["statusMode"] =
-    mapStatus(entity.status) === "completed"
+    workflowLabel === "Concluido"
       ? "completed"
-      : mapStatus(entity.status) === "pending"
+      : workflowLabel === "Opened" || workflowLabel === "Waiting vendor"
         ? "pending"
         : "in_review";
+  const statusLabel = workflowLabel;
 
   const riskLevelToOverview = (level: string | null): RiskLevel => {
     if (!level) return "Low";
@@ -2243,7 +2326,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
         : undefined,
     },
     subtitle: entity.subtitle ?? (kind === "vendor" ? "Enterprise Vendor" : "Strategic Partner"),
-    statusLabel: entity.status_label ?? "In Progress",
+    statusLabel,
     statusMode,
     riskScore: headerRiskScore,
     internalQuestionnaire,
@@ -2318,6 +2401,12 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       },
       combinedScore: combinedScore?.toFixed(1) ?? "0.0",
       classification: effectiveClassification,
+      selectedOption: decision?.selected_option ?? "APPROVED_WITH_RESTRICTIONS",
+      conditionsForApproval: decision?.conditions_for_approval ?? "",
+      mitigationPlan: decision?.mitigation_plan ?? "",
+      approvalExpiresAt: decision?.approval_expires_at ?? "",
+      approvedFinalObservation: decisionFinalObservation,
+      finalizedAt: decision?.finalized_at ?? null,
     },
   };
 }

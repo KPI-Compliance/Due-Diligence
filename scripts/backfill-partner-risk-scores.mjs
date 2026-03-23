@@ -31,10 +31,10 @@ function toLevel(score, settings) {
 
 function toClassification(score, settings) {
   const level = toLevel(score, settings);
-  if (!level) return "Not classified";
-  if (level === "HIGH") return "High Risk";
-  if (level === "MEDIUM") return "Medium Risk";
-  return "Low Risk";
+  if (!level) return "Pending Review";
+  if (level === "HIGH") return "High";
+  if (level === "MEDIUM") return "Moderate";
+  return "Low";
 }
 
 function getSectionNote(section, bucket, score) {
