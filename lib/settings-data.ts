@@ -284,7 +284,24 @@ export async function getIntegrationSettings(): Promise<IntegrationSetting[]> {
     }>;
   } catch (error) {
     const code = (error as { code?: string })?.code;
-    if (code !== "42P01") {
+    if (code === "42703") {
+      rows = (await sql`
+        SELECT
+          provider::text,
+          enabled,
+          config,
+          NULL::text AS validation_status,
+          NULL::timestamptz AS last_validated_at
+        FROM integration_settings
+        ORDER BY provider::text
+      `) as Array<{
+        provider: IntegrationProvider;
+        enabled: boolean;
+        config: unknown;
+        validation_status: string | null;
+        last_validated_at: string | null;
+      }>;
+    } else if (code !== "42P01") {
       throw error;
     }
   }

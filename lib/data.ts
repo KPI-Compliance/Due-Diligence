@@ -1511,38 +1511,7 @@ export async function markAssessmentCompletedManually(assessmentId: string) {
 }
 
 export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: string): Promise<EntityDetailData | null> {
-  const entityRows = (await sql`
-    SELECT
-      e.id,
-      e.slug,
-      e.name,
-      e.jira_issue_key,
-      e.company_group,
-      e.subtitle,
-      e.status,
-      e.status_label,
-      e.risk_score,
-      e.category,
-      e.segment,
-      e.hq_location,
-      e.website,
-      e.contact_email,
-      e.description,
-      e.jira_form_data,
-      fp.full_name AS focal_name,
-      fp.role_title AS focal_role,
-      fp.area AS focal_area,
-      fp.email AS focal_email,
-      fp.phone AS focal_phone,
-      owner.full_name AS owner_name,
-      owner.email AS owner_email,
-      owner.role_title AS owner_role
-    FROM entities e
-    LEFT JOIN internal_focal_points fp ON fp.entity_id = e.id
-    LEFT JOIN users owner ON owner.id = e.owner_user_id
-    WHERE e.slug = ${slug} AND e.kind = ${kind.toUpperCase()}
-    LIMIT 1
-  `) as Array<{
+  const entityRowsType = [] as Array<{
     id: string;
     slug: string;
     name: string;
@@ -1568,6 +1537,120 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     owner_email: string | null;
     owner_role: string | null;
   }>;
+  let entityRows = entityRowsType;
+
+  try {
+    entityRows = (await sql`
+      SELECT
+        e.id,
+        e.slug,
+        e.name,
+        e.jira_issue_key,
+        e.company_group,
+        e.subtitle,
+        e.status,
+        e.status_label,
+        e.risk_score,
+        e.category,
+        e.segment,
+        e.hq_location,
+        e.website,
+        e.contact_email,
+        e.description,
+        e.jira_form_data,
+        fp.full_name AS focal_name,
+        fp.role_title AS focal_role,
+        fp.area AS focal_area,
+        fp.email AS focal_email,
+        fp.phone AS focal_phone,
+        owner.full_name AS owner_name,
+        owner.email AS owner_email,
+        owner.role_title AS owner_role
+      FROM entities e
+      LEFT JOIN internal_focal_points fp ON fp.entity_id = e.id
+      LEFT JOIN users owner ON owner.id = e.owner_user_id
+      WHERE e.slug = ${slug} AND e.kind = ${kind.toUpperCase()}
+      LIMIT 1
+    `) as typeof entityRows;
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code === "42703") {
+      try {
+        entityRows = (await sql`
+          SELECT
+            e.id,
+            e.slug,
+            e.name,
+            e.jira_issue_key,
+            e.company_group,
+            e.subtitle,
+            e.status,
+            e.status_label,
+            e.risk_score,
+            e.category,
+            e.segment,
+            e.hq_location,
+            e.website,
+            e.contact_email,
+            e.description,
+            '{}'::jsonb AS jira_form_data,
+            fp.full_name AS focal_name,
+            fp.role_title AS focal_role,
+            fp.area AS focal_area,
+            fp.email AS focal_email,
+            fp.phone AS focal_phone,
+            owner.full_name AS owner_name,
+            owner.email AS owner_email,
+            owner.role_title AS owner_role
+          FROM entities e
+          LEFT JOIN internal_focal_points fp ON fp.entity_id = e.id
+          LEFT JOIN users owner ON owner.id = e.owner_user_id
+          WHERE e.slug = ${slug} AND e.kind = ${kind.toUpperCase()}
+          LIMIT 1
+        `) as typeof entityRows;
+      } catch (nestedError) {
+        const nestedCode = (nestedError as { code?: string })?.code;
+        if (nestedCode === "42703") {
+          entityRows = (await sql`
+            SELECT
+              e.id,
+              e.slug,
+              e.name,
+              NULL::text AS jira_issue_key,
+              e.company_group,
+              e.subtitle,
+              e.status,
+              e.status_label,
+              e.risk_score,
+              e.category,
+              e.segment,
+              e.hq_location,
+              e.website,
+              e.contact_email,
+              e.description,
+              '{}'::jsonb AS jira_form_data,
+              fp.full_name AS focal_name,
+              fp.role_title AS focal_role,
+              fp.area AS focal_area,
+              fp.email AS focal_email,
+              fp.phone AS focal_phone,
+              owner.full_name AS owner_name,
+              owner.email AS owner_email,
+              owner.role_title AS owner_role
+            FROM entities e
+            LEFT JOIN internal_focal_points fp ON fp.entity_id = e.id
+            LEFT JOIN users owner ON owner.id = e.owner_user_id
+            WHERE e.slug = ${slug} AND e.kind = ${kind.toUpperCase()}
+            LIMIT 1
+          `) as typeof entityRows;
+        } else {
+          throw nestedError;
+        }
+      }
+    } else {
+      throw error;
+    }
+  }
 
   const entity = entityRows[0];
   if (!entity) return null;
