@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import {
   extractCompanyNameFromTypeformAnswers,
+  extractRespondentEmailFromTypeformAnswers,
   extractTicketFromTypeformAnswers,
   normalizeAssessmentId,
   normalizeTypeformAnswers,
@@ -62,6 +63,10 @@ function normalizeComparable(value: string | undefined) {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
+}
+
+function normalizeEmail(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
 }
 
 export async function POST(request: Request) {
@@ -190,7 +195,7 @@ export async function POST(request: Request) {
       }
 
       const entityRows = (await sql`
-        SELECT e.id::text, e.kind::text AS entity_kind, e.name, e.jira_issue_key
+        SELECT e.id::text, e.kind::text AS entity_kind, e.name, e.jira_issue_key, e.contact_email
         FROM entities e
         WHERE ${formMapping.entity_kind ?? null}::text IS NULL OR e.kind = ${formMapping.entity_kind ?? null}::entity_kind
       `) as Array<{
@@ -198,19 +203,35 @@ export async function POST(request: Request) {
         entity_kind: "VENDOR" | "PARTNER";
         name: string;
         jira_issue_key: string | null;
+        contact_email: string | null;
       }>;
 
       const normalizedCompanyName = normalizeComparable(companyName);
       const normalizedTicket = normalizeComparable(jiraTicket ?? "");
+      const respondentEmail = normalizeEmail(extractRespondentEmailFromTypeformAnswers(payload.form_response?.answers));
+
+      const normalizeEntityName = (name: string) => normalizeComparable(name);
+      const byCompanyAndTicket = entityRows.find(
+        (row) =>
+          normalizeEntityName(row.name) === normalizedCompanyName &&
+          normalizedTicket &&
+          normalizeComparable(row.jira_issue_key ?? "") === normalizedTicket,
+      );
+      const byCompanyExact = entityRows.find((row) => normalizeEntityName(row.name) === normalizedCompanyName);
+      const byRespondentEmail =
+        respondentEmail && respondentEmail.includes("@")
+          ? entityRows.find((row) => normalizeEmail(row.contact_email) === respondentEmail)
+          : null;
+      const byCompanyFuzzy = entityRows.find((row) => {
+        const candidate = normalizeEntityName(row.name);
+        return candidate.includes(normalizedCompanyName) || normalizedCompanyName.includes(candidate);
+      });
 
       const matchedEntity =
-        entityRows.find(
-          (row) =>
-            normalizeComparable(row.name) === normalizedCompanyName &&
-            normalizedTicket &&
-            normalizeComparable(row.jira_issue_key ?? "") === normalizedTicket,
-        ) ??
-        entityRows.find((row) => normalizeComparable(row.name) === normalizedCompanyName);
+        byCompanyAndTicket ??
+        byCompanyExact ??
+        byRespondentEmail ??
+        byCompanyFuzzy;
 
       if (!matchedEntity) {
         return NextResponse.json(
@@ -237,10 +258,21 @@ export async function POST(request: Request) {
       assessmentId = assessmentRowsByEntity[0]?.id ?? null;
 
       if (!assessmentId) {
-        return NextResponse.json(
-          { ok: false, message: `No assessment found for entity "${matchedEntity.name}".` },
-          { status: 404 },
-        );
+        const createdAssessments = (await sql`
+          INSERT INTO assessments (entity_id, title, status)
+          VALUES (
+            ${matchedEntity.id}::uuid,
+            ${`External Questionnaire - ${matchedEntity.name}`},
+            'PENDING'
+          )
+          RETURNING id::text
+        `) as Array<{ id: string }>;
+
+        assessmentId = createdAssessments[0]?.id ?? null;
+      }
+
+      if (!assessmentId) {
+        return NextResponse.json({ ok: false, message: `Failed to create assessment for "${matchedEntity.name}".` }, { status: 500 });
       }
     }
 

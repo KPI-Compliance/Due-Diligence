@@ -263,6 +263,17 @@ export function extractTicketFromTypeformAnswers(answers: TypeformAnswer[] | und
   return findAnswerByQuestionCandidates(answers, ticketQuestionCandidates);
 }
 
+export function extractRespondentEmailFromTypeformAnswers(answers: TypeformAnswer[] | undefined) {
+  if (!answers?.length) return null;
+
+  for (const answer of answers) {
+    const email = typeof answer.email === "string" ? answer.email.trim() : "";
+    if (email) return email;
+  }
+
+  return null;
+}
+
 export function normalizeAssessmentId(
   hidden: Record<string, string> | undefined,
   preferredField = "assessment_id",
