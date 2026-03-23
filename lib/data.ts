@@ -1571,26 +1571,8 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
 
   const entity = entityRows[0];
   if (!entity) return null;
-  const [integrationSettings, assessments, breakdownRows, timelineRows] = await Promise.all([
+  const [integrationSettings, breakdownRows, timelineRows] = await Promise.all([
     getIntegrationSettings(),
-    sql`
-      SELECT id, status, risk_level, created_at, completed_at, typeform_response_token, typeform_form_id, typeform_submitted_at
-      FROM assessments
-      WHERE entity_id = ${entity.id}
-      ORDER BY created_at DESC
-      LIMIT 1
-    ` as Promise<
-      Array<{
-        id: string;
-        status: string;
-        risk_level: string | null;
-        created_at: string;
-        completed_at: string | null;
-        typeform_response_token: string | null;
-        typeform_form_id: string | null;
-        typeform_submitted_at: string | null;
-      }>
-    >,
     sql`
       SELECT dimension, score, level
       FROM entity_risk_breakdowns
@@ -1604,6 +1586,47 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       ORDER BY sort_order ASC
     ` as Promise<Array<{ title: string; note: string | null; event_at: string | null; is_current: boolean }>>,
   ]);
+  let assessments: Array<{
+    id: string;
+    status: string;
+    risk_level: string | null;
+    created_at: string;
+    completed_at: string | null;
+    typeform_response_token: string | null;
+    typeform_form_id: string | null;
+    typeform_submitted_at: string | null;
+  }> = [];
+
+  try {
+    assessments = (await sql`
+      SELECT id, status, risk_level, created_at, completed_at, typeform_response_token, typeform_form_id, typeform_submitted_at
+      FROM assessments
+      WHERE entity_id = ${entity.id}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `) as typeof assessments;
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code === "42703") {
+      assessments = (await sql`
+        SELECT
+          id,
+          status,
+          risk_level,
+          created_at,
+          completed_at,
+          typeform_response_token,
+          typeform_form_id,
+          NULL::timestamptz AS typeform_submitted_at
+        FROM assessments
+        WHERE entity_id = ${entity.id}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `) as typeof assessments;
+    } else {
+      throw error;
+    }
+  }
   const jiraSetting = getSetting<JiraConfig>(integrationSettings, "JIRA");
   const jiraBaseUrl = jiraSetting?.enabled ? jiraSetting.config.base_url.trim().replace(/\/$/, "") : "";
   const jiraTicketHref = entity.jira_issue_key && jiraBaseUrl ? `${jiraBaseUrl}/browse/${encodeURIComponent(entity.jira_issue_key)}` : null;

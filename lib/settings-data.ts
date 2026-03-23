@@ -359,6 +359,49 @@ export async function upsertIntegrationSetting(
 }
 
 export async function getTypeformForms(): Promise<TypeformFormItem[]> {
+  const mapRows = (
+    rows: Array<{
+      id: string;
+      name: string;
+      form_id: string;
+      entity_kind: "VENDOR" | "PARTNER" | null;
+      workflow: string;
+      hidden_assessment_field: string;
+      section_rules: unknown;
+      enabled: boolean;
+    }>,
+  ): TypeformFormItem[] =>
+    rows.map((row) => {
+      const normalizedKind: TypeformFormItem["entity_kind"] =
+        row.entity_kind === "VENDOR" || row.entity_kind === "PARTNER" ? row.entity_kind : "ANY";
+
+      return {
+        ...row,
+        entity_kind: normalizedKind,
+        section_rules:
+          row.section_rules && typeof row.section_rules === "object"
+            ? {
+                compliance: {
+                  start: String((row.section_rules as Record<string, unknown>)?.compliance && typeof (row.section_rules as Record<string, unknown>).compliance === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).compliance?.start ?? "") : ""),
+                  end: String((row.section_rules as Record<string, unknown>)?.compliance && typeof (row.section_rules as Record<string, unknown>).compliance === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).compliance?.end ?? "") : ""),
+                },
+                privacy: {
+                  start: String((row.section_rules as Record<string, unknown>)?.privacy && typeof (row.section_rules as Record<string, unknown>).privacy === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).privacy?.start ?? "") : ""),
+                  end: String((row.section_rules as Record<string, unknown>)?.privacy && typeof (row.section_rules as Record<string, unknown>).privacy === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).privacy?.end ?? "") : ""),
+                },
+                security: {
+                  start: String((row.section_rules as Record<string, unknown>)?.security && typeof (row.section_rules as Record<string, unknown>).security === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).security?.start ?? "") : ""),
+                  end: String((row.section_rules as Record<string, unknown>)?.security && typeof (row.section_rules as Record<string, unknown>).security === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).security?.end ?? "") : ""),
+                },
+              }
+            : {
+                compliance: { start: "", end: "" },
+                privacy: { start: "", end: "" },
+                security: { start: "", end: "" },
+              },
+      };
+    });
+
   try {
     const rows = (await sql`
       SELECT id::text, name, form_id, entity_kind::text, workflow, hidden_assessment_field, section_rules, enabled
@@ -375,35 +418,37 @@ export async function getTypeformForms(): Promise<TypeformFormItem[]> {
       enabled: boolean;
     }>;
 
-    return rows.map((row) => ({
-      ...row,
-      entity_kind: row.entity_kind ?? "ANY",
-      section_rules:
-        row.section_rules && typeof row.section_rules === "object"
-          ? {
-              compliance: {
-                start: String((row.section_rules as Record<string, unknown>)?.compliance && typeof (row.section_rules as Record<string, unknown>).compliance === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).compliance?.start ?? "") : ""),
-                end: String((row.section_rules as Record<string, unknown>)?.compliance && typeof (row.section_rules as Record<string, unknown>).compliance === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).compliance?.end ?? "") : ""),
-              },
-              privacy: {
-                start: String((row.section_rules as Record<string, unknown>)?.privacy && typeof (row.section_rules as Record<string, unknown>).privacy === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).privacy?.start ?? "") : ""),
-                end: String((row.section_rules as Record<string, unknown>)?.privacy && typeof (row.section_rules as Record<string, unknown>).privacy === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).privacy?.end ?? "") : ""),
-              },
-              security: {
-                start: String((row.section_rules as Record<string, unknown>)?.security && typeof (row.section_rules as Record<string, unknown>).security === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).security?.start ?? "") : ""),
-                end: String((row.section_rules as Record<string, unknown>)?.security && typeof (row.section_rules as Record<string, unknown>).security === "object" ? ((row.section_rules as Record<string, { start?: string; end?: string }>).security?.end ?? "") : ""),
-              },
-            }
-          : {
-              compliance: { start: "", end: "" },
-              privacy: { start: "", end: "" },
-              security: { start: "", end: "" },
-            },
-    }));
+    return mapRows(rows);
   } catch (error) {
     const code = (error as { code?: string })?.code;
     if (code === "42P01") {
       return [];
+    }
+    if (code === "42703") {
+      const legacyRows = (await sql`
+        SELECT
+          id::text,
+          name,
+          form_id,
+          entity_kind::text,
+          workflow,
+          hidden_assessment_field,
+          '{}'::jsonb AS section_rules,
+          enabled
+        FROM typeform_forms
+        ORDER BY created_at DESC
+      `) as Array<{
+        id: string;
+        name: string;
+        form_id: string;
+        entity_kind: "VENDOR" | "PARTNER" | null;
+        workflow: string;
+        hidden_assessment_field: string;
+        section_rules: unknown;
+        enabled: boolean;
+      }>;
+
+      return mapRows(legacyRows);
     }
     throw error;
   }
