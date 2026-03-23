@@ -132,7 +132,17 @@ function readSessionToken(token: string | undefined): SessionReadResult {
     return { session: null, reason: "malformed_token" };
   }
 
-  if (sign(encodedPayload) !== signature) {
+  let expectedSignature: string;
+  try {
+    expectedSignature = sign(encodedPayload);
+  } catch (error) {
+    console.error("[auth] failed to validate session signature", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return { session: null, reason: "invalid_signature" };
+  }
+
+  if (expectedSignature !== signature) {
     return { session: null, reason: "invalid_signature" };
   }
 
@@ -260,7 +270,14 @@ export async function getAuthenticatedSession() {
 
 export async function getAuthenticatedSessionResult(): Promise<SessionReadResult> {
   const cookieStore = await cookies();
-  return readSessionToken(cookieStore.get(SESSION_COOKIE)?.value);
+  try {
+    return readSessionToken(cookieStore.get(SESSION_COOKIE)?.value);
+  } catch (error) {
+    console.error("[auth] failed to read authenticated session", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return { session: null, reason: "invalid_payload" };
+  }
 }
 
 export async function refreshAuthenticatedSession(session: SessionPayload) {
