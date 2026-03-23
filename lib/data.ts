@@ -214,6 +214,84 @@ function mapPartnerQuestionSection(section: string | null | undefined): "Common"
   return "Unclassified";
 }
 
+function mapVendorQuestionSection(input: {
+  question: string;
+  domain: string;
+  formName?: string | null;
+}): "Common" | "Privacy" | "Security" {
+  const normalizedQuestion = normalizeLooseLookup(input.question);
+  const normalizedDomain = normalizeLooseLookup(input.domain);
+  const normalizedFormName = normalizeLooseLookup(input.formName ?? "");
+
+  const commonHints = [
+    "company name",
+    "nome da empresa",
+    "email",
+    "e mail",
+    "website",
+    "site",
+    "contato",
+    "contact",
+    "cap number",
+    "language",
+    "idioma",
+  ];
+  if (commonHints.some((hint) => normalizedQuestion.includes(hint))) {
+    return "Common";
+  }
+
+  const privacyHints = [
+    "privacy",
+    "privacidade",
+    "personal data",
+    "dados pessoais",
+    "lgpd",
+    "gdpr",
+    "data subject",
+    "consent",
+    "retention",
+    "dpo",
+    "data protection",
+  ];
+  if (
+    privacyHints.some((hint) => normalizedQuestion.includes(hint) || normalizedDomain.includes(hint)) ||
+    (normalizedFormName.includes("privacy") && !normalizedFormName.includes("security"))
+  ) {
+    return "Privacy";
+  }
+
+  const securityHints = [
+    "security",
+    "seguranca",
+    "infosec",
+    "vulnerability",
+    "vulnerabilidade",
+    "incident",
+    "incidente",
+    "encryption",
+    "criptografia",
+    "backup",
+    "firewall",
+    "soc",
+    "iso 27001",
+    "access control",
+    "mfa",
+    "pentest",
+  ];
+  if (
+    securityHints.some((hint) => normalizedQuestion.includes(hint) || normalizedDomain.includes(hint)) ||
+    (normalizedFormName.includes("security") && !normalizedFormName.includes("privacy"))
+  ) {
+    return "Security";
+  }
+
+  if (normalizedFormName.includes("security") && normalizedFormName.includes("privacy")) {
+    return normalizedQuestion.includes("privacy") || normalizedQuestion.includes("dados pessoais") ? "Privacy" : "Security";
+  }
+
+  return "Common";
+}
+
 function normalizePartnerQuestionLookup(value: string | null | undefined) {
   return normalizeLooseLookup(value);
 }
@@ -1872,13 +1950,25 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
         }>)
       : [];
 
-    finalQuestions = questions.map((q) => ({
-      domain: q.domain,
-      status: q.review_status.toLowerCase() === "needs_review" ? ("needs_review" as const) : ("compliant" as const),
-      question: q.question_text,
-      answer: q.answer_text ?? "No answer provided.",
-      source: "database" as const,
-    }));
+    finalQuestions = questions.map((q) => {
+      const section =
+        kind === "vendor"
+          ? mapVendorQuestionSection({
+              question: q.question_text,
+              domain: q.domain,
+              formName: resolvedTypeformFormName ?? resolvedTypeformFormId,
+            })
+          : undefined;
+
+      return {
+        domain: q.domain,
+        section,
+        status: q.review_status.toLowerCase() === "needs_review" ? ("needs_review" as const) : ("compliant" as const),
+        question: q.question_text,
+        answer: q.answer_text ?? "No answer provided.",
+        source: "database" as const,
+      };
+    });
   }
 
   let decisionRows: Array<{

@@ -16,6 +16,7 @@ type TypeformResponseItem = {
   token?: string;
   submitted_at?: string;
   answers?: TypeformAnswer[];
+  hidden?: Record<string, string | number | boolean | null | undefined>;
 };
 
 type TypeformResponsesApiResponse = {
@@ -30,6 +31,7 @@ type PartnerFormMappingRow = {
   id?: string;
   form_id: string;
   name: string;
+  hidden_assessment_field?: string | null;
   entity_kind?: "VENDOR" | "PARTNER" | null;
   section_rules?: {
     compliance?: { start?: string; end?: string };
@@ -190,6 +192,11 @@ function compareResponseDistance(candidate: TypeformResponseItem, referenceTimes
   }
 
   return Math.abs(submittedAt - referenceTimestamp);
+}
+
+function normalizeComparableToken(value: string | number | boolean | null | undefined) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim().toLowerCase();
 }
 
 async function getTypeformFormFields(formId: string, token: string) {
@@ -368,7 +375,7 @@ async function insertPartnerFormRow(input: {
 
 async function getExternalFormMappings(kind: "VENDOR" | "PARTNER", formId?: string | null) {
   return (await sql`
-    SELECT id::text, form_id, name, entity_kind::text, section_rules
+    SELECT id::text, form_id, name, hidden_assessment_field, entity_kind::text, section_rules
     FROM typeform_forms
     WHERE enabled = true
       AND workflow = 'external_questionnaire'
@@ -496,12 +503,28 @@ export async function syncExternalQuestionnaireForEntity(input: {
       message: "Scanning Typeform responses for entity name match.",
       payload: { response_count: payload.items?.length ?? 0 },
     });
-    const candidate =
-      payload.items
-        ?.map((item) => ({
-          ...item,
-          answers: sortTypeformAnswersByFieldDefinitions(applyTypeformFieldDefinitions(item.answers, formFields), formFields),
-        }))
+    const configuredHiddenField = normalizeComparableToken(form.hidden_assessment_field ?? "assessment_id");
+    const hiddenFieldCandidates = [configuredHiddenField, "assessment_id"].filter(Boolean);
+    const targetAssessmentId = normalizeComparableToken(assessment.id);
+
+    const normalizedItems =
+      payload.items?.map((item) => ({
+        ...item,
+        answers: sortTypeformAnswersByFieldDefinitions(applyTypeformFieldDefinitions(item.answers, formFields), formFields),
+      })) ?? [];
+
+    const byHiddenAssessment = normalizedItems
+      .filter((item) => {
+        if (!item.hidden || typeof item.hidden !== "object") return false;
+        return hiddenFieldCandidates.some((fieldName) => {
+          const hiddenValue = normalizeComparableToken(item.hidden?.[fieldName]);
+          return Boolean(hiddenValue) && hiddenValue === targetAssessmentId;
+        });
+      })
+      .sort((a, b) => Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? ""))[0] ?? null;
+
+    const byCompanyName =
+      normalizedItems
         .filter((item) => normalizeComparable(extractCompanyNameFromTypeformAnswers(item.answers) ?? undefined) === targetName)
         .sort((a, b) => {
           if (!Number.isNaN(jiraCreatedTimestamp)) {
@@ -510,6 +533,8 @@ export async function syncExternalQuestionnaireForEntity(input: {
 
           return Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? "");
         })[0] ?? null;
+
+    const candidate = byHiddenAssessment ?? byCompanyName;
 
     if (!candidate) continue;
 
