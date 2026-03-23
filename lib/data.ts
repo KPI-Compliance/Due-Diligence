@@ -3,6 +3,7 @@ import type { DetailTabKey, EntityDetailData, RiskLevel } from "@/lib/entity-det
 import { readInternalQuestionnaireFromGoogleSheets } from "@/lib/google-sheets";
 import { normalizeLooseLookup } from "@/lib/normalization";
 import { getIntegrationSettings, getTypeformForms, type JiraConfig } from "@/lib/settings-data";
+import { syncExternalQuestionnaireForEntity } from "@/lib/typeform-sync";
 
 type UiStatus = "pending" | "sent" | "responded" | "in_review" | "completed";
 
@@ -1820,7 +1821,41 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     typeof jiraFormData.vtexResponsibleEmail === "string" ? jiraFormData.vtexResponsibleEmail : entity.owner_email,
   );
 
-  const latestAssessment = assessments[0];
+  let latestAssessment = assessments[0];
+
+  // Safety net for production: if webhook delivery was missed, try a direct Typeform sync
+  // when opening vendor detail so the questionnaire appears as soon as a response exists.
+  if (
+    kind === "vendor" &&
+    latestAssessment &&
+    (!latestAssessment.typeform_response_token ||
+      latestAssessment.status === "PENDING" ||
+      latestAssessment.status === "SENT")
+  ) {
+    try {
+      await syncExternalQuestionnaireForEntity({
+        entityId: entity.id,
+        entityName: entity.name,
+        entityKind: "VENDOR",
+        jiraIssueKey: entity.jira_issue_key,
+        formId: latestAssessment.typeform_form_id,
+      });
+
+      const refreshedAssessments = (await sql`
+        SELECT id, status, risk_level, created_at, completed_at, typeform_response_token, typeform_form_id, typeform_submitted_at
+        FROM assessments
+        WHERE entity_id = ${entity.id}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `) as typeof assessments;
+      latestAssessment = refreshedAssessments[0] ?? latestAssessment;
+    } catch (error) {
+      console.warn(
+        `[data] vendor auto-sync failed for ${entity.slug}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
   const initialTypeformFormRows =
     latestAssessment?.typeform_form_id
       ? ((await sql`
