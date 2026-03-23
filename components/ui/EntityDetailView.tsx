@@ -812,8 +812,8 @@ export function EntityDetailView({
                 <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">Timeline</h3>
                 <div className="relative ml-2 space-y-8">
                   <div className="absolute bottom-0 left-[11px] top-0 w-px bg-[var(--color-neutral-200)]" />
-                  {detail.overview.timeline.map((item) => (
-                    <div key={item.title} className="relative flex gap-4">
+                  {detail.overview.timeline.map((item, index) => (
+                    <div key={`${item.title}-${item.date}-${index}`} className="relative flex gap-4">
                       <div className="z-10 mt-0.5 flex h-6 w-6 items-center justify-center rounded-full border border-white bg-[var(--color-primary)] text-[10px] text-white shadow-sm">
                         {item.current ? <span className="h-2 w-2 animate-pulse rounded-full bg-white" /> : "✓"}
                       </div>

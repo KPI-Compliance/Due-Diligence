@@ -3,7 +3,6 @@ import type { DetailTabKey, EntityDetailData, RiskLevel } from "@/lib/entity-det
 import { readInternalQuestionnaireFromGoogleSheets } from "@/lib/google-sheets";
 import { normalizeLooseLookup } from "@/lib/normalization";
 import { getIntegrationSettings, getTypeformForms, type JiraConfig } from "@/lib/settings-data";
-import { syncExternalQuestionnaireForEntity } from "@/lib/typeform-sync";
 
 type UiStatus = "pending" | "sent" | "responded" | "in_review" | "completed";
 
@@ -1763,6 +1762,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     risk_level: string | null;
     created_at: string;
     completed_at: string | null;
+    responded_at: string | null;
     typeform_response_token: string | null;
     typeform_form_id: string | null;
     typeform_submitted_at: string | null;
@@ -1770,7 +1770,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
 
   try {
     assessments = (await sql`
-      SELECT id, status, risk_level, created_at, completed_at, typeform_response_token, typeform_form_id, typeform_submitted_at
+      SELECT id, status, risk_level, created_at, completed_at, responded_at, typeform_response_token, typeform_form_id, typeform_submitted_at
       FROM assessments
       WHERE entity_id = ${entity.id}
       ORDER BY created_at DESC
@@ -1786,6 +1786,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
           risk_level,
           created_at,
           completed_at,
+          NULL::timestamptz AS responded_at,
           typeform_response_token,
           typeform_form_id,
           NULL::timestamptz AS typeform_submitted_at
@@ -1814,9 +1815,8 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   const vendorPriority = cleanOverviewValue(
     typeof jiraFormData.priority === "string" ? jiraFormData.priority : null,
   );
-  const vendorCompany = cleanOverviewValue(
-    typeof jiraFormData.company === "string" ? jiraFormData.company : entity.company_group,
-  );
+  // Keep company consistent with Vendors list ("Grupo Empresarial"), which comes from entities.company_group.
+  const vendorCompany = cleanOverviewValue(entity.company_group);
   const vendorCapNumber = cleanOverviewValue(
     typeof jiraFormData.capNumber === "string" ? jiraFormData.capNumber : null,
   );
@@ -1830,41 +1830,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     typeof jiraFormData.vtexResponsibleEmail === "string" ? jiraFormData.vtexResponsibleEmail : entity.owner_email,
   );
 
-  let latestAssessment = assessments[0];
-
-  // Safety net for production: if webhook delivery was missed, try a direct Typeform sync
-  // when opening vendor detail so the questionnaire appears as soon as a response exists.
-  if (
-    kind === "vendor" &&
-    latestAssessment &&
-    (!latestAssessment.typeform_response_token ||
-      latestAssessment.status === "PENDING" ||
-      latestAssessment.status === "SENT")
-  ) {
-    try {
-      await syncExternalQuestionnaireForEntity({
-        entityId: entity.id,
-        entityName: entity.name,
-        entityKind: "VENDOR",
-        jiraIssueKey: entity.jira_issue_key,
-        formId: latestAssessment.typeform_form_id,
-      });
-
-      const refreshedAssessments = (await sql`
-        SELECT id, status, risk_level, created_at, completed_at, typeform_response_token, typeform_form_id, typeform_submitted_at
-        FROM assessments
-        WHERE entity_id = ${entity.id}
-        ORDER BY created_at DESC
-        LIMIT 1
-      `) as typeof assessments;
-      latestAssessment = refreshedAssessments[0] ?? latestAssessment;
-    } catch (error) {
-      console.warn(
-        `[data] vendor auto-sync failed for ${entity.slug}:`,
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
+  const latestAssessment = assessments[0];
   const initialTypeformFormRows =
     latestAssessment?.typeform_form_id
       ? ((await sql`
@@ -2225,6 +2191,36 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
             }));
         })()
       : [];
+  const baseTimeline = timelineRows.map((t) => ({
+    title: t.title,
+    date: t.event_at ? formatDate(t.event_at) : "-",
+    note: t.note ?? "",
+    current: t.is_current,
+  }));
+  const vendorTimeline =
+    kind === "vendor"
+      ? (() => {
+          const respondedAt = latestAssessment?.typeform_submitted_at ?? latestAssessment?.responded_at ?? null;
+          if (!respondedAt) {
+            return baseTimeline;
+          }
+
+          const responseEvent = {
+            title: "Questionário externo respondido",
+            date: formatDate(respondedAt),
+            note: "O vendor concluiu o questionário externo no Typeform.",
+            current: false,
+          };
+          const hasResponseEvent = baseTimeline.some(
+            (item) => item.title.trim().toLowerCase() === responseEvent.title.toLowerCase(),
+          );
+          if (hasResponseEvent) {
+            return baseTimeline;
+          }
+
+          return [responseEvent, ...baseTimeline];
+        })()
+      : [];
 
   return {
     id: entity.slug,
@@ -2291,13 +2287,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       timeline:
         partnerTimeline.length > 0
           ? partnerTimeline
-          : timelineRows.length > 0
-          ? timelineRows.map((t) => ({
-              title: t.title,
-              date: t.event_at ? formatDate(t.event_at) : "-",
-              note: t.note ?? "",
-              current: t.is_current,
-            }))
+          : vendorTimeline.length > 0
+          ? vendorTimeline
+          : baseTimeline.length > 0
+          ? baseTimeline
           : [
               {
                 title: "No timeline events",

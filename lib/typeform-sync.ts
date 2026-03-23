@@ -19,6 +19,28 @@ type TypeformResponseItem = {
   hidden?: Record<string, string | number | boolean | null | undefined>;
 };
 
+async function dedupeAssessmentQuestionResponses(assessmentId: string) {
+  await sql`
+    WITH ranked AS (
+      SELECT
+        ctid,
+        ROW_NUMBER() OVER (
+          PARTITION BY
+            assessment_id,
+            lower(trim(question_text)),
+            COALESCE(answer_text, '')
+          ORDER BY created_at ASC, ctid ASC
+        ) AS rn
+      FROM assessment_question_responses
+      WHERE assessment_id = ${assessmentId}::uuid
+    )
+    DELETE FROM assessment_question_responses target
+    USING ranked
+    WHERE target.ctid = ranked.ctid
+      AND ranked.rn > 1
+  `;
+}
+
 type TypeformResponsesApiResponse = {
   items?: TypeformResponseItem[];
 };
@@ -645,6 +667,8 @@ export async function syncExternalQuestionnaireForEntity(input: {
       });
     }
   }
+
+  await dedupeAssessmentQuestionResponses(assessment.id);
 
   await logTypeformSyncDiagnostic({
     source: "entity_sync",
