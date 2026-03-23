@@ -26,6 +26,9 @@ type IntegrationsSettingsProps = {
   jiraTokenConfigured: boolean;
   jiraWebhookSecretConfigured: boolean;
   slackTokenConfigured: boolean;
+  googleWorkspaceCredentialsConfigured: boolean;
+  googleWorkspaceImpersonatedConfigured: boolean;
+  emailReplyToConfigured: boolean;
   saveTypeformSettings: (formData: FormData) => Promise<void>;
   saveTypeformForm: (formData: FormData) => Promise<void>;
   deleteTypeformForm: (formData: FormData) => Promise<void>;
@@ -65,6 +68,9 @@ export function IntegrationsSettings({
   jiraTokenConfigured,
   jiraWebhookSecretConfigured,
   slackTokenConfigured,
+  googleWorkspaceCredentialsConfigured,
+  googleWorkspaceImpersonatedConfigured,
+  emailReplyToConfigured,
   saveTypeformSettings,
   saveTypeformForm,
   deleteTypeformForm,
@@ -101,6 +107,8 @@ export function IntegrationsSettings({
   const [googleWorksheetDrafts, setGoogleWorksheetDrafts] = useState<string[]>(
     googleSheets.config.spreadsheets.length > 0 ? googleSheets.config.spreadsheets.map(() => "") : [""],
   );
+  const senderConfigured = Boolean(typeform.config.sender_email?.trim()) || googleWorkspaceImpersonatedConfigured;
+  const emailDeliveryReady = typeform.enabled && googleWorkspaceCredentialsConfigured && senderConfigured;
 
   async function copyToClipboard(value: string, successMessage: string) {
     try {
@@ -646,6 +654,48 @@ export function IntegrationsSettings({
                       <dd className="font-mono text-xs font-semibold text-[var(--color-text)]">{typeform.config.default_hidden_assessment_field || "assessment_id"}</dd>
                     </div>
                   </dl>
+                </section>
+
+                <section className={`${modalPanelClass} p-6`}>
+                  <h4 className="mb-4 font-bold text-[var(--color-text)]">Status de Envio por E-mail</h4>
+                  <div className={`flex items-center gap-4 rounded-lg border p-4 ${emailDeliveryReady ? "border-emerald-100 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-full text-white ${emailDeliveryReady ? "bg-emerald-500" : "bg-amber-500"}`}>
+                      ✉
+                    </div>
+                    <div>
+                      <p className={`text-sm font-bold ${emailDeliveryReady ? "text-emerald-700" : "text-amber-700"}`}>
+                        {emailDeliveryReady ? "Pronto para envio" : "Configuração pendente"}
+                      </p>
+                      <p className={`text-xs ${emailDeliveryReady ? "text-emerald-700/80" : "text-amber-700/80"}`}>
+                        {emailDeliveryReady
+                          ? "A aplicação possui credenciais e remetente para enviar o questionário externo."
+                          : "Revise os itens abaixo antes de testar o envio para vendors."}
+                      </p>
+                    </div>
+                  </div>
+                  <dl className="mt-4 space-y-3 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="text-[var(--color-neutral-600)]">Credencial Google Workspace</dt>
+                      <dd className={`font-semibold ${googleWorkspaceCredentialsConfigured ? "text-emerald-700" : "text-amber-700"}`}>
+                        {googleWorkspaceCredentialsConfigured ? "OK" : "Faltando GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON/FILE"}
+                      </dd>
+                    </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="text-[var(--color-neutral-600)]">Remetente para impersonation</dt>
+                      <dd className={`font-semibold ${senderConfigured ? "text-emerald-700" : "text-amber-700"}`}>
+                        {senderConfigured ? "OK" : "Preencha sender_email ou GOOGLE_WORKSPACE_IMPERSONATED_USER"}
+                      </dd>
+                    </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="text-[var(--color-neutral-600)]">Reply-To (opcional)</dt>
+                      <dd className={`font-semibold ${emailReplyToConfigured ? "text-emerald-700" : "text-[var(--color-neutral-600)]"}`}>
+                        {emailReplyToConfigured ? "Configurado" : "Não configurado"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <p className="mt-3 text-xs text-[var(--color-neutral-600)]">
+                    Escopo necessário no Admin Google: <code>https://www.googleapis.com/auth/gmail.send</code>.
+                  </p>
                 </section>
 
                 <section className="group relative overflow-hidden rounded-xl bg-[var(--color-text)] p-6 text-white shadow-sm">

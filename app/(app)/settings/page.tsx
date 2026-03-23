@@ -29,6 +29,7 @@ import {
   upsertPlatformSettings,
 } from "@/lib/platform-settings";
 import { recalculateAllPartnerAssessmentDecisions } from "@/lib/partner-risk-scoring";
+import { backfillExternalQuestionnaireForQueueTickets } from "@/lib/typeform-sync";
 
 type UserRow = {
   initials: string;
@@ -73,6 +74,13 @@ const typeformApiTokenConfigured = Boolean(process.env.TYPEFORM_API_TOKEN ?? pro
 const jiraTokenConfigured = Boolean(process.env.JIRA_API_TOKEN);
 const jiraWebhookSecretConfigured = Boolean(process.env.JIRA_WEBHOOK_SECRET);
 const slackTokenConfigured = Boolean(process.env.SLACK_BOT_TOKEN);
+const googleWorkspaceCredentialsConfigured = Boolean(
+  process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON?.trim() || process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_FILE?.trim(),
+);
+const googleWorkspaceImpersonatedConfigured = Boolean(
+  process.env.GOOGLE_WORKSPACE_IMPERSONATED_USER?.trim() || process.env.EMAIL_FROM?.trim(),
+);
+const emailReplyToConfigured = Boolean(process.env.EMAIL_REPLY_TO?.trim());
 
 export const dynamic = "force-dynamic";
 
@@ -168,13 +176,16 @@ async function saveTypeformForm(formData: FormData) {
 
   const rawEntityKind = String(formData.get("entity_kind") ?? "ANY").toUpperCase();
   const entity_kind = rawEntityKind === "VENDOR" || rawEntityKind === "PARTNER" ? rawEntityKind : "ANY";
+  const workflow = String(formData.get("workflow") ?? "security_review").trim() || "security_review";
+  const formId = String(formData.get("form_id") ?? "").trim();
+  const enabled = formData.get("enabled") === "on";
 
   await upsertTypeformForm({
     id: String(formData.get("id") ?? "").trim() || null,
     name: String(formData.get("name") ?? "").trim(),
-    form_id: String(formData.get("form_id") ?? "").trim(),
+    form_id: formId,
     entity_kind,
-    workflow: String(formData.get("workflow") ?? "security_review").trim() || "security_review",
+    workflow,
     hidden_assessment_field:
       String(formData.get("hidden_assessment_field") ?? "assessment_id").trim() || "assessment_id",
     section_rules: {
@@ -191,8 +202,17 @@ async function saveTypeformForm(formData: FormData) {
         end: String(formData.get("security_end") ?? "").trim(),
       },
     },
-    enabled: formData.get("enabled") === "on",
+    enabled,
   });
+
+  if (enabled && workflow === "external_questionnaire" && formId) {
+    if (entity_kind === "PARTNER" || entity_kind === "ANY") {
+      await backfillExternalQuestionnaireForQueueTickets({ entityKind: "PARTNER", formId });
+    }
+    if (entity_kind === "VENDOR" || entity_kind === "ANY") {
+      await backfillExternalQuestionnaireForQueueTickets({ entityKind: "VENDOR", formId });
+    }
+  }
 
   redirect("/settings?tab=integracoes&saved=typeform-form");
 }
@@ -695,6 +715,9 @@ export default async function SettingsPage({
           jiraTokenConfigured={jiraTokenConfigured}
           jiraWebhookSecretConfigured={jiraWebhookSecretConfigured}
           slackTokenConfigured={slackTokenConfigured}
+          googleWorkspaceCredentialsConfigured={googleWorkspaceCredentialsConfigured}
+          googleWorkspaceImpersonatedConfigured={googleWorkspaceImpersonatedConfigured}
+          emailReplyToConfigured={emailReplyToConfigured}
           saveTypeformSettings={saveTypeformSettings}
           saveTypeformForm={saveTypeformForm}
           deleteTypeformForm={deleteTypeformForm}

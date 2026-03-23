@@ -1,4 +1,5 @@
 import { getIntegrationSettings, type JiraConfig } from "@/lib/settings-data";
+import { PDFParse } from "pdf-parse";
 
 type JiraPrimitive = string | number | boolean | null | undefined;
 
@@ -82,6 +83,13 @@ type JiraIssueDetailResponse = {
   id?: string | null;
   fields?: {
     created?: string | null;
+    attachment?: Array<{
+      id?: string | null;
+      filename?: string | null;
+      mimeType?: string | null;
+      content?: string | null;
+      created?: string | null;
+    }>;
   };
 };
 
@@ -165,6 +173,21 @@ function stringifyUnknown(value: unknown): string | null {
   }
 
   if (value && typeof value === "object") {
+    const typedValue = value as Record<string, unknown>;
+
+    if ("emailAddress" in typedValue) {
+      return stringifyUnknown(typedValue.emailAddress);
+    }
+
+    if ("displayName" in typedValue) {
+      return stringifyUnknown(typedValue.displayName);
+    }
+
+    if ("content" in typedValue && Array.isArray(typedValue.content)) {
+      const adfText = normalizeWhitespace(adfToText(value as JiraAdfNode));
+      if (adfText) return adfText;
+    }
+
     if ("value" in value) {
       return stringifyUnknown((value as { value?: unknown }).value);
     }
@@ -185,6 +208,38 @@ function stringifyUnknown(value: unknown): string | null {
   return null;
 }
 
+function valueFromLabeledEntry(value: unknown, normalizedAliases: string[]): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  const record = value as Record<string, unknown>;
+  const labelCandidates = [
+    record.label,
+    record.name,
+    record.title,
+    record.question,
+    record.prompt,
+    record.field,
+    record.key,
+  ]
+    .map((item) => stringifyUnknown(item))
+    .filter((item): item is string => Boolean(item))
+    .map(normalizeKey);
+
+  const hasLabelMatch = labelCandidates.some((candidate) =>
+    normalizedAliases.some((alias) => candidate === alias || candidate.includes(alias) || alias.includes(candidate)),
+  );
+
+  if (!hasLabelMatch) return null;
+
+  const valueCandidates = [record.value, record.answer, record.response, record.selected, record.text, record.content];
+  for (const candidate of valueCandidates) {
+    const normalized = stringifyUnknown(candidate);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
 function findValueInObject(source: unknown, aliases: string[]): string | null {
   const normalizedAliases = aliases.map(normalizeKey);
 
@@ -200,6 +255,9 @@ function findValueInObject(source: unknown, aliases: string[]): string | null {
       }
       return null;
     }
+
+    const fromLabeledEntry = valueFromLabeledEntry(value, normalizedAliases);
+    if (fromLabeledEntry) return fromLabeledEntry;
 
     for (const [rawKey, rawValue] of Object.entries(value)) {
       if (normalizedAliases.includes(normalizeKey(rawKey))) {
@@ -231,6 +289,11 @@ function findAllValuesInObject(source: unknown, aliases: string[]) {
         visit(item);
       }
       return;
+    }
+
+    const fromLabeledEntry = valueFromLabeledEntry(value, normalizedAliases);
+    if (fromLabeledEntry) {
+      matches.push(fromLabeledEntry);
     }
 
     for (const [rawKey, rawValue] of Object.entries(value)) {
@@ -436,6 +499,155 @@ async function fetchJiraIssueId(input: {
   );
 
   return payload.id?.trim() || null;
+}
+
+function parseLabeledValueFromLines(lines: string[], labels: string[]) {
+  const normalizedLabels = labels.map((label) => normalizeKey(label));
+
+  const isKnownLabel = (line: string) => {
+    const normalizedLine = normalizeKey(line);
+    return (
+      normalizedLabels.some(
+        (label) =>
+          normalizedLine === label ||
+          normalizedLine.startsWith(label) ||
+          normalizedLine.includes(label),
+      ) ||
+      /(nameofvendor|vendoremail|vtexemailresponsible|vendorlanguagepreferences|priority|capnumber|company|scope|escopo|contexto)/i.test(
+        normalizedLine,
+      )
+    );
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const current = lines[index] ?? "";
+    const normalizedCurrent = normalizeKey(current);
+    const labelMatch = normalizedLabels.some(
+      (label) =>
+        normalizedCurrent === label ||
+        normalizedCurrent.startsWith(label) ||
+        normalizedCurrent.includes(label),
+    );
+
+    if (!labelMatch) continue;
+
+    const collected: string[] = [];
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const candidate = lines[cursor]?.trim() ?? "";
+      if (!candidate) continue;
+      if (/^--\s*\d+\s+of\s+\d+\s*--$/i.test(candidate)) break;
+      if (isKnownLabel(candidate)) break;
+      collected.push(candidate);
+    }
+
+    const merged = collected.join("\n").trim();
+    if (merged) return merged;
+  }
+
+  return null;
+}
+
+async function extractVendorFieldsFromAttachmentPdf(input: {
+  baseUrl: string;
+  email: string;
+  token: string;
+  issueKey: string;
+}) {
+  const issue = await fetchJiraJson<JiraIssueDetailResponse>(
+    `${input.baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}?fields=attachment`,
+    input.email,
+    input.token,
+  );
+
+  const attachments = issue.fields?.attachment ?? [];
+  const pdfAttachments = attachments
+    .filter((attachment) => {
+      const name = (attachment.filename ?? "").toLowerCase();
+      const mimeType = (attachment.mimeType ?? "").toLowerCase();
+      return mimeType === "application/pdf" || name.endsWith(".pdf");
+    })
+    .sort((a, b) => {
+      const left = Date.parse(a.created ?? "");
+      const right = Date.parse(b.created ?? "");
+      return right - left;
+    });
+
+  for (const attachment of pdfAttachments) {
+    const contentUrl = attachment.content?.trim();
+    if (!contentUrl) continue;
+
+    const response = await fetch(contentUrl, {
+      headers: {
+        Authorization: buildJiraBasicAuthHeader(input.email, input.token),
+        Accept: "application/pdf",
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) continue;
+
+    const fileBuffer = Buffer.from(await response.arrayBuffer());
+    const parser = new PDFParse({ data: fileBuffer });
+    const parsed = await parser.getText();
+    await parser.destroy();
+
+    const lines = (parsed.text ?? "")
+      .replace(/\r/g, "\n")
+      .split(/\n+/)
+      .map((line) => normalizeWhitespace(line))
+      .filter(Boolean);
+
+    if (lines.length === 0) continue;
+
+    const vendorEmail = parseLabeledValueFromLines(lines, [
+      "Vendor e-mail address",
+      "Vendor e-mail",
+      "Vendor email address",
+      "Vendor email",
+      "E-mail do vendor",
+      "Email do vendor",
+      "Email do fornecedor",
+    ]);
+    const scope = parseLabeledValueFromLines(lines, [
+      "Scope",
+      "Escopo",
+      "Context",
+      "Contexto",
+    ]);
+    const vtexResponsibleEmail = parseLabeledValueFromLines(lines, [
+      "VTEX e-mail responsible",
+      "VTEX email responsible",
+      "Responsavel VTEX",
+      "Responsável VTEX",
+    ]);
+
+    if (vendorEmail || scope || vtexResponsibleEmail) {
+      return {
+        vendorEmail,
+        scope,
+        vtexResponsibleEmail,
+      };
+    }
+  }
+
+  return null;
+}
+
+export async function enrichVendorFieldsFromJiraAttachments(input: {
+  baseUrl: string;
+  email: string;
+  token: string;
+  issueKey: string;
+}) {
+  try {
+    return await extractVendorFieldsFromAttachmentPdf(input);
+  } catch (error) {
+    console.warn(
+      `[jira] failed to enrich vendor fields from attachments for ${input.issueKey}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
 }
 
 export async function resolveKindFromJiraQueues(input: {
@@ -708,8 +920,10 @@ export function extractEntityFromJiraIssue(
     findValueInObject(payload, [
       "vendor e-mail address",
       "vendor email address",
+      "vendor e-mail",
       "vendor email",
       "email do vendor",
+      "email do fornecedor",
       "partner e-mail address",
       "partner email address",
       "partner email",
@@ -727,7 +941,8 @@ export function extractEntityFromJiraIssue(
   const capNumber =
     findValueInObject(payload, ["cap number", "cap"]) ?? findFieldValue(description, ["cap number", "cap"]);
   const scope =
-    findValueInObject(payload, ["scope", "escopo"]) ?? findFieldValue(description, ["scope", "escopo"]);
+    findValueInObject(payload, ["scope", "escopo", "context", "contexto"]) ??
+    findFieldValue(description, ["scope", "escopo", "context", "contexto"]);
   const requestDescription =
     findValueInObject(payload, ["description", "descricao"]) ?? description;
   const website = cleanUrl(

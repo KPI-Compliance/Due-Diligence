@@ -23,6 +23,7 @@ import {
 import { recalculatePartnerAssessmentDecisionsForForm } from "@/lib/partner-risk-scoring";
 import { fetchTypeformFormFields } from "@/lib/typeform-admin";
 import { flattenTypeformFieldDefinitions } from "@/lib/typeform";
+import { backfillExternalQuestionnaireForQueueTickets } from "@/lib/typeform-sync";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -104,13 +105,16 @@ async function saveTypeformForm(formData: FormData) {
 
   const rawEntityKind = String(formData.get("entity_kind") ?? "ANY").toUpperCase();
   const entity_kind = rawEntityKind === "VENDOR" || rawEntityKind === "PARTNER" ? rawEntityKind : "ANY";
+  const workflow = String(formData.get("workflow") ?? "external_questionnaire").trim() || "external_questionnaire";
+  const formId = String(formData.get("form_id") ?? "").trim();
+  const enabled = formData.get("enabled") === "on";
 
   await upsertTypeformForm({
     id: String(formData.get("id") ?? "").trim() || null,
     name: String(formData.get("name") ?? "").trim(),
-    form_id: String(formData.get("form_id") ?? "").trim(),
+    form_id: formId,
     entity_kind,
-    workflow: String(formData.get("workflow") ?? "external_questionnaire").trim() || "external_questionnaire",
+    workflow,
     hidden_assessment_field:
       String(formData.get("hidden_assessment_field") ?? "assessment_id").trim() || "assessment_id",
     section_rules: {
@@ -118,8 +122,17 @@ async function saveTypeformForm(formData: FormData) {
       privacy: { start: "", end: "" },
       security: { start: "", end: "" },
     },
-    enabled: formData.get("enabled") === "on",
+    enabled,
   });
+
+  if (enabled && workflow === "external_questionnaire" && formId) {
+    if (entity_kind === "PARTNER" || entity_kind === "ANY") {
+      await backfillExternalQuestionnaireForQueueTickets({ entityKind: "PARTNER", formId });
+    }
+    if (entity_kind === "VENDOR" || entity_kind === "ANY") {
+      await backfillExternalQuestionnaireForQueueTickets({ entityKind: "VENDOR", formId });
+    }
+  }
 
   redirect("/settings/typeform-forms?saved=form");
 }

@@ -45,11 +45,22 @@ const companyQuestionCandidates = [
   "whats the company name?",
   "what is the company name?",
   "company name",
+  "company legal name",
+  "legal company name",
+  "business name",
+  "organization name",
+  "organisation name",
   "qual e o nome da empresa?",
   "qual é o nome da empresa?",
   "nome da empresa",
+  "razao social",
+  "razão social",
+  "nome fantasia",
   "nome do vendor",
+  "nome do parceiro",
+  "nome da companhia",
   "vendor name",
+  "partner name",
 ];
 
 const ticketQuestionCandidates = [
@@ -212,7 +223,40 @@ function findAnswerByQuestionCandidates(answers: TypeformAnswer[] | undefined, c
 }
 
 export function extractCompanyNameFromTypeformAnswers(answers: TypeformAnswer[] | undefined) {
-  return findAnswerByQuestionCandidates(answers, companyQuestionCandidates);
+  const matchedByCandidates = findAnswerByQuestionCandidates(answers, companyQuestionCandidates);
+  if (matchedByCandidates) return matchedByCandidates;
+  if (!answers?.length) return null;
+
+  // Fallback for forms that label company fields with variants not covered above.
+  const companyFieldKeywords = [
+    "company",
+    "empresa",
+    "organiz",
+    "razao social",
+    "razão social",
+    "nome fantasia",
+    "business name",
+    "legal name",
+    "partner name",
+    "vendor name",
+  ].map(normalizeComparable);
+
+  for (const answer of answers) {
+    const fieldTitle = normalizeComparable(answer.field?.title);
+    const fieldRef = normalizeComparable(answer.field?.ref);
+    const fieldType = normalizeComparable(answer.field?.type);
+    const looksLikeCompanyField = companyFieldKeywords.some(
+      (keyword) => fieldTitle.includes(keyword) || fieldRef.includes(keyword),
+    );
+
+    if (!looksLikeCompanyField) continue;
+    if (fieldType === "email" || fieldType === "phone_number") continue;
+
+    const value = answerToText(answer).trim();
+    if (value && value.length > 1) return value;
+  }
+
+  return null;
 }
 
 export function extractTicketFromTypeformAnswers(answers: TypeformAnswer[] | undefined) {

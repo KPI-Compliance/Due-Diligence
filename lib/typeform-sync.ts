@@ -30,6 +30,7 @@ type PartnerFormMappingRow = {
   id?: string;
   form_id: string;
   name: string;
+  entity_kind?: "VENDOR" | "PARTNER" | null;
   section_rules?: {
     compliance?: { start?: string; end?: string };
     privacy?: { start?: string; end?: string };
@@ -44,6 +45,93 @@ type QuestionMappingRow = {
   question_order: number;
   section: "COMMON" | "COMPLIANCE" | "PRIVACY" | "SECURITY";
 };
+
+let diagnosticsTableReady = false;
+
+async function ensureTypeformSyncDiagnosticsTable() {
+  if (diagnosticsTableReady) return;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS typeform_sync_diagnostics (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      source TEXT NOT NULL,
+      entity_id UUID,
+      entity_name TEXT,
+      entity_kind entity_kind,
+      jira_issue_key TEXT,
+      assessment_id UUID,
+      form_id TEXT,
+      stage TEXT NOT NULL,
+      status TEXT NOT NULL,
+      message TEXT,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_typeform_sync_diagnostics_entity
+    ON typeform_sync_diagnostics(entity_id, created_at DESC)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_typeform_sync_diagnostics_jira
+    ON typeform_sync_diagnostics(jira_issue_key, created_at DESC)
+  `;
+
+  diagnosticsTableReady = true;
+}
+
+async function logTypeformSyncDiagnostic(input: {
+  source: "entity_sync" | "queue_backfill";
+  entityId?: string | null;
+  entityName?: string | null;
+  entityKind?: "VENDOR" | "PARTNER" | null;
+  jiraIssueKey?: string | null;
+  assessmentId?: string | null;
+  formId?: string | null;
+  stage: string;
+  status: "started" | "skipped" | "error" | "success";
+  message: string;
+  payload?: Record<string, unknown>;
+}) {
+  try {
+    await ensureTypeformSyncDiagnosticsTable();
+    await sql`
+      INSERT INTO typeform_sync_diagnostics (
+        source,
+        entity_id,
+        entity_name,
+        entity_kind,
+        jira_issue_key,
+        assessment_id,
+        form_id,
+        stage,
+        status,
+        message,
+        payload
+      )
+      VALUES (
+        ${input.source},
+        ${input.entityId ?? null}::uuid,
+        ${input.entityName ?? null},
+        ${input.entityKind ?? null}::entity_kind,
+        ${input.jiraIssueKey ?? null},
+        ${input.assessmentId ?? null}::uuid,
+        ${input.formId ?? null},
+        ${input.stage},
+        ${input.status},
+        ${input.message},
+        ${JSON.stringify(input.payload ?? {})}::jsonb
+      )
+    `;
+  } catch (error) {
+    console.warn(
+      "[typeform-sync] failed to persist diagnostic:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
 
 async function getJiraCreatedAt(issueKey: string | null | undefined) {
   if (!issueKey) return null;
@@ -278,20 +366,70 @@ async function insertPartnerFormRow(input: {
   `;
 }
 
-export async function syncPartnerExternalQuestionnaire(entityId: string, entityName: string, jiraIssueKey?: string | null) {
-  const { token } = await getTypeformApiCredentials();
-  if (!token) return;
-
-  const formMappings = (await sql`
-    SELECT id::text, form_id, name, section_rules
+async function getExternalFormMappings(kind: "VENDOR" | "PARTNER", formId?: string | null) {
+  return (await sql`
+    SELECT id::text, form_id, name, entity_kind::text, section_rules
     FROM typeform_forms
     WHERE enabled = true
       AND workflow = 'external_questionnaire'
-      AND (entity_kind = 'PARTNER' OR entity_kind IS NULL)
+      AND (${formId ?? null}::text IS NULL OR form_id = ${formId ?? null})
+      AND (entity_kind = ${kind}::entity_kind OR entity_kind IS NULL)
     ORDER BY created_at DESC
   `) as PartnerFormMappingRow[];
+}
 
-  if (formMappings.length === 0) return;
+export async function syncExternalQuestionnaireForEntity(input: {
+  entityId: string;
+  entityName: string;
+  entityKind: "VENDOR" | "PARTNER";
+  jiraIssueKey?: string | null;
+  formId?: string | null;
+}) {
+  const { entityId, entityName, entityKind, jiraIssueKey, formId } = input;
+  await logTypeformSyncDiagnostic({
+    source: "entity_sync",
+    entityId,
+    entityName,
+    entityKind,
+    jiraIssueKey,
+    formId: formId ?? null,
+    stage: "start",
+    status: "started",
+    message: "Starting external questionnaire sync.",
+  });
+
+  const { token } = await getTypeformApiCredentials();
+  if (!token) {
+    await logTypeformSyncDiagnostic({
+      source: "entity_sync",
+      entityId,
+      entityName,
+      entityKind,
+      jiraIssueKey,
+      formId: formId ?? null,
+      stage: "credentials",
+      status: "error",
+      message: "Typeform API token is not configured.",
+    });
+    return;
+  }
+
+  const formMappings = await getExternalFormMappings(entityKind, formId);
+
+  if (formMappings.length === 0) {
+    await logTypeformSyncDiagnostic({
+      source: "entity_sync",
+      entityId,
+      entityName,
+      entityKind,
+      jiraIssueKey,
+      formId: formId ?? null,
+      stage: "form_mapping",
+      status: "skipped",
+      message: "No enabled external_questionnaire form mapping found for this entity kind.",
+    });
+    return;
+  }
 
   let latestAssessment = (await sql`
     SELECT id::text, typeform_response_token
@@ -328,10 +466,36 @@ export async function syncPartnerExternalQuestionnaire(entityId: string, entityN
 
     if (!response.ok) {
       console.warn(`Typeform responses fetch failed for form ${form.form_id}: ${response.status}`);
+      await logTypeformSyncDiagnostic({
+        source: "entity_sync",
+        entityId,
+        entityName,
+        entityKind,
+        jiraIssueKey,
+        assessmentId: assessment.id,
+        formId: form.form_id,
+        stage: "responses_fetch",
+        status: "error",
+        message: "Typeform responses fetch failed.",
+        payload: { http_status: response.status },
+      });
       continue;
     }
 
     const payload = (await response.json()) as TypeformResponsesApiResponse;
+    await logTypeformSyncDiagnostic({
+      source: "entity_sync",
+      entityId,
+      entityName,
+      entityKind,
+      jiraIssueKey,
+      assessmentId: assessment.id,
+      formId: form.form_id,
+      stage: "responses_scan",
+      status: "started",
+      message: "Scanning Typeform responses for entity name match.",
+      payload: { response_count: payload.items?.length ?? 0 },
+    });
     const candidate =
       payload.items
         ?.map((item) => ({
@@ -366,6 +530,24 @@ export async function syncPartnerExternalQuestionnaire(entityId: string, entityN
   }
 
   if (!matchedResponse?.token || assessment.typeform_response_token === matchedResponse.token) {
+    await logTypeformSyncDiagnostic({
+      source: "entity_sync",
+      entityId,
+      entityName,
+      entityKind,
+      jiraIssueKey,
+      assessmentId: assessment.id,
+      formId: matchedResponse?.form_id ?? formId ?? null,
+      stage: "match",
+      status: "skipped",
+      message: !matchedResponse?.token
+        ? "No matching Typeform response token found for this entity."
+        : "Matched response token is already linked to assessment.",
+      payload: {
+        matched_token: matchedResponse?.token ?? null,
+        current_token: assessment.typeform_response_token,
+      },
+    });
     return;
   }
 
@@ -376,10 +558,13 @@ export async function syncPartnerExternalQuestionnaire(entityId: string, entityN
     questionMappings.length > 0
       ? resolvePartnerSectionsFromMappings(answers, questionMappings)
       : resolvePartnerSectionsFromRules(answers, matchedForm?.section_rules ?? null);
-  const partnerFormTable = resolvePartnerQuestionnaireTable({
-    form_id: matchedResponse.form_id,
-    name: matchedResponse.form_name,
-  });
+  const partnerFormTable =
+    entityKind === "PARTNER"
+      ? resolvePartnerQuestionnaireTable({
+          form_id: matchedResponse.form_id,
+          name: matchedResponse.form_name,
+        })
+      : null;
 
   await sql`
     UPDATE assessments
@@ -435,4 +620,102 @@ export async function syncPartnerExternalQuestionnaire(entityId: string, entityN
       });
     }
   }
+
+  await logTypeformSyncDiagnostic({
+    source: "entity_sync",
+    entityId,
+    entityName,
+    entityKind,
+    jiraIssueKey,
+    assessmentId: assessment.id,
+    formId: matchedResponse.form_id,
+    stage: "finish",
+    status: "success",
+    message: "External questionnaire synced successfully.",
+    payload: {
+      response_token: matchedResponse.token,
+      answers_saved: answers.length,
+      submitted_at: matchedResponse.submitted_at ?? null,
+    },
+  });
+}
+
+export async function syncPartnerExternalQuestionnaire(entityId: string, entityName: string, jiraIssueKey?: string | null) {
+  await syncExternalQuestionnaireForEntity({
+    entityId,
+    entityName,
+    entityKind: "PARTNER",
+    jiraIssueKey,
+  });
+}
+
+export async function backfillExternalQuestionnaireForQueueTickets(input: {
+  entityKind: "VENDOR" | "PARTNER";
+  formId?: string | null;
+}) {
+  await logTypeformSyncDiagnostic({
+    source: "queue_backfill",
+    entityKind: input.entityKind,
+    formId: input.formId ?? null,
+    stage: "start",
+    status: "started",
+    message: "Starting queue backfill for external questionnaire.",
+  });
+
+  const entities = (await sql`
+    SELECT id::text, name, jira_issue_key
+    FROM entities
+    WHERE kind = ${input.entityKind}::entity_kind
+      AND jira_issue_key IS NOT NULL
+    ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
+  `) as Array<{ id: string; name: string; jira_issue_key: string | null }>;
+
+  await logTypeformSyncDiagnostic({
+    source: "queue_backfill",
+    entityKind: input.entityKind,
+    formId: input.formId ?? null,
+    stage: "entities_loaded",
+    status: "started",
+    message: "Loaded entities for queue backfill.",
+    payload: { entity_count: entities.length },
+  });
+
+  for (const entity of entities) {
+    try {
+      await syncExternalQuestionnaireForEntity({
+        entityId: entity.id,
+        entityName: entity.name,
+        entityKind: input.entityKind,
+        jiraIssueKey: entity.jira_issue_key,
+        formId: input.formId,
+      });
+    } catch (error) {
+      console.warn(
+        `[typeform-sync] failed to sync ${input.entityKind} questionnaire for entity ${entity.id}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+      await logTypeformSyncDiagnostic({
+        source: "queue_backfill",
+        entityId: entity.id,
+        entityName: entity.name,
+        entityKind: input.entityKind,
+        jiraIssueKey: entity.jira_issue_key,
+        formId: input.formId ?? null,
+        stage: "entity_sync",
+        status: "error",
+        message: "Backfill failed for entity.",
+        payload: { error: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  }
+
+  await logTypeformSyncDiagnostic({
+    source: "queue_backfill",
+    entityKind: input.entityKind,
+    formId: input.formId ?? null,
+    stage: "finish",
+    status: "success",
+    message: "Queue backfill finished.",
+    payload: { entity_count: entities.length },
+  });
 }

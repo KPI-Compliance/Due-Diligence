@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import {
+  enrichVendorFieldsFromJiraAttachments,
   extractEntityFromJiraIssue,
   fetchJiraIssueCreatedAt,
   isSupportedJiraWebhookEvent,
@@ -9,6 +10,7 @@ import {
   type JiraWebhookPayload,
 } from "@/lib/jira";
 import type { JiraConfig } from "@/lib/settings-data";
+import { syncExternalQuestionnaireForEntity } from "@/lib/typeform-sync";
 
 export const runtime = "nodejs";
 
@@ -195,6 +197,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, message: "Missing Jira issue key or summary." }, { status: 400 });
     }
 
+    if (
+      entity.kind === "VENDOR" &&
+      jiraSetting.config?.base_url &&
+      jiraApiEmail &&
+      jiraApiToken &&
+      (!entity.jiraFormData.vendorEmail || !entity.jiraFormData.scope || !entity.jiraFormData.vtexResponsibleEmail)
+    ) {
+      const attachmentFallback = await enrichVendorFieldsFromJiraAttachments({
+        baseUrl: jiraSetting.config.base_url,
+        email: jiraApiEmail,
+        token: jiraApiToken,
+        issueKey: entity.issueKey,
+      });
+
+      if (attachmentFallback) {
+        entity.jiraFormData.vendorEmail = entity.jiraFormData.vendorEmail || attachmentFallback.vendorEmail || null;
+        entity.jiraFormData.scope = entity.jiraFormData.scope || attachmentFallback.scope || null;
+        entity.jiraFormData.vtexResponsibleEmail =
+          entity.jiraFormData.vtexResponsibleEmail || attachmentFallback.vtexResponsibleEmail || null;
+
+        entity.contactEmail = entity.contactEmail || attachmentFallback.vendorEmail || null;
+        entity.ownerEmail = entity.ownerEmail || attachmentFallback.vtexResponsibleEmail || null;
+        entity.description = entity.description || attachmentFallback.scope || null;
+      }
+    }
+
     let jiraIssueCreatedAt: string | null = null;
     if (jiraSetting.config?.base_url && jiraApiEmail && jiraApiToken) {
       try {
@@ -306,11 +334,11 @@ export async function POST(request: Request) {
     `;
 
     const syncedEntityRows = (await sql`
-      SELECT id::text, name
+      SELECT id::text, name, kind::text
       FROM entities
       WHERE jira_issue_key = ${entity.issueKey}
       LIMIT 1
-    `) as Array<{ id: string; name: string }>;
+    `) as Array<{ id: string; name: string; kind: "VENDOR" | "PARTNER" }>;
 
     const syncedEntity = syncedEntityRows[0];
     if (syncedEntity) {
@@ -331,6 +359,20 @@ export async function POST(request: Request) {
             'PENDING'
           )
         `;
+      }
+
+      try {
+        await syncExternalQuestionnaireForEntity({
+          entityId: syncedEntity.id,
+          entityName: syncedEntity.name,
+          entityKind: syncedEntity.kind,
+          jiraIssueKey: entity.issueKey,
+        });
+      } catch (error) {
+        console.warn(
+          "[jira-webhook] typeform external questionnaire sync failed:",
+          error instanceof Error ? error.message : String(error),
+        );
       }
     }
 

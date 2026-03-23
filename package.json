@@ -10,12 +10,14 @@
     "typecheck": "tsc --noEmit",
     "test": "node --eval \"console.log('No automated tests configured yet')\"",
     "backfill:partner-typeform": "node scripts/backfill-partner-typeform-responses.mjs",
-    "backfill:partner-risk-scores": "node scripts/backfill-partner-risk-scores.mjs"
+    "backfill:partner-risk-scores": "node scripts/backfill-partner-risk-scores.mjs",
+    "backfill:vendor-jira-form-fields": "node scripts/backfill-vendor-jira-form-fields.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
     "googleapis": "^171.4.0",
     "next": "16.1.6",
+    "pdf-parse": "^2.4.5",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
