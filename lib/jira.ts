@@ -697,6 +697,38 @@ function parseLabeledValueFromLines(lines: string[], labels: string[]) {
     if (merged) return merged;
   }
 
+  const flattened = lines.join(" ").replace(/\s+/g, " ").trim();
+  if (!flattened) return null;
+  const fieldBoundaries = [
+    "Name of Vendor",
+    "Vendor e-mail address",
+    "Vendor e-mail",
+    "Vendor email address",
+    "Vendor email",
+    "VTEX e-mail responsible",
+    "VTEX email responsible",
+    "Vendor Language Preferences",
+    "Priority",
+    "CAP NUMBER",
+    "Company",
+    "Scope",
+    "Escopo",
+    "Context",
+    "Contexto",
+  ];
+  const boundariesPattern = fieldBoundaries.map((item) => escapeRegex(item)).join("|");
+  for (const label of labels) {
+    const pattern = new RegExp(
+      `${escapeRegex(label)}\\s*\\*?\\s*[:|-]?\\s*(.+?)(?=\\s+(?:${boundariesPattern})\\s*\\*?|$)`,
+      "i",
+    );
+    const match = flattened.match(pattern);
+    if (match?.[1]) {
+      const value = normalizeWhitespace(match[1]);
+      if (value) return value;
+    }
+  }
+
   return null;
 }
 
@@ -706,16 +738,28 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
   token: string;
   issueKey: string;
 }) {
-  let PDFParseCtor: typeof import("pdf-parse").PDFParse | null = null;
+  let getDocument:
+    | ((typeof import("pdfjs-dist/legacy/build/pdf.mjs"))["getDocument"])
+    | null = null;
+  let PDFParseCtor: (typeof import("pdf-parse"))["PDFParse"] | null = null;
   try {
-    const pdfParseModule = await import("pdf-parse");
-    PDFParseCtor = pdfParseModule.PDFParse;
+    const pdfJsModule = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    getDocument = pdfJsModule.getDocument;
   } catch (error) {
     console.warn(
       `[jira] pdf parser unavailable while enriching attachments for ${input.issueKey}:`,
       error instanceof Error ? error.message : String(error),
     );
-    return null;
+  }
+
+  try {
+    const pdfParseModule = await import("pdf-parse");
+    PDFParseCtor = pdfParseModule.PDFParse;
+  } catch (error) {
+    console.warn(
+      `[jira] pdf-parse unavailable while enriching attachments for ${input.issueKey}:`,
+      error instanceof Error ? error.message : String(error),
+    );
   }
 
   const issue = await fetchJiraJson<JiraIssueDetailResponse>(
@@ -752,12 +796,59 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
     if (!response.ok) continue;
 
     const fileBuffer = Buffer.from(await response.arrayBuffer());
-    if (!PDFParseCtor) continue;
-    const parser = new PDFParseCtor({ data: fileBuffer });
-    const parsed = await parser.getText();
-    await parser.destroy();
+    const rawTexts: string[] = [];
 
-    const lines = (parsed.text ?? "")
+    if (getDocument) {
+      try {
+        const loadingTask = getDocument({
+          data: new Uint8Array(fileBuffer),
+          stopAtErrors: false,
+          isEvalSupported: false,
+          disableFontFace: true,
+          verbosity: 0,
+        });
+        const pdfDocument = await loadingTask.promise;
+        const pageTexts: string[] = [];
+        for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+          const page = await pdfDocument.getPage(pageNumber);
+          const content = await page.getTextContent();
+          const pageText = content.items
+            .map((item) => {
+              if (!("str" in item) || typeof item.str !== "string") return "";
+              const suffix = "hasEOL" in item && item.hasEOL ? "\n" : " ";
+              return `${item.str}${suffix}`;
+            })
+            .join("")
+            .trim();
+          if (pageText) pageTexts.push(pageText);
+        }
+        await pdfDocument.destroy();
+        if (pageTexts.length > 0) rawTexts.push(pageTexts.join("\n"));
+      } catch (error) {
+        console.warn(
+          `[jira] pdfjs parse failed while enriching attachments for ${input.issueKey}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+
+    if (PDFParseCtor) {
+      try {
+        const parser = new PDFParseCtor({ data: fileBuffer });
+        const parsed = await parser.getText();
+        await parser.destroy();
+        const text = normalizeWhitespace(String(parsed.text ?? ""));
+        if (text) rawTexts.push(text);
+      } catch (error) {
+        console.warn(
+          `[jira] pdf-parse failed while enriching attachments for ${input.issueKey}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+
+    const bestText = rawTexts.sort((left, right) => right.length - left.length)[0] ?? "";
+    const lines = bestText
       .replace(/\r/g, "\n")
       .split(/\n+/)
       .map((line) => normalizeWhitespace(line))

@@ -1,11 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { neon } from "@neondatabase/serverless";
-
-const require = createRequire(import.meta.url);
-const { PDFParse } = require("pdf-parse");
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,6 +45,10 @@ function normalizeKey(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
+}
+
+function escapeRegex(value) {
+  return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function parseLabeledValueFromLines(lines, labels) {
@@ -97,6 +98,40 @@ function parseLabeledValueFromLines(lines, labels) {
 
     const merged = collected.join("\n").trim();
     if (merged) return merged;
+  }
+
+  const flattened = lines.join(" ").replace(/\s+/g, " ").trim();
+  if (!flattened) return null;
+
+  const fieldBoundaries = [
+    "Name of Vendor",
+    "Vendor e-mail address",
+    "Vendor e-mail",
+    "Vendor email address",
+    "Vendor email",
+    "VTEX e-mail responsible",
+    "VTEX email responsible",
+    "Vendor Language Preferences",
+    "Priority",
+    "CAP NUMBER",
+    "Company",
+    "Scope",
+    "Escopo",
+    "Context",
+    "Contexto",
+  ];
+  const boundariesPattern = fieldBoundaries.map(escapeRegex).join("|");
+
+  for (const label of labels) {
+    const pattern = new RegExp(
+      `${escapeRegex(label)}\\s*\\*?\\s*[:|-]?\\s*(.+?)(?=\\s+(?:${boundariesPattern})\\s*\\*?|$)`,
+      "i",
+    );
+    const match = flattened.match(pattern);
+    if (match?.[1]) {
+      const value = match[1].trim();
+      if (value) return value;
+    }
   }
 
   return null;
@@ -155,7 +190,8 @@ async function fetchLatestVendorPdfAttachment(jira, issueKey) {
     })
     .sort((left, right) => Date.parse(String(right?.created ?? "")) - Date.parse(String(left?.created ?? "")));
 
-  return pdfAttachments[0] ?? null;
+  const preferred = pdfAttachments.find((item) => /vendor\s*request/i.test(String(item?.filename ?? "")));
+  return preferred ?? pdfAttachments[0] ?? null;
 }
 
 async function extractFieldsFromPdfUrl(jira, contentUrl) {
@@ -173,11 +209,31 @@ async function extractFieldsFromPdfUrl(jira, contentUrl) {
   }
 
   const fileBuffer = Buffer.from(await response.arrayBuffer());
-  const parser = new PDFParse({ data: fileBuffer });
-  const parsed = await parser.getText();
-  await parser.destroy();
+  const pdfDocument = await getDocument({
+    data: new Uint8Array(fileBuffer),
+    stopAtErrors: false,
+    isEvalSupported: false,
+    disableFontFace: true,
+    verbosity: 0,
+  }).promise;
+  const pageTexts = [];
+  for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+    const page = await pdfDocument.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const pageText = content.items
+      .map((item) => {
+        if (!("str" in item) || typeof item.str !== "string") return "";
+        const suffix = "hasEOL" in item && item.hasEOL ? "\n" : " ";
+        return `${item.str}${suffix}`;
+      })
+      .join("")
+      .trim();
+    if (pageText) pageTexts.push(pageText);
+  }
+  await pdfDocument.destroy();
 
-  const lines = String(parsed.text ?? "")
+  const lines = pageTexts
+    .join("\n")
     .replace(/\r/g, "\n")
     .split(/\n+/)
     .map((line) => line.trim())
@@ -220,6 +276,7 @@ async function main() {
       jira_issue_key,
       contact_email,
       description,
+      owner_user_id::text AS owner_user_id,
       jira_form_data
     FROM entities
     WHERE kind = 'VENDOR'
@@ -227,6 +284,7 @@ async function main() {
       AND (
         COALESCE(NULLIF(contact_email, ''), NULLIF(jira_form_data->>'vendorEmail', '')) IS NULL
         OR COALESCE(NULLIF(description, ''), NULLIF(jira_form_data->>'scope', '')) IS NULL
+        OR COALESCE(NULLIF(jira_form_data->>'vtexResponsibleEmail', ''), '') = ''
       )
     ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
     LIMIT ${limit}
@@ -275,10 +333,22 @@ async function main() {
 
       const shouldUpdateEmail = isBlank(row.contact_email) && !isBlank(parsed.vendorEmail);
       const shouldUpdateScope = isBlank(row.description) && !isBlank(parsed.scope);
+      const shouldUpdateResponsible = isBlank(jiraFormData.vtexResponsibleEmail) && !isBlank(parsed.vtexResponsibleEmail);
       const shouldUpdateJiraFormData =
         JSON.stringify(nextJiraFormData) !== JSON.stringify(jiraFormData);
+      let nextOwnerUserId = row.owner_user_id ?? null;
+      if (isBlank(nextOwnerUserId) && !isBlank(parsed.vtexResponsibleEmail)) {
+        const ownerRows = await sql`
+          SELECT id::text
+          FROM users
+          WHERE lower(email) = lower(${parsed.vtexResponsibleEmail})
+          LIMIT 1
+        `;
+        nextOwnerUserId = ownerRows[0]?.id ?? null;
+      }
+      const shouldUpdateOwner = isBlank(row.owner_user_id) && !isBlank(nextOwnerUserId);
 
-      if (!shouldUpdateEmail && !shouldUpdateScope && !shouldUpdateJiraFormData) {
+      if (!shouldUpdateEmail && !shouldUpdateScope && !shouldUpdateResponsible && !shouldUpdateJiraFormData && !shouldUpdateOwner) {
         skipped += 1;
         continue;
       }
@@ -294,6 +364,10 @@ async function main() {
             description = CASE
               WHEN ${shouldUpdateScope}::boolean THEN ${parsed.scope ?? null}
               ELSE description
+            END,
+            owner_user_id = CASE
+              WHEN ${shouldUpdateOwner}::boolean THEN ${nextOwnerUserId ?? null}::uuid
+              ELSE owner_user_id
             END,
             jira_form_data = ${JSON.stringify(nextJiraFormData)}::jsonb,
             updated_at = now()
