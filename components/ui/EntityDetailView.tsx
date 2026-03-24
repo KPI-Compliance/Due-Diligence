@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { savePartnerExternalQuestionnaireSection } from "@/app/(app)/partners/actions";
+import { savePartnerAssessmentDecision, savePartnerExternalQuestionnaireSection } from "@/app/(app)/partners/actions";
 import { saveVendorAssessmentDecision } from "@/app/(app)/vendors/actions";
 import { AnalystEvaluationControl } from "@/components/ui/AnalystEvaluationControl";
 import { ExternalQuestionnairePendingNotice, SubmitActionButton } from "@/components/ui/ExternalQuestionnaireSubmitControls";
@@ -599,8 +599,14 @@ export function EntityDetailView({
     .filter((item) => item.count > 0);
   const hasAssessment = Boolean(detail.externalQuestionnaire.assessmentId);
   const isDecisionFinalized = Boolean(detail.decision.finalizedAt);
-  const workflowStatusDefaultValue =
+  const vendorWorkflowStatusDefaultValue =
     !isDecisionFinalized && detail.statusLabel === "Concluido" ? "Opened" : detail.statusLabel;
+  const partnerWorkflowStatusDefaultValue =
+    detail.statusLabel === "Concluido" || detail.statusLabel === "Red Team" || detail.statusLabel === "Opened"
+      ? detail.statusLabel
+      : isDecisionFinalized
+      ? "Concluido"
+      : "Opened";
 
   return (
     <div className="space-y-6">
@@ -615,17 +621,17 @@ export function EntityDetailView({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-extrabold tracking-tight text-[var(--color-text)]">{detail.name}</h1>
-                {kind === "vendor" && activeTab === "decision" ? (
+                {activeTab === "decision" ? (
                   <select
                     name="workflow_status_label"
-                    form="vendor-decision-form"
-                    defaultValue={workflowStatusDefaultValue}
+                    form={kind === "vendor" ? "vendor-decision-form" : "partner-decision-form"}
+                    defaultValue={kind === "vendor" ? vendorWorkflowStatusDefaultValue : partnerWorkflowStatusDefaultValue}
                     className="rounded-full border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-1 text-sm font-semibold text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]/40 focus:ring-2 focus:ring-[var(--color-primary)]/10"
                   >
                     <option value="Opened">Opened</option>
-                    <option value="Waiting vendor">Waiting vendor</option>
-                    <option value="Received Quest.">Received Quest.</option>
-                    <option value="Red Team">Red Team</option>
+                    {kind === "vendor" ? <option value="Waiting vendor">Waiting vendor</option> : null}
+                    {kind === "vendor" ? <option value="Received Quest.">Received Quest.</option> : null}
+                    <option value="Red Team">{kind === "partner" ? "In Review" : "Red Team"}</option>
                     <option value="Concluido" disabled={!isDecisionFinalized}>
                       {isDecisionFinalized ? "Concluido" : "Concluido (Finalize first)"}
                     </option>
@@ -1386,8 +1392,6 @@ export function EntityDetailView({
             </p>
           </div>
 
-          {kind !== "vendor" ? <DecisionSummaryCard decision={detail.decision} kind={kind} /> : null}
-
           {kind === "vendor" ? (
             <form id="vendor-decision-form" action={saveVendorAssessmentDecision} className="space-y-6">
               <input type="hidden" name="entity_slug" value={detail.id} />
@@ -1559,34 +1563,175 @@ export function EntityDetailView({
               </section>
             </form>
           ) : (
-            <section className="space-y-4">
-              <h3 className="text-xl font-bold text-[var(--color-text)]">Final Decision Options</h3>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <label className="cursor-pointer">
-                  <input type="radio" name="decision" className="peer sr-only" />
-                  <div className="flex h-full flex-col items-center gap-2 rounded-xl border-2 border-[var(--color-neutral-200)] bg-white p-5 text-center transition peer-checked:border-emerald-500 peer-checked:bg-emerald-50">
-                    <span className="text-sm font-bold">Approved</span>
-                    <p className="text-xs text-[var(--color-neutral-600)]">Full clearance for partnership operations.</p>
-                  </div>
-                </label>
+            <form id="partner-decision-form" action={savePartnerAssessmentDecision} className="space-y-6">
+              <input type="hidden" name="entity_slug" value={detail.id} />
+              <input type="hidden" name="assessment_id" value={detail.externalQuestionnaire.assessmentId ?? ""} />
+              <input type="hidden" name="jira_issue_key" value={detail.jiraTicket ?? ""} />
+              <DecisionSummaryCard
+                decision={detail.decision}
+                kind={kind}
+                classificationEditable
+                classificationFieldName="manual_classification"
+              />
 
-                <label className="cursor-pointer">
-                  <input type="radio" name="decision" defaultChecked className="peer sr-only" />
-                  <div className="flex h-full flex-col items-center gap-2 rounded-xl border-2 border-[var(--color-neutral-200)] bg-white p-5 text-center transition peer-checked:border-[var(--color-primary)] peer-checked:bg-[var(--color-primary)]/5">
-                    <span className="text-sm font-bold">Approved with Restrictions</span>
-                    <p className="text-xs text-[var(--color-neutral-600)]">Limited access until mitigation tasks are met.</p>
-                  </div>
-                </label>
+              {saveStatus === "1" ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                  Decisão salva com sucesso.
+                </div>
+              ) : null}
+              {jiraSyncStatus === "1" ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                  Atualização enviada ao Jira com sucesso.
+                </div>
+              ) : null}
+              {jiraErrorStatus === "1" ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                  A decisão foi salva, mas não foi possível sincronizar os campos no Jira.
+                </div>
+              ) : null}
+              {statusGuardStatus === "1" ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                  Para selecionar `Concluido`, finalize a decisão primeiro em `Finalize Assessment`.
+                </div>
+              ) : null}
+              {!hasAssessment ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                  Não há assessment vinculado para este partner. Receba o questionário externo antes de salvar a decisão final.
+                </div>
+              ) : null}
 
-                <label className="cursor-pointer">
-                  <input type="radio" name="decision" className="peer sr-only" />
-                  <div className="flex h-full flex-col items-center gap-2 rounded-xl border-2 border-[var(--color-neutral-200)] bg-white p-5 text-center transition peer-checked:border-red-500 peer-checked:bg-red-50">
-                    <span className="text-sm font-bold">Rejected</span>
-                    <p className="text-xs text-[var(--color-neutral-600)]">Serious violations identified.</p>
+              <section className="space-y-4">
+                <h3 className="text-xl font-bold text-[var(--color-text)]">Final Decision Options</h3>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div>
+                    <input
+                      id="partner-decision-approved"
+                      type="radio"
+                      name="selected_option"
+                      value="APPROVED"
+                      defaultChecked={detail.decision.selectedOption === "APPROVED"}
+                      className="peer sr-only"
+                    />
+                    <label
+                      htmlFor="partner-decision-approved"
+                      className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-[var(--color-neutral-200)] bg-white p-5 text-center transition peer-checked:border-emerald-500 peer-checked:bg-emerald-50"
+                    >
+                      <span className="text-sm font-bold">Approved</span>
+                      <p className="text-xs text-[var(--color-neutral-600)]">Full clearance for partnership operations.</p>
+                    </label>
                   </div>
-                </label>
-              </div>
-            </section>
+
+                  <div>
+                    <input
+                      id="partner-decision-approved-with-restrictions"
+                      type="radio"
+                      name="selected_option"
+                      value="APPROVED_WITH_RESTRICTIONS"
+                      defaultChecked={detail.decision.selectedOption === "APPROVED_WITH_RESTRICTIONS"}
+                      className="peer sr-only"
+                    />
+                    <label
+                      htmlFor="partner-decision-approved-with-restrictions"
+                      className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-[var(--color-neutral-200)] bg-white p-5 text-center transition peer-checked:border-[var(--color-primary)] peer-checked:bg-[var(--color-primary)]/5"
+                    >
+                      <span className="text-sm font-bold">Approved with Restrictions</span>
+                      <p className="text-xs text-[var(--color-neutral-600)]">Limited access until mitigation tasks are met.</p>
+                    </label>
+                  </div>
+
+                  <div>
+                    <input
+                      id="partner-decision-rejected"
+                      type="radio"
+                      name="selected_option"
+                      value="REJECTED"
+                      defaultChecked={detail.decision.selectedOption === "REJECTED"}
+                      className="peer sr-only"
+                    />
+                    <label
+                      htmlFor="partner-decision-rejected"
+                      className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-[var(--color-neutral-200)] bg-white p-5 text-center transition peer-checked:border-red-500 peer-checked:bg-red-50"
+                    >
+                      <span className="text-sm font-bold">Rejected</span>
+                      <p className="text-xs text-[var(--color-neutral-600)]">Serious violations identified.</p>
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-6 rounded-2xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-[var(--color-text)]" htmlFor="partner-approved-final-observation">
+                    Final Observation (Internal)
+                  </label>
+                  <textarea
+                    id="partner-approved-final-observation"
+                    name="approved_final_observation"
+                    rows={4}
+                    defaultValue={detail.decision.approvedFinalObservation}
+                    placeholder="Registre a justificativa final para aprovação."
+                    className="w-full rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)]/40 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+                  />
+                  <p className="mt-2 text-xs text-[var(--color-neutral-600)]">
+                    Este texto é enviado como comentário interno no Jira somente quando a decisão final for `Approved`.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-[var(--color-text)]">Conditions for Approval</label>
+                    <textarea
+                      name="conditions_for_approval"
+                      defaultValue={detail.decision.conditionsForApproval}
+                      className="min-h-[120px] w-full rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-4 text-sm outline-none focus:border-[var(--color-primary)]/40 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+                      placeholder="List specific conditions for the entity..."
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-[var(--color-text)]">Mitigation Plan</label>
+                    <textarea
+                      name="mitigation_plan"
+                      defaultValue={detail.decision.mitigationPlan}
+                      className="min-h-[120px] w-full rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] p-4 text-sm outline-none focus:border-[var(--color-primary)]/40 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+                      placeholder="Outline risk mitigation steps..."
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-1">
+                  <div className="max-w-xs">
+                    <label className="mb-2 block text-sm font-bold text-[var(--color-text)]">Approval Expiration Date</label>
+                    <input
+                      type="date"
+                      name="approval_expires_at"
+                      defaultValue={detail.decision.approvalExpiresAt}
+                      className="w-full rounded-xl border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)]/40 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="submit"
+                    name="submit_intent"
+                    value="save_draft"
+                    disabled={!hasAssessment}
+                    className="rounded-xl px-5 py-2.5 text-sm font-bold text-[var(--color-neutral-700)] transition hover:bg-[var(--color-neutral-100)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Save as Draft
+                  </button>
+                  <button
+                    type="submit"
+                    name="submit_intent"
+                    value={isDecisionFinalized ? "reopen_assessment" : "finalize_assessment"}
+                    disabled={!hasAssessment}
+                    className="rounded-xl bg-[var(--color-primary)] px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-[var(--color-primary)]/20 transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isDecisionFinalized ? "Re-Open" : "Finalize Assessment"}
+                  </button>
+                </div>
+              </section>
+            </form>
           )}
         </section>
       ) : null}

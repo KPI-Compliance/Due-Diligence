@@ -3,7 +3,11 @@
 import { redirect } from "next/navigation";
 import { getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
 import { sql } from "@/lib/db";
-import { addInternalCommentToConfiguredJiraIssue } from "@/lib/jira";
+import {
+  addInternalCommentToConfiguredJiraIssue,
+  updateConfiguredJiraIssueSecRisk,
+  updateConfiguredJiraIssueWorkflowStatus,
+} from "@/lib/jira";
 import { recalculatePartnerAssessmentDecision } from "@/lib/partner-risk-scoring";
 
 const allowedTables = new Set([
@@ -15,6 +19,19 @@ const allowedTables = new Set([
 
 const allowedEvaluations = new Set(["NOT_EVALUATED", "NA", "DOES_NOT_MEET", "PARTIALLY", "FULLY"]);
 const allowedSections = new Set(["Compliance", "Privacy", "Security"]);
+const allowedDecisionOptions = new Set(["APPROVED", "APPROVED_WITH_RESTRICTIONS", "REJECTED"]);
+const allowedWorkflowStatuses = new Set(["Opened", "Red Team", "Concluido"]);
+const allowedManualClassifications = new Set([
+  "Pending Review",
+  "Low",
+  "Moderate",
+  "High",
+  "Extreme",
+  "Low Risk",
+  "Medium Risk",
+  "High Risk",
+  "Critical Risk",
+]);
 
 function elapsedMs(startTime: number) {
   return Date.now() - startTime;
@@ -62,6 +79,213 @@ async function getRepresentativeResponseIdForAssessment(tableName: string, asses
     LIMIT 1
   `) as Array<{ id: string }>;
   return rows[0]?.id ?? null;
+}
+
+export async function savePartnerAssessmentDecision(formData: FormData) {
+  const sessionResult = await refreshServerActionSession("partners.savePartnerAssessmentDecision");
+  if (!sessionResult.session) {
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+
+  const entitySlug = String(formData.get("entity_slug") ?? "").trim();
+  const assessmentId = String(formData.get("assessment_id") ?? "").trim();
+  const jiraIssueKey = String(formData.get("jira_issue_key") ?? "").trim();
+  const submitIntent = String(formData.get("submit_intent") ?? "save_draft").trim();
+  const selectedOptionRaw = String(formData.get("selected_option") ?? "APPROVED_WITH_RESTRICTIONS").trim().toUpperCase();
+  const selectedOption = allowedDecisionOptions.has(selectedOptionRaw) ? selectedOptionRaw : "APPROVED_WITH_RESTRICTIONS";
+  const conditionsForApproval = String(formData.get("conditions_for_approval") ?? "").trim();
+  const mitigationPlan = String(formData.get("mitigation_plan") ?? "").trim();
+  const approvalExpiresAtRaw = String(formData.get("approval_expires_at") ?? "").trim();
+  const manualClassificationRaw = String(formData.get("manual_classification") ?? "").trim();
+  const manualClassification = allowedManualClassifications.has(manualClassificationRaw) ? manualClassificationRaw : null;
+  const workflowStatusRaw = String(formData.get("workflow_status_label") ?? "").trim();
+  const manualWorkflowStatus = allowedWorkflowStatuses.has(workflowStatusRaw) ? workflowStatusRaw : null;
+  const approvedFinalObservation = String(formData.get("approved_final_observation") ?? "").trim();
+
+  if (!entitySlug || !assessmentId) {
+    throw new Error("Invalid partner decision payload.");
+  }
+
+  const approvalExpiresAt = /^\d{4}-\d{2}-\d{2}$/.test(approvalExpiresAtRaw) ? approvalExpiresAtRaw : null;
+  const finalizeDecision = submitIntent === "finalize_assessment";
+  const reopenDecision = submitIntent === "reopen_assessment";
+
+  if (manualWorkflowStatus === "Concluido" && !finalizeDecision) {
+    const finalizedRows = (await sql`
+      SELECT finalized_at
+      FROM assessment_decisions
+      WHERE assessment_id = ${assessmentId}::uuid
+      LIMIT 1
+    `) as Array<{ finalized_at: string | null }>;
+    const hasFinalizedDecision = Boolean(finalizedRows[0]?.finalized_at);
+    if (!hasFinalizedDecision) {
+      redirect(`/partners/${entitySlug}?tab=decision&status_guard=1`);
+    }
+  }
+
+  const effectiveWorkflowStatus = finalizeDecision ? "Concluido" : reopenDecision ? "Opened" : manualWorkflowStatus;
+
+  await sql`
+    INSERT INTO assessment_decisions (
+      assessment_id,
+      selected_option,
+      conditions_for_approval,
+      mitigation_plan,
+      approval_expires_at,
+      classification,
+      finalized_at
+    )
+    VALUES (
+      ${assessmentId}::uuid,
+      ${selectedOption}::decision_option,
+      ${conditionsForApproval || null},
+      ${mitigationPlan || null},
+      ${approvalExpiresAt}::date,
+      ${manualClassification},
+      CASE WHEN ${finalizeDecision} THEN now() ELSE NULL END
+    )
+    ON CONFLICT (assessment_id)
+    DO UPDATE SET
+      selected_option = EXCLUDED.selected_option,
+      conditions_for_approval = EXCLUDED.conditions_for_approval,
+      mitigation_plan = EXCLUDED.mitigation_plan,
+      approval_expires_at = EXCLUDED.approval_expires_at,
+      classification = EXCLUDED.classification,
+      finalized_at = CASE
+        WHEN ${finalizeDecision} THEN now()
+        WHEN ${reopenDecision} THEN NULL
+        ELSE assessment_decisions.finalized_at
+      END,
+      updated_at = now()
+  `;
+
+  if (effectiveWorkflowStatus === "Opened") {
+    await sql`
+      UPDATE assessments
+      SET
+        status = 'PENDING',
+        completed_at = NULL,
+        updated_at = now()
+      WHERE id = ${assessmentId}::uuid
+    `;
+    await sql`
+      UPDATE entities e
+      SET
+        status = 'PENDING',
+        status_label = 'Opened',
+        updated_at = now()
+      FROM assessments a
+      WHERE a.id = ${assessmentId}::uuid
+        AND a.entity_id = e.id
+    `;
+  } else if (effectiveWorkflowStatus === "Red Team") {
+    await sql`
+      UPDATE assessments
+      SET
+        status = 'IN_REVIEW',
+        completed_at = NULL,
+        updated_at = now()
+      WHERE id = ${assessmentId}::uuid
+    `;
+    await sql`
+      UPDATE entities e
+      SET
+        status = 'IN_REVIEW',
+        status_label = 'Red Team',
+        updated_at = now()
+      FROM assessments a
+      WHERE a.id = ${assessmentId}::uuid
+        AND a.entity_id = e.id
+    `;
+  } else if (effectiveWorkflowStatus === "Concluido") {
+    await sql`
+      UPDATE assessments
+      SET
+        status = 'COMPLETED',
+        completed_at = COALESCE(completed_at, now()),
+        progress_percent = 100,
+        updated_at = now()
+      WHERE id = ${assessmentId}::uuid
+    `;
+    await sql`
+      UPDATE entities e
+      SET
+        status = 'COMPLETED',
+        status_label = 'Concluido',
+        updated_at = now()
+      FROM assessments a
+      WHERE a.id = ${assessmentId}::uuid
+        AND a.entity_id = e.id
+    `;
+  }
+
+  const decisionNoteValue = selectedOption === "APPROVED" ? approvedFinalObservation || null : null;
+  const updatedNotes = (await sql`
+    UPDATE assessment_notes
+    SET notes = ${decisionNoteValue}
+    WHERE assessment_id = ${assessmentId}::uuid
+      AND section = 'Decision'
+    RETURNING id
+  `) as Array<{ id: string }>;
+
+  if (updatedNotes.length === 0 && decisionNoteValue !== null) {
+    await sql`
+      INSERT INTO assessment_notes (assessment_id, section, notes)
+      VALUES (${assessmentId}::uuid, 'Decision', ${decisionNoteValue})
+    `;
+  }
+
+  if (jiraIssueKey) {
+    try {
+      await updateConfiguredJiraIssueSecRisk({
+        issueKey: jiraIssueKey,
+        entityKind: "PARTNER",
+        classification: manualClassificationRaw,
+      });
+    } catch {
+      redirect(`/partners/${entitySlug}?tab=decision&saved=1&jira_error=1`);
+    }
+
+    if (effectiveWorkflowStatus) {
+      try {
+        await updateConfiguredJiraIssueWorkflowStatus({
+          issueKey: jiraIssueKey,
+          entityKind: "PARTNER",
+          workflowStatusLabel: effectiveWorkflowStatus,
+        });
+      } catch (error) {
+        console.warn("[partners.savePartnerAssessmentDecision] jira workflow status sync skipped", {
+          entitySlug,
+          jiraIssueKey,
+          workflowStatusLabel: effectiveWorkflowStatus,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  if (finalizeDecision) {
+    let jiraSynced = false;
+    if (selectedOption === "APPROVED" && approvedFinalObservation && jiraIssueKey) {
+      try {
+        await addInternalCommentToConfiguredJiraIssue({
+          issueKey: jiraIssueKey,
+          entityKind: "PARTNER",
+          commentBody: `Final approved decision\n\nInternal observation:\n"${approvedFinalObservation}"`,
+        });
+        jiraSynced = true;
+      } catch {
+        redirect(`/partners/${entitySlug}?tab=decision&saved=1&jira_error=1`);
+      }
+    }
+    redirect(`/partners/${entitySlug}?tab=decision&saved=1${jiraSynced ? "&jira_synced=1" : ""}`);
+  }
+
+  if (reopenDecision) {
+    redirect(`/partners/${entitySlug}?tab=decision&saved=1`);
+  }
+
+  redirect(`/partners/${entitySlug}?tab=decision&saved=1`);
 }
 
 export async function savePartnerExternalQuestionnaireSection(formData: FormData) {
