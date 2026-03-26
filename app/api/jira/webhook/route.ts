@@ -20,6 +20,16 @@ type JiraIntegrationRow = {
   config: JiraConfig | null;
 };
 
+function normalizeNonEmptyString(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function prefersExisting(existing: unknown, incoming: unknown) {
+  return normalizeNonEmptyString(existing) ?? normalizeNonEmptyString(incoming) ?? null;
+}
+
 function resolveExplicitEntityKind(payload: JiraWebhookPayload): "VENDOR" | "PARTNER" | null {
   const candidates = [
     payload["entity-kind"],
@@ -307,6 +317,11 @@ export async function POST(request: Request) {
           entity.jiraFormData.scope = entity.jiraFormData.scope || attachmentFallback.scope || null;
           entity.jiraFormData.vtexResponsibleEmail =
             entity.jiraFormData.vtexResponsibleEmail || attachmentFallback.vtexResponsibleEmail || null;
+          entity.jiraFormData.languagePreference =
+            attachmentFallback.languagePreference || entity.jiraFormData.languagePreference || null;
+          entity.jiraFormData.priority = attachmentFallback.priority || entity.jiraFormData.priority || null;
+          entity.jiraFormData.company = attachmentFallback.company || entity.jiraFormData.company || null;
+          entity.jiraFormData.capNumber = attachmentFallback.capNumber || entity.jiraFormData.capNumber || null;
 
           entity.contactEmail = entity.contactEmail || attachmentFallback.vendorEmail || null;
           entity.ownerEmail = entity.ownerEmail || attachmentFallback.vtexResponsibleEmail || null;
@@ -345,15 +360,38 @@ export async function POST(request: Request) {
     const ownerUserId = ownerRows[0]?.id ?? null;
 
     const existingRows = (await sql`
-      SELECT id::text, slug
+      SELECT id::text, slug, contact_email, description, jira_form_data
       FROM entities
       WHERE jira_issue_key = ${entity.issueKey}
       LIMIT 1
-    `) as Array<{ id: string; slug: string }>;
+    `) as Array<{
+      id: string;
+      slug: string;
+      contact_email: string | null;
+      description: string | null;
+      jira_form_data: Record<string, unknown> | null;
+    }>;
 
-    const currentSlug = existingRows[0]?.slug ?? null;
+    const existingEntity = existingRows[0] ?? null;
+    const existingJiraFormData =
+      existingEntity?.jira_form_data && typeof existingEntity.jira_form_data === "object" && !Array.isArray(existingEntity.jira_form_data)
+        ? existingEntity.jira_form_data
+        : {};
+    const currentSlug = existingEntity?.slug ?? null;
+    const mergedJiraFormData = {
+      vendorEmail: prefersExisting(existingJiraFormData.vendorEmail, entity.jiraFormData.vendorEmail),
+      vtexResponsibleEmail: prefersExisting(existingJiraFormData.vtexResponsibleEmail, entity.jiraFormData.vtexResponsibleEmail),
+      languagePreference: prefersExisting(existingJiraFormData.languagePreference, entity.jiraFormData.languagePreference),
+      priority: prefersExisting(existingJiraFormData.priority, entity.jiraFormData.priority),
+      company: prefersExisting(existingJiraFormData.company, entity.jiraFormData.company),
+      capNumber: prefersExisting(existingJiraFormData.capNumber, entity.jiraFormData.capNumber),
+      scope: prefersExisting(existingJiraFormData.scope, entity.jiraFormData.scope),
+    };
+    entity.contactEmail = prefersExisting(existingEntity?.contact_email, entity.contactEmail);
+    entity.description = prefersExisting(existingEntity?.description, entity.description);
     const persistedJiraFormData = {
-      ...entity.jiraFormData,
+      ...existingJiraFormData,
+      ...mergedJiraFormData,
       jiraStatus: payload.issue?.fields?.status?.name?.trim() || null,
       jiraIssueCreatedAt,
     };
