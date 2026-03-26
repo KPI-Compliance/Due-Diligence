@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import {
+  enrichVendorFieldsFromJiraIssue,
   enrichVendorFieldsFromJiraAttachments,
   extractEntityFromJiraIssue,
   fetchJiraIssueCreatedAt,
@@ -84,22 +85,74 @@ function escapeControlCharactersInJsonStrings(raw: string) {
 
 async function parseJiraWebhookPayload(request: Request) {
   const rawBody = await request.text();
+  const normalizedRawBody = normalizeJiraWebhookRawBody(rawBody);
+  const parseAttempts = buildJiraPayloadParseAttempts(normalizedRawBody);
 
-  try {
-    return JSON.parse(rawBody) as JiraWebhookPayload;
-  } catch (originalError) {
-    const sanitizedBody = escapeControlCharactersInJsonStrings(rawBody);
-
+  let firstErrorMessage = "Invalid JSON payload.";
+  for (const candidate of parseAttempts) {
     try {
-      return JSON.parse(sanitizedBody) as JiraWebhookPayload;
-    } catch {
-      const message = originalError instanceof Error ? originalError.message : "Invalid JSON payload.";
-
-      throw new Error(
-        `${message} Make sure Jira smart values use .asJsonString for string fields in the custom data payload.`,
-      );
+      return JSON.parse(candidate.body) as JiraWebhookPayload;
+    } catch (error) {
+      if (firstErrorMessage === "Invalid JSON payload." && error instanceof Error) {
+        firstErrorMessage = error.message;
+      }
     }
   }
+
+  throw new JiraWebhookParseError(
+    `${firstErrorMessage} Make sure Jira smart values use .asJsonString for string fields in the custom data payload.`,
+  );
+}
+
+class JiraWebhookParseError extends Error {
+  status = 400;
+}
+
+function normalizeJiraWebhookRawBody(rawBody: string) {
+  const trimmed = rawBody.replace(/^\uFEFF/, "").trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const lowerCased = trimmed.toLowerCase();
+  if (!lowerCased.startsWith("payload=")) {
+    return trimmed;
+  }
+
+  const encodedPayload = trimmed.slice("payload=".length);
+  try {
+    return decodeURIComponent(encodedPayload);
+  } catch {
+    return encodedPayload;
+  }
+}
+
+function repairPossiblyInvalidJiraJson(raw: string) {
+  return raw
+    .replace(/{{[^{}]+}}/g, "null")
+    .replace(/:\s*(?=[},\]])/g, ": null")
+    .replace(/,\s*([}\]])/g, "$1");
+}
+
+function buildJiraPayloadParseAttempts(rawBody: string) {
+  const baseBody = rawBody.trim();
+  const repairedBody = repairPossiblyInvalidJiraJson(baseBody);
+  const attempts = [
+    baseBody,
+    escapeControlCharactersInJsonStrings(baseBody),
+    repairedBody,
+    escapeControlCharactersInJsonStrings(repairedBody),
+  ];
+
+  const uniqueAttempts = new Set<string>();
+  return attempts
+    .filter((body) => body.length > 0)
+    .filter((body) => {
+      if (uniqueAttempts.has(body)) return false;
+      uniqueAttempts.add(body);
+      return true;
+    })
+    .map((body) => ({ body }));
 }
 
 function secretMatches(headerValue: string | null, configuredSecret: string) {
@@ -201,25 +254,64 @@ export async function POST(request: Request) {
       entity.kind === "VENDOR" &&
       jiraSetting.config?.base_url &&
       jiraApiEmail &&
-      jiraApiToken &&
-      (!entity.jiraFormData.vendorEmail || !entity.jiraFormData.scope || !entity.jiraFormData.vtexResponsibleEmail)
+      jiraApiToken
     ) {
-      const attachmentFallback = await enrichVendorFieldsFromJiraAttachments({
-        baseUrl: jiraSetting.config.base_url,
-        email: jiraApiEmail,
-        token: jiraApiToken,
-        issueKey: entity.issueKey,
-      });
+      const hasMissingVendorFormData = Boolean(
+        !entity.jiraFormData.vendorEmail ||
+          !entity.jiraFormData.vtexResponsibleEmail ||
+          !entity.jiraFormData.scope ||
+          !entity.jiraFormData.languagePreference ||
+          !entity.jiraFormData.priority ||
+          !entity.jiraFormData.capNumber,
+      );
 
-      if (attachmentFallback) {
-        entity.jiraFormData.vendorEmail = entity.jiraFormData.vendorEmail || attachmentFallback.vendorEmail || null;
-        entity.jiraFormData.scope = entity.jiraFormData.scope || attachmentFallback.scope || null;
-        entity.jiraFormData.vtexResponsibleEmail =
-          entity.jiraFormData.vtexResponsibleEmail || attachmentFallback.vtexResponsibleEmail || null;
+      if (hasMissingVendorFormData) {
+        const issueFallback = await enrichVendorFieldsFromJiraIssue({
+          baseUrl: jiraSetting.config.base_url,
+          email: jiraApiEmail,
+          token: jiraApiToken,
+          issueKey: entity.issueKey,
+        });
 
-        entity.contactEmail = entity.contactEmail || attachmentFallback.vendorEmail || null;
-        entity.ownerEmail = entity.ownerEmail || attachmentFallback.vtexResponsibleEmail || null;
-        entity.description = entity.description || attachmentFallback.scope || null;
+        if (issueFallback) {
+          entity.jiraFormData.vendorEmail = entity.jiraFormData.vendorEmail || issueFallback.vendorEmail || null;
+          entity.jiraFormData.vtexResponsibleEmail =
+            entity.jiraFormData.vtexResponsibleEmail || issueFallback.vtexResponsibleEmail || null;
+          entity.jiraFormData.languagePreference =
+            entity.jiraFormData.languagePreference || issueFallback.languagePreference || null;
+          entity.jiraFormData.priority = entity.jiraFormData.priority || issueFallback.priority || null;
+          entity.jiraFormData.company = entity.jiraFormData.company || issueFallback.company || null;
+          entity.jiraFormData.capNumber = entity.jiraFormData.capNumber || issueFallback.capNumber || null;
+          entity.jiraFormData.scope = entity.jiraFormData.scope || issueFallback.scope || null;
+
+          entity.contactEmail = entity.contactEmail || issueFallback.vendorEmail || null;
+          entity.ownerEmail = entity.ownerEmail || issueFallback.vtexResponsibleEmail || null;
+          entity.description = entity.description || issueFallback.scope || issueFallback.description || null;
+        }
+      }
+
+      const stillMissingCoreVendorFields = Boolean(
+        !entity.jiraFormData.vendorEmail || !entity.jiraFormData.scope || !entity.jiraFormData.vtexResponsibleEmail,
+      );
+
+      if (stillMissingCoreVendorFields) {
+        const attachmentFallback = await enrichVendorFieldsFromJiraAttachments({
+          baseUrl: jiraSetting.config.base_url,
+          email: jiraApiEmail,
+          token: jiraApiToken,
+          issueKey: entity.issueKey,
+        });
+
+        if (attachmentFallback) {
+          entity.jiraFormData.vendorEmail = entity.jiraFormData.vendorEmail || attachmentFallback.vendorEmail || null;
+          entity.jiraFormData.scope = entity.jiraFormData.scope || attachmentFallback.scope || null;
+          entity.jiraFormData.vtexResponsibleEmail =
+            entity.jiraFormData.vtexResponsibleEmail || attachmentFallback.vtexResponsibleEmail || null;
+
+          entity.contactEmail = entity.contactEmail || attachmentFallback.vendorEmail || null;
+          entity.ownerEmail = entity.ownerEmail || attachmentFallback.vtexResponsibleEmail || null;
+          entity.description = entity.description || attachmentFallback.scope || null;
+        }
       }
     }
 
@@ -390,6 +482,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown Jira webhook error.";
-    return NextResponse.json({ ok: false, message }, { status: 500 });
+    const status = typeof (error as { status?: unknown })?.status === "number" ? Number((error as { status: number }).status) : 500;
+    return NextResponse.json({ ok: false, message }, { status });
   }
 }

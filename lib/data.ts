@@ -76,7 +76,8 @@ function normalizeVendorWorkflowLabel(label: string | null | undefined): VendorW
   const normalized = (label ?? "").trim().toLowerCase();
   if (!normalized) return null;
   if (normalized === "opened" || normalized === "open") return "Opened";
-  if (normalized === "waiting vendor" || normalized === "waiting_vendor" || normalized === "awaiting response") return "Waiting vendor";
+  if (normalized === "awaiting response") return "Opened";
+  if (normalized === "waiting vendor" || normalized === "waiting_vendor") return "Waiting vendor";
   if (normalized === "received quest." || normalized === "received quest" || normalized === "received questionnaire") return "Received Quest.";
   if (normalized === "red team") return "Red Team";
   if (normalized === "concluido" || normalized === "concluído" || normalized === "completed") return "Concluido";

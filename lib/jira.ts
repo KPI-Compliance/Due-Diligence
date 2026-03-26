@@ -80,6 +80,7 @@ type JiraJqlMatchResponse = {
 
 type JiraIssueDetailResponse = {
   id?: string | null;
+  names?: Record<string, string>;
   fields?: {
     created?: string | null;
     attachment?: Array<{
@@ -118,6 +119,12 @@ type JiraTransitionsResponse = {
       name?: string | null;
     } | null;
   }>;
+};
+
+type JiraServiceDeskRequestDetailResponse = {
+  requestFieldValues?: unknown;
+  values?: unknown;
+  [key: string]: unknown;
 };
 
 function getJiraSetting<T>(
@@ -229,6 +236,13 @@ function stringifyUnknown(value: unknown): string | null {
 
     if ("text" in value) {
       return stringifyUnknown((value as { text?: unknown }).text);
+    }
+
+    const objectValues = Object.values(typedValue)
+      .map((item) => stringifyUnknown(item))
+      .filter((item): item is string => Boolean(item));
+    if (objectValues.length > 0) {
+      return objectValues.join(", ");
     }
   }
 
@@ -511,6 +525,188 @@ export async function fetchJiraIssueCreatedAt(input: {
   );
 
   return payload.fields?.created?.trim() || null;
+}
+
+function findIssueFieldValue(
+  issueFields: Record<string, unknown>,
+  fieldNames: Record<string, string>,
+  aliases: string[],
+) {
+  const normalizedAliases = aliases.map(normalizeKey);
+  const rankedMatches: Array<{ score: number; value: string }> = [];
+
+  for (const [fieldKey, rawValue] of Object.entries(issueFields)) {
+    const fieldLabel = fieldNames[fieldKey] ?? fieldKey;
+    const normalizedFieldKey = normalizeKey(fieldKey);
+    const normalizedFieldLabel = normalizeKey(fieldLabel);
+
+    let score = 0;
+    for (const alias of normalizedAliases) {
+      if (!alias) continue;
+      if (normalizedFieldLabel === alias || normalizedFieldKey === alias) {
+        score = Math.max(score, 3);
+      } else if (normalizedFieldLabel.includes(alias) || alias.includes(normalizedFieldLabel)) {
+        score = Math.max(score, 2);
+      } else if (normalizedFieldKey.includes(alias) || alias.includes(normalizedFieldKey)) {
+        score = Math.max(score, 1);
+      }
+    }
+
+    if (score === 0) continue;
+    const value = stringifyUnknown(rawValue);
+    if (!value) continue;
+    rankedMatches.push({ score, value });
+  }
+
+  if (rankedMatches.length === 0) return null;
+  rankedMatches.sort((left, right) => right.score - left.score || right.value.length - left.value.length);
+  return rankedMatches[0]?.value ?? null;
+}
+
+export async function enrichVendorFieldsFromJiraIssue(input: {
+  baseUrl: string;
+  email: string;
+  token: string;
+  issueKey: string;
+}) {
+  try {
+    const issuePayload = await fetchJiraJson<JiraIssueDetailResponse>(
+      `${input.baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}?fields=*all&expand=names`,
+      input.email,
+      input.token,
+    );
+
+    const requestLookupCandidates = [input.issueKey, issuePayload.id ?? ""]
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean);
+    let requestPayload: JiraServiceDeskRequestDetailResponse | null = null;
+    for (const requestId of requestLookupCandidates) {
+      try {
+        requestPayload = await fetchJiraJson<JiraServiceDeskRequestDetailResponse>(
+          `${input.baseUrl.replace(/\/$/, "")}/rest/servicedeskapi/request/${encodeURIComponent(requestId)}?expand=requestFieldValues`,
+          input.email,
+          input.token,
+        );
+        if (requestPayload) break;
+      } catch {
+        continue;
+      }
+    }
+
+    const issueFields =
+      issuePayload.fields && typeof issuePayload.fields === "object" && !Array.isArray(issuePayload.fields)
+        ? (issuePayload.fields as Record<string, unknown>)
+        : {};
+    const issueFieldNames =
+      issuePayload.names && typeof issuePayload.names === "object" && !Array.isArray(issuePayload.names)
+        ? issuePayload.names
+        : {};
+    const issueDescription = normalizeWhitespace(adfToText((issueFields.description as JiraPrimitive | JiraAdfNode) ?? ""));
+    const source = {
+      issue: issuePayload,
+      request: requestPayload,
+      requestFieldValues:
+        requestPayload && typeof requestPayload === "object"
+          ? (requestPayload.requestFieldValues ?? requestPayload.values ?? null)
+          : null,
+    };
+
+    const vendorEmail =
+      findValueInObject(source, [
+        "vendor e-mail address",
+        "vendor email address",
+        "vendor e-mail",
+        "vendor email",
+        "fornecedor e-mail",
+        "fornecedor email",
+        "email do vendor",
+        "email do fornecedor",
+      ]) ??
+      findIssueFieldValue(issueFields, issueFieldNames, [
+        "vendor e-mail address",
+        "vendor email address",
+        "vendor e-mail",
+        "vendor email",
+        "supplier email",
+        "email do vendor",
+        "email do fornecedor",
+      ]) ??
+      findFieldValue(issueDescription, [
+        "vendor e-mail address",
+        "vendor email address",
+        "vendor e-mail",
+        "vendor email",
+        "email do vendor",
+      ]);
+    const vtexResponsibleEmail =
+      findValueInObject(source, [
+        "vtex e-mail responsible",
+        "vtex email responsible",
+        "responsavel vtex",
+        "responsável vtex",
+        "responsible email",
+        "ponto focal vtex",
+        "vtex focal point",
+      ]) ??
+      findIssueFieldValue(issueFields, issueFieldNames, [
+        "vtex e-mail responsible",
+        "vtex email responsible",
+        "responsavel vtex",
+        "responsável vtex",
+        "vtex responsible",
+        "responsible email",
+        "ponto focal vtex",
+      ]) ??
+      findFieldValue(issueDescription, ["vtex e-mail responsible", "vtex email responsible", "responsavel vtex"]);
+    const languagePreference =
+      findValueInObject(source, ["vendor language preferences", "language preference", "idioma", "language"]) ??
+      findIssueFieldValue(issueFields, issueFieldNames, [
+        "vendor language preferences",
+        "language preference",
+        "idioma",
+        "language",
+      ]) ??
+      findFieldValue(issueDescription, ["vendor language preferences", "language preference", "idioma"]);
+    const priority =
+      findValueInObject(source, ["priority", "prioridade"]) ??
+      findIssueFieldValue(issueFields, issueFieldNames, ["priority", "prioridade"]) ??
+      findFieldValue(issueDescription, ["priority", "prioridade"]);
+    const company =
+      findValueInObject(source, ["company", "empresa", "business unit", "company group", "grupo"]) ??
+      findIssueFieldValue(issueFields, issueFieldNames, [
+        "company",
+        "empresa",
+        "business unit",
+        "company group",
+        "grupo",
+      ]) ??
+      findFieldValue(issueDescription, ["company", "empresa", "business unit", "company group", "grupo"]);
+    const capNumber =
+      findValueInObject(source, ["cap number", "cap", "cap-number", "numero cap", "número cap"]) ??
+      findIssueFieldValue(issueFields, issueFieldNames, ["cap number", "cap", "cap-number", "numero cap", "número cap"]) ??
+      findFieldValue(issueDescription, ["cap number", "cap", "cap-number", "numero cap", "número cap"]);
+    const scope =
+      findValueInObject(source, ["scope", "escopo", "context", "contexto"]) ??
+      findIssueFieldValue(issueFields, issueFieldNames, ["scope", "escopo", "context", "contexto"]) ??
+      findFieldValue(issueDescription, ["scope", "escopo", "context", "contexto"]);
+
+    return {
+      vendorEmail: vendorEmail || null,
+      vtexResponsibleEmail: vtexResponsibleEmail || null,
+      languagePreference: languagePreference || null,
+      priority: priority || null,
+      company: company || null,
+      capNumber: capNumber || null,
+      scope: scope || null,
+      description: issueDescription || null,
+    };
+  } catch (error) {
+    console.warn(
+      `[jira] failed to enrich vendor fields from issue fields for ${input.issueKey}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
 }
 
 async function fetchJiraIssueId(input: {
@@ -1320,6 +1516,8 @@ export function extractEntityFromJiraIssue(
     .join("\n\n")
     .trim();
   const category = capNumber ? `CAP ${capNumber}` : languagePreference;
+  const initialWorkflowLabel =
+    kind === "VENDOR" && status === "PENDING" ? "Opened" : formatStatusLabel(status);
 
   return {
     issueKey,
@@ -1335,7 +1533,7 @@ export function extractEntityFromJiraIssue(
     description: mergedDescription || null,
     category: category || null,
     subtitle: kind === "PARTNER" ? "Partner assessment" : "Vendor assessment",
-    statusLabel: formatStatusLabel(status),
+    statusLabel: initialWorkflowLabel,
     status,
     riskLevel,
     ownerEmail: vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
