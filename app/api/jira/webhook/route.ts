@@ -30,6 +30,10 @@ function prefersExisting(existing: unknown, incoming: unknown) {
   return normalizeNonEmptyString(existing) ?? normalizeNonEmptyString(incoming) ?? null;
 }
 
+function prefersIncoming(existing: unknown, incoming: unknown) {
+  return normalizeNonEmptyString(incoming) ?? normalizeNonEmptyString(existing) ?? null;
+}
+
 function resolveExplicitEntityKind(payload: JiraWebhookPayload): "VENDOR" | "PARTNER" | null {
   const candidates = [
     payload["entity-kind"],
@@ -379,13 +383,13 @@ export async function POST(request: Request) {
         : {};
     const currentSlug = existingEntity?.slug ?? null;
     const mergedJiraFormData = {
-      vendorEmail: prefersExisting(existingJiraFormData.vendorEmail, entity.jiraFormData.vendorEmail),
-      vtexResponsibleEmail: prefersExisting(existingJiraFormData.vtexResponsibleEmail, entity.jiraFormData.vtexResponsibleEmail),
-      languagePreference: prefersExisting(existingJiraFormData.languagePreference, entity.jiraFormData.languagePreference),
-      priority: prefersExisting(existingJiraFormData.priority, entity.jiraFormData.priority),
-      company: prefersExisting(existingJiraFormData.company, entity.jiraFormData.company),
-      capNumber: prefersExisting(existingJiraFormData.capNumber, entity.jiraFormData.capNumber),
-      scope: prefersExisting(existingJiraFormData.scope, entity.jiraFormData.scope),
+      vendorEmail: prefersIncoming(existingJiraFormData.vendorEmail, entity.jiraFormData.vendorEmail),
+      vtexResponsibleEmail: prefersIncoming(existingJiraFormData.vtexResponsibleEmail, entity.jiraFormData.vtexResponsibleEmail),
+      languagePreference: prefersIncoming(existingJiraFormData.languagePreference, entity.jiraFormData.languagePreference),
+      priority: prefersIncoming(existingJiraFormData.priority, entity.jiraFormData.priority),
+      company: prefersIncoming(existingJiraFormData.company, entity.jiraFormData.company),
+      capNumber: prefersIncoming(existingJiraFormData.capNumber, entity.jiraFormData.capNumber),
+      scope: prefersIncoming(existingJiraFormData.scope, entity.jiraFormData.scope),
     };
     entity.contactEmail = prefersExisting(existingEntity?.contact_email, entity.contactEmail);
     entity.description = prefersExisting(existingEntity?.description, entity.description);

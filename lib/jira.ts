@@ -249,6 +249,15 @@ function stringifyUnknown(value: unknown): string | null {
   return null;
 }
 
+function valueFromTopLevelPayload(payload: JiraWebhookPayload, keys: string[]) {
+  for (const key of keys) {
+    const value = stringifyUnknown(payload[key]);
+    if (value) return value;
+  }
+
+  return null;
+}
+
 function valueFromLabeledEntry(value: unknown, normalizedAliases: string[]): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 
@@ -1460,6 +1469,14 @@ export function extractEntityFromJiraIssue(
     normalizeEntityLabel(findValueInObject(payload, ["entity kind", "kind", "tipo de entidade", "entity_type"])) ??
     normalizeEntityLabel(summary);
   const entityName =
+    valueFromTopLevelPayload(payload, [
+      "name-of-vendor",
+      "name_of_vendor",
+      "name of vendor",
+      "name-of-partner",
+      "name_of_partner",
+      "name of partner",
+    ]) ??
     findValueInObject(payload, [
       "name of vendor",
       "vendor name",
@@ -1472,6 +1489,15 @@ export function extractEntityFromJiraIssue(
       "nome da empresa",
     ]) ?? summary;
   const contactEmail =
+    valueFromTopLevelPayload(payload, [
+      "vendor-e-mail-address",
+      "vendor_email_address",
+      "vendor email address",
+      "vendedor-e-mail-address",
+      "partner-e-mail-address",
+      "partner_email_address",
+      "partner email address",
+    ]) ??
     findValueInObject(payload, [
       "vendor e-mail address",
       "vendor email address",
@@ -1487,17 +1513,38 @@ export function extractEntityFromJiraIssue(
       "email",
     ]) ?? findFieldValue(description, ["vendor e-mail address", "partner email", "contact email", "email", "e-mail"]);
   const vtexResponsibleEmail =
+    valueFromTopLevelPayload(payload, [
+      "vtex-e-mail-responsible",
+      "vtex_email_responsible",
+      "vtex email responsible",
+      "responsavel-vtex",
+      "responsável-vtex",
+    ]) ??
     findValueInObject(payload, ["vtex e-mail responsible", "vtex email responsible", "responsavel vtex", "responsible email"]) ??
     findFieldValue(description, ["vtex e-mail responsible", "vtex email responsible", "responsavel vtex"]);
   const languagePreference =
-    findValueInObject(payload, ["vendor language preferences", "language preference", "idioma", "language"]) ??
-    findFieldValue(description, ["vendor language preferences", "language preference", "idioma"]);
+    valueFromTopLevelPayload(payload, [
+      "vendor-language-preferences",
+      "vendor_language_preferences",
+      "vendor language preferences",
+      "vendor-language",
+      "vendor language",
+    ]) ??
+    findValueInObject(payload, ["vendor language preferences", "vendor language", "idioma do vendor"]) ??
+    findFieldValue(description, ["vendor language preferences", "vendor language", "idioma do vendor"]);
   const companyGroupFromForm = findCompanyGroupFromPayload(payload, description);
   const capNumber =
-    findValueInObject(payload, ["cap number", "cap"]) ?? findFieldValue(description, ["cap number", "cap"]);
+    valueFromTopLevelPayload(payload, ["cap-number", "cap_number", "cap number", "cap"]) ??
+    findValueInObject(payload, ["cap number", "cap"]) ??
+    findFieldValue(description, ["cap number", "cap"]);
   const scope =
+    valueFromTopLevelPayload(payload, ["scope", "escopo", "context", "contexto"]) ??
     findValueInObject(payload, ["scope", "escopo", "context", "contexto"]) ??
     findFieldValue(description, ["scope", "escopo", "context", "contexto"]);
+  const formPriority =
+    valueFromTopLevelPayload(payload, ["priority", "vendor-priority", "vendor_priority", "vendor priority"]) ??
+    findValueInObject(payload, ["vendor priority", "prioridade do vendor", "prioridade vendor"]) ??
+    findFieldValue(description, ["vendor priority", "prioridade do vendor", "prioridade vendor"]);
   const requestDescription =
     findValueInObject(payload, ["description", "descricao"]) ?? description;
   const website = cleanUrl(
@@ -1516,8 +1563,7 @@ export function extractEntityFromJiraIssue(
     languagePreference ??
     (kind === "PARTNER" ? "Partner assessment" : "Vendor assessment");
   const companyGroup = companyGroupFromForm ?? inferCompanyGroup(fields, description);
-  const priorityLabel =
-    findValueInObject(payload, ["priority", "prioridade"]) ??
+  const riskPriorityLabel =
     stringifyUnknown(fields.priority) ??
     findFieldValue(description, ["priority", "prioridade"]);
   const status = inferStatus(fields);
@@ -1526,7 +1572,7 @@ export function extractEntityFromJiraIssue(
       ...fields,
       priority: {
         name:
-          priorityLabel ??
+          riskPriorityLabel ??
           null,
       },
     },
@@ -1563,7 +1609,7 @@ export function extractEntityFromJiraIssue(
       vendorEmail: contactEmail,
       vtexResponsibleEmail: vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
       languagePreference,
-      priority: priorityLabel,
+      priority: formPriority,
       company: companyGroupFromForm ?? companyGroup,
       capNumber,
       scope,
