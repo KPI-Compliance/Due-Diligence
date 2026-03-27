@@ -3,7 +3,7 @@ import { EntityWorkspace } from "@/components/ui/EntityWorkspace";
 import { getPartnersList } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
-const MAX_PARTNER_ROWS = 25;
+const MAX_PARTNER_ROWS = 20;
 
 function renderAssessmentBadge(label: string) {
   const normalized = label.toLowerCase();

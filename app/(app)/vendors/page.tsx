@@ -3,7 +3,7 @@ import { EntityWorkspace } from "@/components/ui/EntityWorkspace";
 import { getVendorsList } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
-const MAX_VENDOR_ROWS = 25;
+const MAX_VENDOR_ROWS = 20;
 const INTAKE_STATUS_ORDER = ["Pending", "Sent", "Responded", "Reviewed"] as const;
 const MAIN_QUESTIONNAIRE_STATUS_ORDER = ["Pending", "Responded", "Reviewed"] as const;
 const RISK_LEVEL_ORDER = ["Pending Review", "Low", "Moderate", "High", "Extreme"] as const;
