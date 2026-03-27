@@ -4,6 +4,19 @@ import { getVendorsList } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 const MAX_VENDOR_ROWS = 25;
+const INTAKE_STATUS_ORDER = ["Pending", "Sent", "Responded", "Reviewed"] as const;
+const MAIN_QUESTIONNAIRE_STATUS_ORDER = ["Pending", "Responded", "Reviewed"] as const;
+const RISK_LEVEL_ORDER = ["Pending Review", "Low", "Moderate", "High", "Extreme"] as const;
+const JIRA_STATUS_ORDER = ["Opened", "Waiting vendor", "Received Quest.", "Red Team", "Concluido"] as const;
+
+function buildOrderedOptions(values: string[], preferredOrder: readonly string[]) {
+  const uniqueValues = Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+  const preferred = preferredOrder.filter((option) => uniqueValues.includes(option));
+  const remaining = uniqueValues
+    .filter((option) => !preferredOrder.includes(option))
+    .sort((a, b) => a.localeCompare(b));
+  return [...preferred, ...remaining];
+}
 
 function renderJiraStatusBadge(label: string) {
   const normalized = label.trim().toLowerCase();
@@ -55,6 +68,7 @@ export default async function VendorsPage({
 }: {
   searchParams?: Promise<{
     vendor?: string;
+    jira_status?: string;
     initial_questionnaire?: string;
     main_questionnaire?: string;
     risk_level?: string;
@@ -65,11 +79,19 @@ export default async function VendorsPage({
   const vendors = await getVendorsList();
   const params = searchParams ? await searchParams : undefined;
   const vendorQuery = (params?.vendor ?? "").trim().toLowerCase();
+  const jiraStatus = (params?.jira_status ?? "All").trim();
   const initialQuestionnaire = (params?.initial_questionnaire ?? "All").trim();
   const mainQuestionnaire = (params?.main_questionnaire ?? "All").trim();
   const riskLevel = (params?.risk_level ?? "All Risks").trim();
   const companyGroup = (params?.company_group ?? "Todos").trim();
 
+  const jiraStatusOptions = ["All", ...buildOrderedOptions(vendors.map((item) => item.jiraStatus), JIRA_STATUS_ORDER)];
+  const initialQuestionnaireOptions = ["All", ...buildOrderedOptions(vendors.map((item) => item.intakeStatus), INTAKE_STATUS_ORDER)];
+  const mainQuestionnaireOptions = [
+    "All",
+    ...buildOrderedOptions(vendors.map((item) => item.principalQuestionnaireStatus), MAIN_QUESTIONNAIRE_STATUS_ORDER),
+  ];
+  const riskLevelOptions = ["All Risks", ...buildOrderedOptions(vendors.map((item) => item.risk), RISK_LEVEL_ORDER)];
   const companyGroupOptions = ["Todos", ...Array.from(new Set(vendors.map((item) => item.companyGroup).filter(Boolean))).sort((a, b) => a.localeCompare(b))];
 
   const filters = [
@@ -81,24 +103,31 @@ export default async function VendorsPage({
       value: params?.vendor ?? "",
     },
     {
+      name: "jira_status",
+      label: "Jira Status",
+      kind: "select" as const,
+      options: jiraStatusOptions,
+      value: jiraStatus,
+    },
+    {
       name: "initial_questionnaire",
       label: "Questionário Inicial",
       kind: "select" as const,
-      options: ["All", "Pending", "Sent", "Responded", "Reviewed"],
+      options: initialQuestionnaireOptions,
       value: initialQuestionnaire,
     },
     {
       name: "main_questionnaire",
       label: "Questionário Principal",
       kind: "select" as const,
-      options: ["All", "Pending", "Responded", "Reviewed"],
+      options: mainQuestionnaireOptions,
       value: mainQuestionnaire,
     },
     {
       name: "risk_level",
       label: "Nível de Risco",
       kind: "select" as const,
-      options: ["All Risks", "Pending Review", "Low", "Moderate", "High", "Extreme"],
+      options: riskLevelOptions,
       value: riskLevel,
     },
     {
@@ -116,6 +145,9 @@ export default async function VendorsPage({
       item.company.toLowerCase().includes(vendorQuery) ||
       (item.jiraTicket ?? "").toLowerCase().includes(vendorQuery);
 
+    const matchesJiraStatus =
+      jiraStatus === "All" || item.jiraStatus === jiraStatus;
+
     const matchesInitialQuestionnaire =
       initialQuestionnaire === "All" || item.intakeStatus === initialQuestionnaire;
 
@@ -130,6 +162,7 @@ export default async function VendorsPage({
 
     return (
       matchesVendor &&
+      matchesJiraStatus &&
       matchesInitialQuestionnaire &&
       matchesMainQuestionnaire &&
       matchesRiskLevel &&
