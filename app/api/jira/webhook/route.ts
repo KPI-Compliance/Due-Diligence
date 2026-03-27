@@ -34,6 +34,19 @@ function prefersIncoming(existing: unknown, incoming: unknown) {
   return normalizeNonEmptyString(incoming) ?? normalizeNonEmptyString(existing) ?? null;
 }
 
+function isLikelyLabelOnlyValue(value: unknown, labels: string[]) {
+  const normalized = normalizeNonEmptyString(value)?.toLowerCase();
+  if (!normalized) return false;
+  return labels.some((label) => normalized === label.toLowerCase().trim());
+}
+
+function isSuspiciousCapNumber(value: unknown) {
+  const normalized = normalizeNonEmptyString(value)?.toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes("company") || normalized.includes("empresa")) return true;
+  return false;
+}
+
 function resolveExplicitEntityKind(payload: JiraWebhookPayload): "VENDOR" | "PARTNER" | null {
   const candidates = [
     payload["entity-kind"],
@@ -304,10 +317,10 @@ export async function POST(request: Request) {
           entity.jiraFormData.vtexResponsibleEmail =
             entity.jiraFormData.vtexResponsibleEmail || issueFallback.vtexResponsibleEmail || null;
           entity.jiraFormData.languagePreference =
-            entity.jiraFormData.languagePreference || issueFallback.languagePreference || null;
-          entity.jiraFormData.priority = entity.jiraFormData.priority || issueFallback.priority || null;
-          entity.jiraFormData.company = entity.jiraFormData.company || issueFallback.company || null;
-          entity.jiraFormData.capNumber = entity.jiraFormData.capNumber || issueFallback.capNumber || null;
+            issueFallback.languagePreference || entity.jiraFormData.languagePreference || null;
+          entity.jiraFormData.priority = issueFallback.priority || entity.jiraFormData.priority || null;
+          entity.jiraFormData.company = issueFallback.company || entity.jiraFormData.company || null;
+          entity.jiraFormData.capNumber = issueFallback.capNumber || entity.jiraFormData.capNumber || null;
           entity.jiraFormData.scope = entity.jiraFormData.scope || issueFallback.scope || null;
 
           entity.contactEmail = entity.contactEmail || issueFallback.vendorEmail || null;
@@ -319,8 +332,27 @@ export async function POST(request: Request) {
       const stillMissingCoreVendorFields = Boolean(
         !entity.jiraFormData.vendorEmail || !entity.jiraFormData.scope || !entity.jiraFormData.vtexResponsibleEmail,
       );
+      const hasMissingAdditionalVendorFields = Boolean(
+        !entity.jiraFormData.languagePreference ||
+          !entity.jiraFormData.priority ||
+          !entity.jiraFormData.company ||
+          !entity.jiraFormData.capNumber,
+      );
+      const hasSuspiciousVendorFields = Boolean(
+        isLikelyLabelOnlyValue(entity.jiraFormData.priority, ["priority", "prioridade"]) ||
+          isLikelyLabelOnlyValue(entity.jiraFormData.languagePreference, [
+            "vendor language preferences",
+            "language preference",
+            "language",
+            "idioma",
+          ]) ||
+          isSuspiciousCapNumber(entity.jiraFormData.capNumber),
+      );
+      const shouldTryAttachmentFallback = Boolean(
+        stillMissingCoreVendorFields || hasMissingAdditionalVendorFields || hasSuspiciousVendorFields,
+      );
 
-      if (stillMissingCoreVendorFields) {
+      if (shouldTryAttachmentFallback) {
         syncDebug.attachmentFallbackAttempted = true;
         const attachmentFallback = await enrichVendorFieldsFromJiraAttachments({
           baseUrl: jiraSetting.config.base_url,

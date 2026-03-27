@@ -61,6 +61,35 @@ function extractEmailFromText(value) {
   return match?.[0]?.trim().toLowerCase() ?? null;
 }
 
+function normalizeExtractedCompany(value) {
+  const normalized = normalizeWhitespace(value ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+
+  const stripped = normalized.replace(/^(company|empresa)\s*\*?\s*[:|-]?\s*/i, "").trim();
+  const cleaned = stripped || normalized;
+  if (!cleaned) return null;
+  if (/^(cap|cap number)$/i.test(cleaned)) return null;
+  return cleaned.length <= 120 ? cleaned : null;
+}
+
+function normalizeExtractedCapNumber(value) {
+  const normalized = normalizeWhitespace(value ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+
+  const stripped = normalized.replace(/^(cap|cap number)\s*\*?\s*[:|-]?\s*/i, "").trim();
+  const cleaned = stripped || normalized;
+  if (!cleaned) return null;
+  if (/company|empresa/i.test(cleaned) && !/\d/.test(cleaned)) return null;
+
+  const digits = cleaned.match(/\b\d{2,}\b/);
+  if (digits?.[0]) return digits[0];
+
+  if (/company|empresa|scope|escopo|context/i.test(cleaned)) return null;
+  const compact = cleaned.replace(/\s+/g, "");
+  if (/^[a-z0-9-]{2,20}$/i.test(compact)) return compact;
+  return null;
+}
+
 function parseLabeledValueFromLines(lines, labels) {
   const normalizedLabels = labels.map(normalizeKey);
   const knownFieldHints = [
@@ -190,6 +219,18 @@ function scoreExtractedFields(fields) {
   if (fields.company) score += 1;
   if (fields.capNumber) score += 1;
   return score;
+}
+
+function isSuspiciousCapNumber(value) {
+  const normalized = normalizeWhitespace(value ?? "").toLowerCase();
+  if (!normalized) return false;
+  return normalized.includes("company") || normalized.includes("empresa");
+}
+
+function isLikelyLabelOnlyValue(value, labels) {
+  const normalized = normalizeWhitespace(value ?? "").toLowerCase();
+  if (!normalized) return false;
+  return labels.some((label) => normalized === String(label).toLowerCase());
 }
 
 function isBlank(value) {
@@ -387,6 +428,8 @@ async function extractFieldsFromPdfUrl(jira, contentUrl) {
     ...parsed,
     vendorEmail: extractEmailFromText(parsed.vendorEmail),
     vtexResponsibleEmail: extractEmailFromText(parsed.vtexResponsibleEmail),
+    company: normalizeExtractedCompany(parsed.company),
+    capNumber: normalizeExtractedCapNumber(parsed.capNumber),
   };
 
   if (scoreExtractedFields(normalized) === 0) return null;
@@ -417,6 +460,9 @@ async function main() {
         OR COALESCE(NULLIF(jira_form_data->>'scope', ''), '') = ''
         OR COALESCE(NULLIF(description, ''), NULLIF(jira_form_data->>'scope', '')) IS NULL
         OR COALESCE(NULLIF(jira_form_data->>'vtexResponsibleEmail', ''), '') = ''
+        OR lower(COALESCE(jira_form_data->>'capNumber', '')) LIKE '%company%'
+        OR lower(COALESCE(jira_form_data->>'capNumber', '')) LIKE '%empresa%'
+        OR lower(COALESCE(jira_form_data->>'priority', '')) IN ('priority', 'prioridade')
       )
     ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
     LIMIT ${limit}
@@ -462,12 +508,25 @@ async function main() {
             ? jiraFormData.vtexResponsibleEmail
             : parsed.vtexResponsibleEmail ?? null,
         languagePreference:
-          !isBlank(jiraFormData.languagePreference)
-            ? jiraFormData.languagePreference
-            : parsed.languagePreference ?? null,
-        priority: !isBlank(jiraFormData.priority) ? jiraFormData.priority : parsed.priority ?? null,
-        company: !isBlank(jiraFormData.company) ? jiraFormData.company : parsed.company ?? null,
-        capNumber: !isBlank(jiraFormData.capNumber) ? jiraFormData.capNumber : parsed.capNumber ?? null,
+          parsed.languagePreference ??
+          (
+            !isBlank(jiraFormData.languagePreference)
+            && !isLikelyLabelOnlyValue(jiraFormData.languagePreference, ["language", "idioma", "language preference", "vendor language preferences"])
+              ? jiraFormData.languagePreference
+              : null
+          ),
+        priority:
+          parsed.priority ??
+          (
+            !isBlank(jiraFormData.priority) && !isLikelyLabelOnlyValue(jiraFormData.priority, ["priority", "prioridade"])
+              ? jiraFormData.priority
+              : null
+          ),
+        company: parsed.company ?? (!isBlank(jiraFormData.company) ? jiraFormData.company : null),
+        capNumber:
+          !isBlank(jiraFormData.capNumber) && !isSuspiciousCapNumber(jiraFormData.capNumber)
+            ? jiraFormData.capNumber
+            : parsed.capNumber ?? null,
       };
 
       const shouldUpdateEmail = isBlank(row.contact_email) && !isBlank(parsed.vendorEmail);

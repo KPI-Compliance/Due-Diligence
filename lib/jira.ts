@@ -975,6 +975,51 @@ function parseTextByLabel(text: string, labels: string[], boundaries: string[]) 
   return null;
 }
 
+function normalizeExtractedCompany(value: string | null | undefined) {
+  const normalized = normalizeWhitespace(value ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+
+  const strippedLabel = normalized.replace(/^(company|empresa)\s*\*?\s*[:|-]?\s*/i, "").trim();
+  const cleaned = strippedLabel || normalized;
+  if (!cleaned) return null;
+
+  if (/^(cap|cap number)$/i.test(cleaned)) return null;
+
+  if (/company\s*\*/i.test(cleaned) || /empresa\s*\*/i.test(cleaned)) {
+    const token = cleaned
+      .replace(/^(company|empresa)\s*\*?\s*/i, "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .pop();
+    return token?.trim() || null;
+  }
+
+  return cleaned.length <= 120 ? cleaned : null;
+}
+
+function normalizeExtractedCapNumber(value: string | null | undefined) {
+  const normalized = normalizeWhitespace(value ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+
+  const strippedLabel = normalized.replace(/^(cap|cap number)\s*\*?\s*[:|-]?\s*/i, "").trim();
+  const cleaned = strippedLabel || normalized;
+  if (!cleaned) return null;
+
+  if (/company|empresa/i.test(cleaned) && !/\d/.test(cleaned)) return null;
+
+  const digitMatch = cleaned.match(/\b\d{2,}\b/);
+  if (digitMatch?.[0]) return digitMatch[0];
+
+  if (/company|empresa|scope|escopo|context/i.test(cleaned)) return null;
+
+  const compact = cleaned.replace(/\s+/g, "");
+  if (/^[a-z0-9-]{2,20}$/i.test(compact)) {
+    return compact;
+  }
+
+  return null;
+}
+
 function isVendorRequestPdfFilename(filename: string | null | undefined) {
   const normalized = String(filename ?? "").trim().toLowerCase();
   if (!normalized) return false;
@@ -1075,6 +1120,8 @@ function extractVendorFieldsFromPdfText(rawText: string): ExtractedVendorAttachm
 
   const normalizedVendorEmail = extractEmailFromText(vendorEmail);
   const normalizedVtexResponsibleEmail = extractEmailFromText(vtexResponsibleEmail);
+  const normalizedCompany = normalizeExtractedCompany(company);
+  const normalizedCapNumber = normalizeExtractedCapNumber(capNumber);
 
   if (
     normalizedVendorEmail ||
@@ -1091,8 +1138,8 @@ function extractVendorFieldsFromPdfText(rawText: string): ExtractedVendorAttachm
       vtexResponsibleEmail: normalizedVtexResponsibleEmail,
       languagePreference: languagePreference ?? null,
       priority: priority ?? null,
-      company: company ?? null,
-      capNumber: capNumber ?? null,
+      company: normalizedCompany,
+      capNumber: normalizedCapNumber,
     };
   }
 
