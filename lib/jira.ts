@@ -1029,13 +1029,24 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
     const contentUrl = attachment.content?.trim();
     if (!contentUrl) continue;
 
-    const response = await fetch(contentUrl, {
+    let response = await fetch(contentUrl, {
       headers: {
         Authorization: buildJiraBasicAuthHeader(input.email, input.token),
-        Accept: "application/pdf",
+        Accept: "*/*",
       },
       cache: "no-store",
     });
+
+    if (!response.ok && attachment.id) {
+      const fallbackUrl = `${input.baseUrl.replace(/\/$/, "")}/rest/api/3/attachment/content/${encodeURIComponent(attachment.id)}`;
+      response = await fetch(fallbackUrl, {
+        headers: {
+          Authorization: buildJiraBasicAuthHeader(input.email, input.token),
+          Accept: "*/*",
+        },
+        cache: "no-store",
+      });
+    }
 
     if (!response.ok) continue;
 
