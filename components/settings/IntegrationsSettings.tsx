@@ -371,6 +371,18 @@ export function IntegrationsSettings({
                   Placeholders disponíveis: <code>{"{{form_link}}"}</code>, <code>{"{{form_name}}"}</code>, <code>{"{{form_id}}"}</code>.
                 </span>
               </label>
+              <label className="space-y-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Assinatura HTML do e-mail</span>
+                <textarea
+                  name="external_questionnaire_email_signature_html"
+                  defaultValue={typeform.config.external_questionnaire_email_signature_html}
+                  rows={12}
+                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 font-mono text-xs"
+                />
+                <span className="block text-xs text-[var(--color-neutral-600)]">
+                  HTML aplicado no rodapé do e-mail. Placeholder disponível: <code>{"{{logo_data_uri}}"}</code> para embutir o logo VTEX automaticamente.
+                </span>
+              </label>
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

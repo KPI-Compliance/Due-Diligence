@@ -10,6 +10,7 @@ export type TypeformConfig = {
   sender_email: string;
   external_questionnaire_email_subject: string;
   external_questionnaire_email_template: string;
+  external_questionnaire_email_signature_html: string;
 };
 
 export type JiraConfig = {
@@ -92,6 +93,8 @@ function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraCon
       external_questionnaire_email_subject: "VTEX | Due Diligence Analysis",
       external_questionnaire_email_template:
         "Olá,\n\nCompartilhamos abaixo o link do questionário externo para preenchimento:\n{{form_link}}\n\nFormulário selecionado: {{form_name}} ({{form_id}})\n\nAssim que o envio for concluído, seguiremos com a análise.\n\nObrigado.",
+      external_questionnaire_email_signature_html:
+        "<div style=\"margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;font-family:Arial,sans-serif;color:#111827;\">\n  <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;max-width:620px;\">\n    <tr>\n      <td style=\"vertical-align:top;padding-right:16px;\">\n        <div style=\"font-size:30px;line-height:30px;color:#ff2d7a;font-weight:700;\">●</div>\n      </td>\n      <td style=\"vertical-align:top;\">\n        <p style=\"margin:0;font-size:24px;line-height:1.2;font-weight:700;color:#111827;\">SEC GRC Integrations</p>\n        <p style=\"margin:8px 0 0 0;font-size:14px;line-height:1.5;color:#1f2937;\">Official VTEX channel for vendor Due Diligence.</p>\n        <p style=\"margin:10px 0 0 0;font-size:14px;line-height:1.5;color:#1f2937;\">Questions: <a href=\"mailto:procurement@vtex.com\" style=\"color:#0f4fd6;text-decoration:underline;\">procurement@vtex.com</a></p>\n        <p style=\"margin:10px 0 0 0;font-size:14px;line-height:1.5;\"><a href=\"https://www.vtex.com\" target=\"_blank\" rel=\"noreferrer\" style=\"color:#0f4fd6;text-decoration:underline;\">www.vtex.com</a></p>\n        <div style=\"margin-top:16px;padding-top:12px;border-top:1px solid #e5e7eb;\">\n          <img src=\"{{logo_data_uri}}\" alt=\"VTEX\" style=\"height:26px;width:auto;display:block;\" />\n        </div>\n      </td>\n    </tr>\n  </table>\n</div>",
     };
   }
 
@@ -167,6 +170,9 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
         (merged as { external_questionnaire_email_template?: string }).external_questionnaire_email_template ??
           typeformBase.external_questionnaire_email_template,
       ).trim() || typeformBase.external_questionnaire_email_template,
+      external_questionnaire_email_signature_html:
+        String((merged as { external_questionnaire_email_signature_html?: string }).external_questionnaire_email_signature_html ?? "").trim() ||
+        typeformBase.external_questionnaire_email_signature_html,
       ...(legacyForm ? { form_id: legacyForm } : {}),
     } as TypeformConfig;
   }
