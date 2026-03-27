@@ -264,6 +264,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, message: "Missing Jira issue key or summary." }, { status: 400 });
     }
 
+    const syncDebug: Record<string, unknown> = {
+      at: new Date().toISOString(),
+      event: payload.issue_event_type_name ?? payload.webhookEvent ?? null,
+      issueKey: payload.issue?.key ?? null,
+      issueFallbackAttempted: false,
+      issueFallbackApplied: false,
+      attachmentFallbackAttempted: false,
+      attachmentFallbackApplied: false,
+    };
+
     if (
       entity.kind === "VENDOR" &&
       jiraSetting.config?.base_url &&
@@ -280,6 +290,7 @@ export async function POST(request: Request) {
       );
 
       if (hasMissingVendorFormData) {
+        syncDebug.issueFallbackAttempted = true;
         const issueFallback = await enrichVendorFieldsFromJiraIssue({
           baseUrl: jiraSetting.config.base_url,
           email: jiraApiEmail,
@@ -288,6 +299,7 @@ export async function POST(request: Request) {
         });
 
         if (issueFallback) {
+          syncDebug.issueFallbackApplied = true;
           entity.jiraFormData.vendorEmail = entity.jiraFormData.vendorEmail || issueFallback.vendorEmail || null;
           entity.jiraFormData.vtexResponsibleEmail =
             entity.jiraFormData.vtexResponsibleEmail || issueFallback.vtexResponsibleEmail || null;
@@ -309,6 +321,7 @@ export async function POST(request: Request) {
       );
 
       if (stillMissingCoreVendorFields) {
+        syncDebug.attachmentFallbackAttempted = true;
         const attachmentFallback = await enrichVendorFieldsFromJiraAttachments({
           baseUrl: jiraSetting.config.base_url,
           email: jiraApiEmail,
@@ -317,6 +330,7 @@ export async function POST(request: Request) {
         });
 
         if (attachmentFallback) {
+          syncDebug.attachmentFallbackApplied = true;
           entity.jiraFormData.vendorEmail = entity.jiraFormData.vendorEmail || attachmentFallback.vendorEmail || null;
           entity.jiraFormData.scope = entity.jiraFormData.scope || attachmentFallback.scope || null;
           entity.jiraFormData.vtexResponsibleEmail =
@@ -398,6 +412,7 @@ export async function POST(request: Request) {
       ...mergedJiraFormData,
       jiraStatus: payload.issue?.fields?.status?.name?.trim() || null,
       jiraIssueCreatedAt,
+      _syncDebug: syncDebug,
     };
 
     await sql`
