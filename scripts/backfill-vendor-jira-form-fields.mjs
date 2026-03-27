@@ -439,34 +439,50 @@ async function extractFieldsFromPdfUrl(jira, contentUrl) {
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
+  const forceAll = process.argv.includes("--force-all");
   const limitArg = process.argv.find((arg) => arg.startsWith("--limit="));
   const limit = limitArg ? Math.max(1, Number.parseInt(limitArg.slice("--limit=".length), 10)) : 1000;
 
   const jira = await getJiraConfig();
 
-  const entities = await sql`
-    SELECT
-      id::text,
-      jira_issue_key,
-      contact_email,
-      description,
-      owner_user_id::text AS owner_user_id,
-      jira_form_data
-    FROM entities
-    WHERE kind = 'VENDOR'
-      AND jira_issue_key IS NOT NULL
-      AND (
-        COALESCE(NULLIF(contact_email, ''), NULLIF(jira_form_data->>'vendorEmail', '')) IS NULL
-        OR COALESCE(NULLIF(jira_form_data->>'scope', ''), '') = ''
-        OR COALESCE(NULLIF(description, ''), NULLIF(jira_form_data->>'scope', '')) IS NULL
-        OR COALESCE(NULLIF(jira_form_data->>'vtexResponsibleEmail', ''), '') = ''
-        OR lower(COALESCE(jira_form_data->>'capNumber', '')) LIKE '%company%'
-        OR lower(COALESCE(jira_form_data->>'capNumber', '')) LIKE '%empresa%'
-        OR lower(COALESCE(jira_form_data->>'priority', '')) IN ('priority', 'prioridade')
-      )
-    ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
-    LIMIT ${limit}
-  `;
+  const entities = forceAll
+    ? await sql`
+        SELECT
+          id::text,
+          jira_issue_key,
+          contact_email,
+          description,
+          owner_user_id::text AS owner_user_id,
+          jira_form_data
+        FROM entities
+        WHERE kind = 'VENDOR'
+          AND jira_issue_key IS NOT NULL
+        ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
+        LIMIT ${limit}
+      `
+    : await sql`
+        SELECT
+          id::text,
+          jira_issue_key,
+          contact_email,
+          description,
+          owner_user_id::text AS owner_user_id,
+          jira_form_data
+        FROM entities
+        WHERE kind = 'VENDOR'
+          AND jira_issue_key IS NOT NULL
+          AND (
+            COALESCE(NULLIF(contact_email, ''), NULLIF(jira_form_data->>'vendorEmail', '')) IS NULL
+            OR COALESCE(NULLIF(jira_form_data->>'scope', ''), '') = ''
+            OR COALESCE(NULLIF(description, ''), NULLIF(jira_form_data->>'scope', '')) IS NULL
+            OR COALESCE(NULLIF(jira_form_data->>'vtexResponsibleEmail', ''), '') = ''
+            OR lower(COALESCE(jira_form_data->>'capNumber', '')) LIKE '%company%'
+            OR lower(COALESCE(jira_form_data->>'capNumber', '')) LIKE '%empresa%'
+            OR lower(COALESCE(jira_form_data->>'priority', '')) IN ('priority', 'prioridade')
+          )
+        ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
+        LIMIT ${limit}
+      `;
 
   let updated = 0;
   let noPdf = 0;
@@ -587,6 +603,7 @@ async function main() {
     JSON.stringify(
       {
         dryRun,
+        forceAll,
         scanned: entities.length,
         updated,
         noPdf,

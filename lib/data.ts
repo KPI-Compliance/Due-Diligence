@@ -1876,8 +1876,10 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   const vendorPriority = cleanOverviewValue(
     jiraFormText("priority"),
   );
-  // Keep company consistent with Vendors list ("Grupo Empresarial"), which comes from entities.company_group.
-  const vendorCompany = cleanOverviewValue(entity.company_group);
+  const vendorCompany = cleanOverviewValue(
+    jiraFormText("company", "company-group", "company_group", "empresa", "business_unit", "business-unit") ??
+      entity.company_group,
+  );
   const vendorCapNumber = cleanOverviewValue(
     jiraFormText("capNumber", "cap-number", "cap_number"),
   );
