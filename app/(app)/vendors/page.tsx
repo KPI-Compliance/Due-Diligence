@@ -81,6 +81,7 @@ export default async function VendorsPage({
 }: {
   searchParams?: Promise<{
     vendor?: string;
+    ticket_stage?: string;
     jira_status?: string;
     initial_questionnaire?: string;
     main_questionnaire?: string;
@@ -92,6 +93,7 @@ export default async function VendorsPage({
   const vendors = await getVendorsList();
   const params = searchParams ? await searchParams : undefined;
   const vendorQuery = (params?.vendor ?? "").trim().toLowerCase();
+  const ticketStage = (params?.ticket_stage ?? "ALL").trim().toUpperCase();
   const jiraStatus = (params?.jira_status ?? "All").trim();
   const initialQuestionnaire = (params?.initial_questionnaire ?? "All").trim();
   const mainQuestionnaire = (params?.main_questionnaire ?? "All").trim();
@@ -152,7 +154,7 @@ export default async function VendorsPage({
     },
   ];
 
-  const filteredVendors = vendors.filter((item) => {
+  const scopedVendors = vendors.filter((item) => {
     const matchesVendor =
       vendorQuery.length === 0 ||
       item.company.toLowerCase().includes(vendorQuery) ||
@@ -183,7 +185,12 @@ export default async function VendorsPage({
     );
   });
 
-  const statusSummary = filteredVendors.reduce(
+  const filteredVendors = scopedVendors.filter((item) => {
+    if (ticketStage === "ALL") return true;
+    return normalizeJiraStatusStage(item.jiraStatus) === ticketStage;
+  });
+
+  const statusSummary = scopedVendors.reduce(
     (acc, item) => {
       const stage = normalizeJiraStatusStage(item.jiraStatus);
       if (stage === "OPEN") acc.open += 1;
@@ -196,6 +203,20 @@ export default async function VendorsPage({
   );
 
   const visibleVendors = filteredVendors.slice(0, MAX_VENDOR_ROWS);
+  const buildStageHref = (stage: "OPEN" | "WAITING_RESPONSE" | "RESPONDED" | "FINALIZED") => {
+    const query = new URLSearchParams();
+    if (params?.vendor?.trim()) query.set("vendor", params.vendor.trim());
+    if (params?.initial_questionnaire?.trim() && params.initial_questionnaire.trim() !== "All") {
+      query.set("initial_questionnaire", params.initial_questionnaire.trim());
+    }
+    if (params?.main_questionnaire?.trim() && params.main_questionnaire.trim() !== "All") {
+      query.set("main_questionnaire", params.main_questionnaire.trim());
+    }
+    if (params?.risk_level?.trim() && params.risk_level.trim() !== "All Risks") query.set("risk_level", params.risk_level.trim());
+    if (params?.company_group?.trim() && params.company_group.trim() !== "Todos") query.set("company_group", params.company_group.trim());
+    query.set("ticket_stage", stage);
+    return `/vendors?${query.toString()}`;
+  };
 
   return (
     <div className="space-y-4">
@@ -226,24 +247,32 @@ export default async function VendorsPage({
             value: statusSummary.open.toString(),
             note: "Cards que ainda não entraram em retorno de questionário",
             tone: "primary",
+            href: buildStageHref("OPEN"),
+            active: ticketStage === "OPEN",
           },
           {
             label: "Aguardando Resposta",
             value: statusSummary.waitingResponse.toString(),
             note: "Questionário enviado e aguardando retorno do vendor",
             tone: "success",
+            href: buildStageHref("WAITING_RESPONSE"),
+            active: ticketStage === "WAITING_RESPONSE",
           },
           {
             label: "Respondidos",
             value: statusSummary.responded.toString(),
             note: "Questionário recebido e disponível para análise",
             tone: "primary",
+            href: buildStageHref("RESPONDED"),
+            active: ticketStage === "RESPONDED",
           },
           {
             label: "Finalizados",
             value: statusSummary.finalized.toString(),
             note: "Tickets encerrados com decisão concluída",
             tone: "danger",
+            href: buildStageHref("FINALIZED"),
+            active: ticketStage === "FINALIZED",
           },
         ]}
         rows={visibleVendors.map((item) => (

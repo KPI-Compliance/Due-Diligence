@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { WorkspaceFilters, type WorkspaceFilterControl } from "@/components/ui/WorkspaceFilters";
 import { cn } from "@/lib/utils";
@@ -11,6 +12,8 @@ type SummaryItem = {
   value: string;
   note: string;
   tone: SummaryTone;
+  href?: string;
+  active?: boolean;
 };
 
 type EntityWorkspaceProps = {
@@ -78,18 +81,35 @@ export function EntityWorkspace({
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {summary.map((item) => {
           const tone = toneStyles[item.tone];
+          const cardClassName = cn(
+            "rounded-xl border border-l-4 border-[var(--color-neutral-200)] bg-white p-5 shadow-sm",
+            tone.border,
+            item.href ? "transition hover:-translate-y-0.5 hover:shadow-md" : "",
+            item.active ? "ring-2 ring-[var(--color-primary)]/25" : "",
+          );
 
-          return (
-            <article
-              key={item.label}
-              className={cn("rounded-xl border border-l-4 border-[var(--color-neutral-200)] bg-white p-5 shadow-sm", tone.border)}
-            >
+          const cardContent = (
+            <>
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">{item.label}</h3>
                 <span className={cn("text-sm", tone.icon)}>●</span>
               </div>
               <p className="text-3xl font-extrabold text-[var(--color-text)]">{item.value}</p>
               <p className="mt-1 text-xs text-[var(--color-neutral-600)]">{item.note}</p>
+            </>
+          );
+
+          if (item.href) {
+            return (
+              <Link key={item.label} href={item.href} className={cardClassName}>
+                {cardContent}
+              </Link>
+            );
+          }
+
+          return (
+            <article key={item.label} className={cardClassName}>
+              {cardContent}
             </article>
           );
         })}
