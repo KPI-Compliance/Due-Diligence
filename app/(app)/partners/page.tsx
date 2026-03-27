@@ -26,6 +26,23 @@ function renderTechnicalReviewBadge(label: string) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{label}</span>;
 }
 
+function renderSectionRiskBadge(label: string | null) {
+  const value = label?.trim() || "Pending";
+  const normalized = value.toLowerCase();
+  const className =
+    normalized === "critical"
+      ? "border-rose-200 bg-rose-50 text-rose-700"
+      : normalized === "high"
+        ? "border-red-200 bg-red-50 text-red-700"
+        : normalized === "medium" || normalized === "moderate"
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : normalized === "low"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : "border-slate-200 bg-slate-100 text-slate-700";
+
+  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold ${className}`}>{value}</span>;
+}
+
 export default async function PartnersPage({
   searchParams,
 }: {
@@ -208,9 +225,18 @@ export default async function PartnersPage({
                   <span className={`h-2 w-2 rounded-full ${item.riskDot}`} />
                   {item.risk}
                 </span>
-                <p className="text-[11px] text-[var(--color-neutral-600)]">Privacy: {item.privacyRisk ?? "-"}</p>
-                <p className="text-[11px] text-[var(--color-neutral-600)]">Security: {item.securityRisk ?? "-"}</p>
-                <p className="text-[11px] text-[var(--color-neutral-600)]">Compliance: {item.complianceRisk ?? "-"}</p>
+                <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-neutral-700)]">
+                  <span className="min-w-[64px] font-semibold text-[var(--color-neutral-600)]">Privacy:</span>
+                  {renderSectionRiskBadge(item.privacyRisk)}
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-neutral-700)]">
+                  <span className="min-w-[64px] font-semibold text-[var(--color-neutral-600)]">Security:</span>
+                  {renderSectionRiskBadge(item.securityRisk)}
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-neutral-700)]">
+                  <span className="min-w-[64px] font-semibold text-[var(--color-neutral-600)]">Compliance:</span>
+                  {renderSectionRiskBadge(item.complianceRisk)}
+                </div>
               </Link>
             </td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]"><Link href={`/partners/${item.id}`} className="block">{item.lastReview}</Link></td>
