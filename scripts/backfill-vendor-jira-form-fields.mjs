@@ -51,6 +51,16 @@ function escapeRegex(value) {
   return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalizeWhitespace(value) {
+  return String(value ?? "").replace(/\r/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function extractEmailFromText(value) {
+  if (!value) return null;
+  const match = String(value).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0]?.trim().toLowerCase() ?? null;
+}
+
 function parseLabeledValueFromLines(lines, labels) {
   const normalizedLabels = labels.map(normalizeKey);
   const knownFieldHints = [
@@ -137,6 +147,51 @@ function parseLabeledValueFromLines(lines, labels) {
   return null;
 }
 
+function parseEmailByLabel(text, labels) {
+  for (const label of labels) {
+    const regex = new RegExp(
+      `${escapeRegex(label)}\\s*\\*?\\s*[:|-]?\\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,})`,
+      "iu",
+    );
+    const match = text.match(regex);
+    if (match?.[1]) {
+      return extractEmailFromText(match[1]);
+    }
+  }
+
+  return null;
+}
+
+function parseTextByLabel(text, labels, boundaries) {
+  const boundaryPattern = boundaries.map((item) => escapeRegex(item)).join("|");
+  for (const label of labels) {
+    const regex = new RegExp(
+      `${escapeRegex(label)}\\s*\\*?\\s*[:|-]?\\s*([\\s\\S]{1,1200}?)(?=(?:${boundaryPattern})\\s*\\*?\\s*[:|-]?|$)`,
+      "iu",
+    );
+    const match = text.match(regex);
+    if (match?.[1]) {
+      const normalized = normalizeWhitespace(match[1]).replace(/\s+/g, " ").trim();
+      if (normalized) return normalized;
+    }
+  }
+
+  return null;
+}
+
+function scoreExtractedFields(fields) {
+  if (!fields) return 0;
+  let score = 0;
+  if (fields.vendorEmail) score += 3;
+  if (fields.vtexResponsibleEmail) score += 3;
+  if (fields.scope) score += 3;
+  if (fields.languagePreference) score += 1;
+  if (fields.priority) score += 1;
+  if (fields.company) score += 1;
+  if (fields.capNumber) score += 1;
+  return score;
+}
+
 function isBlank(value) {
   return !value || String(value).trim().length === 0;
 }
@@ -196,13 +251,28 @@ async function fetchLatestVendorPdfAttachment(jira, issueKey) {
 
 async function extractFieldsFromPdfUrl(jira, contentUrl) {
   const auth = `Basic ${Buffer.from(`${jira.email}:${jira.token}`).toString("base64")}`;
-  const response = await fetch(contentUrl, {
+  let response = await fetch(contentUrl, {
     headers: {
       Authorization: auth,
-      Accept: "application/pdf",
+      Accept: "*/*",
     },
     cache: "no-store",
   });
+
+  if (!response.ok && jira.baseUrl) {
+    const attachmentIdMatch = String(contentUrl).match(/\/attachment\/(?:content\/)?(\d+)/i);
+    const attachmentId = attachmentIdMatch?.[1] ?? null;
+    if (attachmentId) {
+      const fallbackUrl = `${jira.baseUrl}/rest/api/3/attachment/content/${encodeURIComponent(attachmentId)}`;
+      response = await fetch(fallbackUrl, {
+        headers: {
+          Authorization: auth,
+          Accept: "*/*",
+        },
+        cache: "no-store",
+      });
+    }
+  }
 
   if (!response.ok) {
     return null;
@@ -232,35 +302,96 @@ async function extractFieldsFromPdfUrl(jira, contentUrl) {
   }
   await pdfDocument.destroy();
 
-  const lines = pageTexts
-    .join("\n")
+  const rawText = normalizeWhitespace(pageTexts.join("\n"));
+  const lines = rawText
     .replace(/\r/g, "\n")
     .split(/\n+/)
-    .map((line) => line.trim())
+    .map((line) => normalizeWhitespace(line))
     .filter(Boolean);
 
   if (lines.length === 0) {
     return null;
   }
 
-  return {
-    vendorEmail: parseLabeledValueFromLines(lines, [
-      "Vendor e-mail address",
-      "Vendor e-mail",
-      "Vendor email address",
-      "Vendor email",
-      "E-mail do vendor",
-      "Email do vendor",
-      "Email do fornecedor",
-    ]),
-    scope: parseLabeledValueFromLines(lines, ["Scope", "Escopo", "Context", "Contexto"]),
-    vtexResponsibleEmail: parseLabeledValueFromLines(lines, [
-      "VTEX e-mail responsible",
-      "VTEX email responsible",
-      "Responsável VTEX",
-      "Responsavel VTEX",
-    ]),
+  const singleLineText = rawText.replace(/\s+/g, " ").trim();
+  const boundaries = [
+    "Name of Vendor",
+    "Vendor e-mail address",
+    "Vendor e-mail",
+    "Vendor email address",
+    "Vendor email",
+    "VTEX e-mail responsible",
+    "VTEX email responsible",
+    "Vendor Language Preferences",
+    "Priority",
+    "CAP NUMBER",
+    "Company",
+    "Scope",
+    "Escopo",
+    "Context",
+    "Contexto",
+  ];
+
+  const parsed = {
+    vendorEmail:
+      parseEmailByLabel(singleLineText, [
+        "Vendor e-mail address",
+        "Vendor e-mail",
+        "Vendor email address",
+        "Vendor email",
+        "E-mail do vendor",
+        "Email do vendor",
+        "Email do fornecedor",
+      ]) ??
+      parseLabeledValueFromLines(lines, [
+        "Vendor e-mail address",
+        "Vendor e-mail",
+        "Vendor email address",
+        "Vendor email",
+        "E-mail do vendor",
+        "Email do vendor",
+        "Email do fornecedor",
+      ]),
+    scope:
+      parseTextByLabel(rawText, ["Scope", "Escopo", "Context", "Contexto"], boundaries) ??
+      parseLabeledValueFromLines(lines, ["Scope", "Escopo", "Context", "Contexto"]),
+    vtexResponsibleEmail:
+      parseEmailByLabel(singleLineText, [
+        "VTEX e-mail responsible",
+        "VTEX email responsible",
+        "Responsável VTEX",
+        "Responsavel VTEX",
+        "Ponto focal VTEX",
+      ]) ??
+      parseLabeledValueFromLines(lines, [
+        "VTEX e-mail responsible",
+        "VTEX email responsible",
+        "Responsável VTEX",
+        "Responsavel VTEX",
+      ]),
+    languagePreference:
+      parseTextByLabel(rawText, ["Vendor Language Preferences", "Language Preference", "Idioma", "Language"], boundaries) ??
+      parseLabeledValueFromLines(lines, ["Vendor Language Preferences", "Language Preference", "Idioma", "Language"]),
+    priority:
+      parseTextByLabel(rawText, ["Priority", "Prioridade"], boundaries) ??
+      parseLabeledValueFromLines(lines, ["Priority", "Prioridade"]),
+    company:
+      parseTextByLabel(rawText, ["Company", "Empresa", "Business unit", "Company group", "Grupo"], boundaries) ??
+      parseLabeledValueFromLines(lines, ["Company", "Empresa", "Business unit", "Company group", "Grupo"]),
+    capNumber:
+      parseTextByLabel(rawText, ["CAP NUMBER", "CAP", "CAP Number"], boundaries) ??
+      parseLabeledValueFromLines(lines, ["CAP NUMBER", "CAP", "CAP Number"]),
   };
+
+  const normalized = {
+    ...parsed,
+    vendorEmail: extractEmailFromText(parsed.vendorEmail),
+    vtexResponsibleEmail: extractEmailFromText(parsed.vtexResponsibleEmail),
+  };
+
+  if (scoreExtractedFields(normalized) === 0) return null;
+
+  return normalized;
 }
 
 async function main() {
@@ -283,6 +414,7 @@ async function main() {
       AND jira_issue_key IS NOT NULL
       AND (
         COALESCE(NULLIF(contact_email, ''), NULLIF(jira_form_data->>'vendorEmail', '')) IS NULL
+        OR COALESCE(NULLIF(jira_form_data->>'scope', ''), '') = ''
         OR COALESCE(NULLIF(description, ''), NULLIF(jira_form_data->>'scope', '')) IS NULL
         OR COALESCE(NULLIF(jira_form_data->>'vtexResponsibleEmail', ''), '') = ''
       )
@@ -311,7 +443,7 @@ async function main() {
       }
 
       const parsed = await extractFieldsFromPdfUrl(jira, String(attachment.content));
-      if (!parsed || (isBlank(parsed.vendorEmail) && isBlank(parsed.scope) && isBlank(parsed.vtexResponsibleEmail))) {
+      if (!parsed || scoreExtractedFields(parsed) === 0) {
         noExtract += 1;
         continue;
       }
@@ -329,6 +461,13 @@ async function main() {
           !isBlank(jiraFormData.vtexResponsibleEmail)
             ? jiraFormData.vtexResponsibleEmail
             : parsed.vtexResponsibleEmail ?? null,
+        languagePreference:
+          !isBlank(jiraFormData.languagePreference)
+            ? jiraFormData.languagePreference
+            : parsed.languagePreference ?? null,
+        priority: !isBlank(jiraFormData.priority) ? jiraFormData.priority : parsed.priority ?? null,
+        company: !isBlank(jiraFormData.company) ? jiraFormData.company : parsed.company ?? null,
+        capNumber: !isBlank(jiraFormData.capNumber) ? jiraFormData.capNumber : parsed.capNumber ?? null,
       };
 
       const shouldUpdateEmail = isBlank(row.contact_email) && !isBlank(parsed.vendorEmail);
