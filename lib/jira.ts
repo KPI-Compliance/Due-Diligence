@@ -975,6 +975,12 @@ function parseTextByLabel(text: string, labels: string[], boundaries: string[]) 
   return null;
 }
 
+function isVendorRequestPdfFilename(filename: string | null | undefined) {
+  const normalized = String(filename ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized.includes("vendor request") && normalized.endsWith(".pdf");
+}
+
 type ExtractedVendorAttachmentFields = {
   vendorEmail: string | null;
   scope: string | null;
@@ -1151,6 +1157,9 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
       return mimeType === "application/pdf" || name.endsWith(".pdf");
     })
     .sort((a, b) => {
+      const leftPreferred = isVendorRequestPdfFilename(a.filename) ? 1 : 0;
+      const rightPreferred = isVendorRequestPdfFilename(b.filename) ? 1 : 0;
+      if (leftPreferred !== rightPreferred) return rightPreferred - leftPreferred;
       const left = Date.parse(a.created ?? "");
       const right = Date.parse(b.created ?? "");
       return right - left;
