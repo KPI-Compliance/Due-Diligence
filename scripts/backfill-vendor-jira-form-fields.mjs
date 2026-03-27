@@ -72,6 +72,12 @@ function normalizeExtractedCompany(value) {
   return cleaned.length <= 120 ? cleaned : null;
 }
 
+function normalizeCompanyGroup(value) {
+  const normalized = normalizeWhitespace(value ?? "").toUpperCase();
+  if (normalized === "VTEX" || normalized === "WENI") return normalized;
+  return null;
+}
+
 function normalizeExtractedCapNumber(value) {
   const normalized = normalizeWhitespace(value ?? "").replace(/\s+/g, " ").trim();
   if (!normalized) return null;
@@ -452,6 +458,7 @@ async function main() {
           jira_issue_key,
           contact_email,
           description,
+          company_group,
           owner_user_id::text AS owner_user_id,
           jira_form_data
         FROM entities
@@ -466,6 +473,7 @@ async function main() {
           jira_issue_key,
           contact_email,
           description,
+          company_group,
           owner_user_id::text AS owner_user_id,
           jira_form_data
         FROM entities
@@ -550,6 +558,9 @@ async function main() {
       const shouldUpdateResponsible = isBlank(jiraFormData.vtexResponsibleEmail) && !isBlank(parsed.vtexResponsibleEmail);
       const shouldUpdateJiraFormData =
         JSON.stringify(nextJiraFormData) !== JSON.stringify(jiraFormData);
+      const parsedCompanyGroup = normalizeCompanyGroup(parsed.company);
+      const storedCompanyGroup = normalizeCompanyGroup(row.company_group);
+      const shouldUpdateCompanyGroup = Boolean(parsedCompanyGroup && parsedCompanyGroup !== storedCompanyGroup);
       let nextOwnerUserId = row.owner_user_id ?? null;
       if (isBlank(nextOwnerUserId) && !isBlank(parsed.vtexResponsibleEmail)) {
         const ownerRows = await sql`
@@ -562,7 +573,14 @@ async function main() {
       }
       const shouldUpdateOwner = isBlank(row.owner_user_id) && !isBlank(nextOwnerUserId);
 
-      if (!shouldUpdateEmail && !shouldUpdateScope && !shouldUpdateResponsible && !shouldUpdateJiraFormData && !shouldUpdateOwner) {
+      if (
+        !shouldUpdateEmail &&
+        !shouldUpdateScope &&
+        !shouldUpdateResponsible &&
+        !shouldUpdateJiraFormData &&
+        !shouldUpdateOwner &&
+        !shouldUpdateCompanyGroup
+      ) {
         skipped += 1;
         continue;
       }
@@ -582,6 +600,10 @@ async function main() {
             owner_user_id = CASE
               WHEN ${shouldUpdateOwner}::boolean THEN ${nextOwnerUserId ?? null}::uuid
               ELSE owner_user_id
+            END,
+            company_group = CASE
+              WHEN ${shouldUpdateCompanyGroup}::boolean THEN ${parsedCompanyGroup ?? null}::company_group
+              ELSE company_group
             END,
             jira_form_data = ${JSON.stringify(nextJiraFormData)}::jsonb,
             updated_at = now()

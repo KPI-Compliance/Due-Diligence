@@ -47,6 +47,13 @@ function isSuspiciousCapNumber(value: unknown) {
   return false;
 }
 
+function normalizeCompanyGroup(value: unknown): "VTEX" | "WENI" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "VTEX" || normalized === "WENI") return normalized;
+  return null;
+}
+
 function resolveExplicitEntityKind(payload: JiraWebhookPayload): "VENDOR" | "PARTNER" | null {
   const candidates = [
     payload["entity-kind"],
@@ -410,7 +417,7 @@ export async function POST(request: Request) {
     const ownerUserId = ownerRows[0]?.id ?? null;
 
     const existingRows = (await sql`
-      SELECT id::text, slug, contact_email, description, jira_form_data
+      SELECT id::text, slug, contact_email, description, jira_form_data, company_group::text
       FROM entities
       WHERE jira_issue_key = ${entity.issueKey}
       LIMIT 1
@@ -420,6 +427,7 @@ export async function POST(request: Request) {
       contact_email: string | null;
       description: string | null;
       jira_form_data: Record<string, unknown> | null;
+      company_group: "VTEX" | "WENI";
     }>;
 
     const existingEntity = existingRows[0] ?? null;
@@ -427,6 +435,14 @@ export async function POST(request: Request) {
       existingEntity?.jira_form_data && typeof existingEntity.jira_form_data === "object" && !Array.isArray(existingEntity.jira_form_data)
         ? existingEntity.jira_form_data
         : {};
+    const companyGroupFromIncomingForm = normalizeCompanyGroup(entity.jiraFormData.company);
+    const companyGroupFromExistingForm = normalizeCompanyGroup(existingJiraFormData.company);
+    const companyGroupFromExistingEntity = normalizeCompanyGroup(existingEntity?.company_group);
+    entity.companyGroup =
+      companyGroupFromIncomingForm ??
+      companyGroupFromExistingForm ??
+      companyGroupFromExistingEntity ??
+      entity.companyGroup;
     const currentSlug = existingEntity?.slug ?? null;
     const mergedJiraFormData = {
       vendorEmail: prefersIncoming(existingJiraFormData.vendorEmail, entity.jiraFormData.vendorEmail),
