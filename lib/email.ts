@@ -87,13 +87,20 @@ async function getEmbeddedVtexLogoDataUri() {
     return cachedEmbeddedLogoDataUri;
   }
 
-  const logoPath = join(process.cwd(), "public", "VTEX-Logo.png");
   try {
+    const logoPath = join(process.cwd(), "public", "Logo_VTEX.png");
     const logoBytes = await readFile(logoPath);
     cachedEmbeddedLogoDataUri = `data:image/png;base64,${logoBytes.toString("base64")}`;
     return cachedEmbeddedLogoDataUri;
   } catch {
-    return "";
+    try {
+      const fallbackPath = join(process.cwd(), "public", "VTEX-Logo.png");
+      const logoBytes = await readFile(fallbackPath);
+      cachedEmbeddedLogoDataUri = `data:image/png;base64,${logoBytes.toString("base64")}`;
+      return cachedEmbeddedLogoDataUri;
+    } catch {
+      return "";
+    }
   }
 }
 
@@ -114,9 +121,12 @@ async function getExternalQuestionnaireEmailSignatureHtml() {
 
   const rawSignature =
     typeformSetting?.config.external_questionnaire_email_signature_html?.trim() ||
-    "<div style=\"margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;font-family:Arial,sans-serif;color:#111827;\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;max-width:620px;\"><tr><td style=\"vertical-align:top;padding-right:16px;\"><div style=\"font-size:30px;line-height:30px;color:#ff2d7a;font-weight:700;\">●</div></td><td style=\"vertical-align:top;\"><p style=\"margin:0;font-size:24px;line-height:1.2;font-weight:700;color:#111827;\">SEC GRC Integrations</p><p style=\"margin:8px 0 0 0;font-size:14px;line-height:1.5;color:#1f2937;\">Official VTEX channel for vendor Due Diligence.</p><p style=\"margin:10px 0 0 0;font-size:14px;line-height:1.5;color:#1f2937;\">Questions: <a href=\"mailto:procurement@vtex.com\" style=\"color:#0f4fd6;text-decoration:underline;\">procurement@vtex.com</a></p><p style=\"margin:10px 0 0 0;font-size:14px;line-height:1.5;\"><a href=\"https://www.vtex.com\" target=\"_blank\" rel=\"noreferrer\" style=\"color:#0f4fd6;text-decoration:underline;\">www.vtex.com</a></p><div style=\"margin-top:16px;padding-top:12px;border-top:1px solid #e5e7eb;\"><img src=\"{{logo_data_uri}}\" alt=\"VTEX\" style=\"height:26px;width:auto;display:block;\" /></div></td></tr></table></div>";
+    "<div style=\"margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;font-family:Arial,sans-serif;color:#111827;\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;max-width:620px;\"><tr><td style=\"vertical-align:top;\"><p style=\"margin:0;font-size:24px;line-height:1.2;font-weight:700;color:#111827;\">SEC GRC Integrations</p><p style=\"margin:8px 0 0 0;font-size:14px;line-height:1.5;color:#1f2937;\">Official VTEX channel for vendor Due Diligence.</p><p style=\"margin:10px 0 0 0;font-size:14px;line-height:1.5;\"><a href=\"https://www.vtex.com\" target=\"_blank\" rel=\"noreferrer\" style=\"color:#0f4fd6;text-decoration:underline;\">www.vtex.com</a></p><div style=\"margin-top:16px;padding-top:12px;border-top:1px solid #e5e7eb;\"><img src=\"{{logo_data_uri}}\" alt=\"VTEX\" style=\"height:26px;width:auto;display:block;\" /></div></td></tr></table></div>";
   const embeddedLogo = await getEmbeddedVtexLogoDataUri();
-  return rawSignature.replaceAll("{{logo_data_uri}}", embeddedLogo);
+  const normalizedSignature = rawSignature
+    .replace(/<td[^>]*>\s*<div[^>]*>\s*●\s*<\/div>\s*<\/td>/gi, "")
+    .replace(/<p[^>]*>\s*Questions:\s*<a[^>]*>.*?<\/a>\s*<\/p>/gi, "");
+  return normalizedSignature.replaceAll("{{logo_data_uri}}", embeddedLogo);
 }
 
 async function getGoogleWorkspaceSender() {
