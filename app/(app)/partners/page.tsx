@@ -31,6 +31,7 @@ export default async function PartnersPage({
 }: {
   searchParams?: Promise<{
     partner?: string;
+    partner_stage?: string;
     assessment_status?: string;
     risk_level?: string;
     owner?: string;
@@ -40,6 +41,7 @@ export default async function PartnersPage({
   const partners = await getPartnersList();
   const params = searchParams ? await searchParams : undefined;
   const partnerQuery = (params?.partner ?? "").trim().toLowerCase();
+  const partnerStage = (params?.partner_stage ?? "ALL").trim().toUpperCase();
   const assessmentStatus = (params?.assessment_status ?? "All").trim();
   const riskLevel = (params?.risk_level ?? "All Risks").trim();
   const owner = (params?.owner ?? "All Owners").trim();
@@ -77,7 +79,7 @@ export default async function PartnersPage({
     },
   ];
 
-  const filteredPartners = partners.filter((item) => {
+  const scopedPartners = partners.filter((item) => {
     const matchesPartner =
       partnerQuery.length === 0 ||
       item.company.toLowerCase().includes(partnerQuery) ||
@@ -95,7 +97,36 @@ export default async function PartnersPage({
     return matchesPartner && matchesAssessmentStatus && matchesRiskLevel && matchesOwner;
   });
 
+  const filteredPartners = scopedPartners.filter((item) => {
+    if (partnerStage === "ALL") return true;
+    if (partnerStage === "PENDING") return item.assessmentStatus === "Pending";
+    if (partnerStage === "IN_REVIEW") return item.assessmentStatus === "In Review";
+    if (partnerStage === "COMPLETED") return item.assessmentStatus === "Completed";
+    if (partnerStage === "CRITICAL") return item.risk === "Critical";
+    return true;
+  });
+
+  const statusSummary = scopedPartners.reduce(
+    (acc, item) => {
+      if (item.assessmentStatus === "Pending") acc.pending += 1;
+      if (item.assessmentStatus === "In Review") acc.inReview += 1;
+      if (item.assessmentStatus === "Completed") acc.completed += 1;
+      if (item.risk === "Critical") acc.critical += 1;
+      return acc;
+    },
+    { pending: 0, inReview: 0, completed: 0, critical: 0 },
+  );
+
   const visiblePartners = filteredPartners.slice(0, MAX_PARTNER_ROWS);
+  const buildStageHref = (stage: "PENDING" | "IN_REVIEW" | "COMPLETED" | "CRITICAL") => {
+    const query = new URLSearchParams();
+    if (params?.partner?.trim()) query.set("partner", params.partner.trim());
+    if (params?.owner?.trim() && params.owner.trim() !== "All Owners") {
+      query.set("owner", params.owner.trim());
+    }
+    query.set("partner_stage", stage);
+    return `/partners?${query.toString()}`;
+  };
 
   return (
     <div className="space-y-4">
@@ -119,22 +150,36 @@ export default async function PartnersPage({
         tableFooterText={`Showing 1 to ${visiblePartners.length} of ${filteredPartners.length} partners`}
         summary={[
           {
-            label: "Pending",
-            value: filteredPartners.filter((v) => v.assessmentStatus === "Pending").length.toString(),
+            label: "Pendentes",
+            value: statusSummary.pending.toString(),
             note: "Partners aguardando avanço da avaliação",
             tone: "primary",
+            href: buildStageHref("PENDING"),
+            active: partnerStage === "PENDING",
           },
           {
-            label: "Completed",
-            value: filteredPartners.filter((v) => v.assessmentStatus === "Completed").length.toString(),
+            label: "Em Revisão",
+            value: statusSummary.inReview.toString(),
+            note: "Questionários recebidos em etapa de análise",
+            tone: "success",
+            href: buildStageHref("IN_REVIEW"),
+            active: partnerStage === "IN_REVIEW",
+          },
+          {
+            label: "Finalizados",
+            value: statusSummary.completed.toString(),
             note: "Partners com análise encerrada",
             tone: "success",
+            href: buildStageHref("COMPLETED"),
+            active: partnerStage === "COMPLETED",
           },
           {
-            label: "Critical",
-            value: filteredPartners.filter((v) => v.risk === "Critical").length.toString(),
+            label: "Críticos",
+            value: statusSummary.critical.toString(),
             note: "Risco final consolidado entre as 3 areas",
             tone: "danger",
+            href: buildStageHref("CRITICAL"),
+            active: partnerStage === "CRITICAL",
           },
         ]}
         rows={visiblePartners.map((item) => (

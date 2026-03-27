@@ -54,6 +54,8 @@ export function EntityWorkspace({
   tableFooterText,
   summary,
 }: EntityWorkspaceProps) {
+  const summaryGridClassName = summary.length >= 4 ? "md:grid-cols-4" : "md:grid-cols-3";
+
   return (
     <PageContainer
       title={title}
@@ -78,7 +80,7 @@ export function EntityWorkspace({
       }
       className="space-y-6"
     >
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <section className={cn("grid grid-cols-1 gap-4", summaryGridClassName)}>
         {summary.map((item) => {
           const tone = toneStyles[item.tone];
           const cardClassName = cn(
