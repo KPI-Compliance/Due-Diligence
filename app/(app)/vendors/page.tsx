@@ -63,6 +63,19 @@ function renderFinalRiskBadge(label: string) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{label}</span>;
 }
 
+function normalizeJiraStatusStage(label: string) {
+  const normalized = label.trim().toLowerCase();
+
+  if (normalized === "opened" || normalized === "open") return "OPEN";
+  if (normalized === "waiting vendor") return "WAITING_RESPONSE";
+  if (normalized === "received quest." || normalized === "received quest" || normalized === "responded") return "RESPONDED";
+  if (normalized === "concluido" || normalized === "concluído" || normalized === "completed" || normalized === "done") {
+    return "FINALIZED";
+  }
+
+  return "OPEN";
+}
+
 export default async function VendorsPage({
   searchParams,
 }: {
@@ -170,6 +183,18 @@ export default async function VendorsPage({
     );
   });
 
+  const statusSummary = filteredVendors.reduce(
+    (acc, item) => {
+      const stage = normalizeJiraStatusStage(item.jiraStatus);
+      if (stage === "OPEN") acc.open += 1;
+      if (stage === "WAITING_RESPONSE") acc.waitingResponse += 1;
+      if (stage === "RESPONDED") acc.responded += 1;
+      if (stage === "FINALIZED") acc.finalized += 1;
+      return acc;
+    },
+    { open: 0, waitingResponse: 0, responded: 0, finalized: 0 },
+  );
+
   const visibleVendors = filteredVendors.slice(0, MAX_VENDOR_ROWS);
 
   return (
@@ -197,21 +222,27 @@ export default async function VendorsPage({
         }
         summary={[
           {
-            label: "Initial Pending",
-            value: filteredVendors.filter((v) => v.intakeStatus === "Pending").length.toString(),
-            note: "Vendors aguardando o primeiro questionário",
+            label: "Tickets Em Aberto",
+            value: statusSummary.open.toString(),
+            note: "Cards que ainda não entraram em retorno de questionário",
             tone: "primary",
           },
           {
-            label: "Main Reviewed",
-            value: filteredVendors.filter((v) => v.principalQuestionnaireStatus === "Reviewed").length.toString(),
-            note: "Questionário principal revisado por Privacy e Security",
+            label: "Aguardando Resposta",
+            value: statusSummary.waitingResponse.toString(),
+            note: "Questionário enviado e aguardando retorno do vendor",
             tone: "success",
           },
           {
-            label: "Extreme",
-            value: filteredVendors.filter((v) => v.risk === "Extreme").length.toString(),
-            note: "Maior risco final entre Privacy e Security",
+            label: "Respondidos",
+            value: statusSummary.responded.toString(),
+            note: "Questionário recebido e disponível para análise",
+            tone: "primary",
+          },
+          {
+            label: "Finalizados",
+            value: statusSummary.finalized.toString(),
+            note: "Tickets encerrados com decisão concluída",
             tone: "danger",
           },
         ]}
