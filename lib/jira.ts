@@ -943,6 +943,38 @@ function extractEmailFromText(value: string | null | undefined) {
   return match?.[0]?.trim().toLowerCase() ?? null;
 }
 
+function parseEmailByLabel(text: string, labels: string[]) {
+  for (const label of labels) {
+    const regex = new RegExp(
+      `${escapeRegex(label)}\\s*\\*?\\s*[:|-]?\\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,})`,
+      "iu",
+    );
+    const match = text.match(regex);
+    if (match?.[1]) {
+      return extractEmailFromText(match[1]);
+    }
+  }
+
+  return null;
+}
+
+function parseTextByLabel(text: string, labels: string[], boundaries: string[]) {
+  const boundaryPattern = boundaries.map((item) => escapeRegex(item)).join("|");
+  for (const label of labels) {
+    const regex = new RegExp(
+      `${escapeRegex(label)}\\s*\\*?\\s*[:|-]?\\s*([\\s\\S]{1,500}?)(?=(?:${boundaryPattern})\\s*\\*?\\s*[:|-]?|$)`,
+      "iu",
+    );
+    const match = text.match(regex);
+    if (match?.[1]) {
+      const normalized = normalizeWhitespace(match[1]).replace(/\s+/g, " ").trim();
+      if (normalized) return normalized;
+    }
+  }
+
+  return null;
+}
+
 async function extractVendorFieldsFromAttachmentPdf(input: {
   baseUrl: string;
   email: string;
@@ -1060,6 +1092,8 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
     }
 
     const bestText = rawTexts.sort((left, right) => right.length - left.length)[0] ?? "";
+    const rawNormalizedText = normalizeWhitespace(bestText);
+    const rawSingleLineText = rawNormalizedText.replace(/\s+/g, " ").trim();
     const lines = bestText
       .replace(/\r/g, "\n")
       .split(/\n+/)
@@ -1068,7 +1102,33 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
 
     if (lines.length === 0) continue;
 
-    const vendorEmail = parseLabeledValueFromLines(lines, [
+    const knownBoundaries = [
+      "Name of Vendor",
+      "Vendor e-mail address",
+      "Vendor e-mail",
+      "Vendor email address",
+      "Vendor email",
+      "VTEX e-mail responsible",
+      "VTEX email responsible",
+      "Vendor Language Preferences",
+      "Priority",
+      "CAP NUMBER",
+      "Company",
+      "Scope",
+      "Escopo",
+      "Context",
+      "Contexto",
+    ];
+
+    const vendorEmail = parseEmailByLabel(rawSingleLineText, [
+      "Vendor e-mail address",
+      "Vendor e-mail",
+      "Vendor email address",
+      "Vendor email",
+      "E-mail do vendor",
+      "Email do vendor",
+      "Email do fornecedor",
+    ]) ?? parseLabeledValueFromLines(lines, [
       "Vendor e-mail address",
       "Vendor e-mail",
       "Vendor email address",
@@ -1077,27 +1137,44 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
       "Email do vendor",
       "Email do fornecedor",
     ]);
-    const scope = parseLabeledValueFromLines(lines, [
+    const scope = parseTextByLabel(rawNormalizedText, ["Scope", "Escopo", "Context", "Contexto"], knownBoundaries) ??
+      parseLabeledValueFromLines(lines, [
       "Scope",
       "Escopo",
       "Context",
       "Contexto",
     ]);
-    const vtexResponsibleEmail = parseLabeledValueFromLines(lines, [
+    const vtexResponsibleEmail = parseEmailByLabel(rawSingleLineText, [
+      "VTEX e-mail responsible",
+      "VTEX email responsible",
+      "Responsavel VTEX",
+      "Responsável VTEX",
+      "Ponto focal VTEX",
+    ]) ?? parseLabeledValueFromLines(lines, [
       "VTEX e-mail responsible",
       "VTEX email responsible",
       "Responsavel VTEX",
       "Responsável VTEX",
     ]);
-    const languagePreference = parseLabeledValueFromLines(lines, [
+    const languagePreference = parseTextByLabel(
+      rawNormalizedText,
+      ["Vendor Language Preferences", "Language Preference", "Idioma", "Language"],
+      knownBoundaries,
+    ) ?? parseLabeledValueFromLines(lines, [
       "Vendor Language Preferences",
       "Language Preference",
       "Idioma",
       "Language",
     ]);
-    const priority = parseLabeledValueFromLines(lines, ["Priority", "Prioridade"]);
-    const company = parseLabeledValueFromLines(lines, ["Company", "Empresa", "Business unit", "Company group", "Grupo"]);
-    const capNumber = parseLabeledValueFromLines(lines, ["CAP NUMBER", "CAP", "CAP Number"]);
+    const priority = parseTextByLabel(rawNormalizedText, ["Priority", "Prioridade"], knownBoundaries) ??
+      parseLabeledValueFromLines(lines, ["Priority", "Prioridade"]);
+    const company = parseTextByLabel(
+      rawNormalizedText,
+      ["Company", "Empresa", "Business unit", "Company group", "Grupo"],
+      knownBoundaries,
+    ) ?? parseLabeledValueFromLines(lines, ["Company", "Empresa", "Business unit", "Company group", "Grupo"]);
+    const capNumber = parseTextByLabel(rawNormalizedText, ["CAP NUMBER", "CAP", "CAP Number"], knownBoundaries) ??
+      parseLabeledValueFromLines(lines, ["CAP NUMBER", "CAP", "CAP Number"]);
 
     const normalizedVendorEmail = extractEmailFromText(vendorEmail);
     const normalizedVtexResponsibleEmail = extractEmailFromText(vtexResponsibleEmail);
