@@ -1858,28 +1858,37 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     entity.jira_form_data && typeof entity.jira_form_data === "object" && !Array.isArray(entity.jira_form_data)
       ? entity.jira_form_data
       : {};
+  const jiraFormText = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = jiraFormData[key];
+      if (typeof value !== "string") continue;
+      const normalized = value.trim();
+      if (normalized) return normalized;
+    }
+    return null;
+  };
   const jiraStatus = cleanOverviewValue(
-    typeof jiraFormData.jiraStatus === "string" ? jiraFormData.jiraStatus : entity.status_label,
+    jiraFormText("jiraStatus", "jira-status") ?? entity.status_label,
   );
   const vendorLanguage = cleanOverviewValue(
-    typeof jiraFormData.languagePreference === "string" ? jiraFormData.languagePreference : entity.category,
+    jiraFormText("languagePreference", "vendor-language-preferences", "vendorLanguagePreferences") ?? entity.category,
   );
   const vendorPriority = cleanOverviewValue(
-    typeof jiraFormData.priority === "string" ? jiraFormData.priority : null,
+    jiraFormText("priority"),
   );
   // Keep company consistent with Vendors list ("Grupo Empresarial"), which comes from entities.company_group.
   const vendorCompany = cleanOverviewValue(entity.company_group);
   const vendorCapNumber = cleanOverviewValue(
-    typeof jiraFormData.capNumber === "string" ? jiraFormData.capNumber : null,
+    jiraFormText("capNumber", "cap-number", "cap_number"),
   );
   const vendorScope = cleanOverviewValue(
-    typeof jiraFormData.scope === "string" ? jiraFormData.scope : entity.description,
+    jiraFormText("scope", "escopo", "context", "contexto") ?? entity.description,
   );
   const vendorEmail = cleanOverviewValue(
-    typeof jiraFormData.vendorEmail === "string" ? jiraFormData.vendorEmail : entity.contact_email,
+    jiraFormText("vendorEmail", "vendor-e-mail-address", "vendor_email_address", "vendor-email") ?? entity.contact_email,
   );
   const vendorResponsibleEmail = cleanOverviewValue(
-    typeof jiraFormData.vtexResponsibleEmail === "string" ? jiraFormData.vtexResponsibleEmail : entity.owner_email,
+    jiraFormText("vtexResponsibleEmail", "vtex-e-mail-responsible", "vtex_email_responsible") ?? entity.owner_email,
   );
 
   const latestAssessment = assessments[0];
