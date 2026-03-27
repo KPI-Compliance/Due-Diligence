@@ -8,6 +8,7 @@ export type TypeformConfig = {
   api_user: string;
   api_token: string;
   sender_email: string;
+  external_questionnaire_email_subject: string;
   external_questionnaire_email_template: string;
 };
 
@@ -88,6 +89,7 @@ function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraCon
       api_user: "",
       api_token: "",
       sender_email: "",
+      external_questionnaire_email_subject: "VTEX | Due Diligence Analysis",
       external_questionnaire_email_template:
         "Olá,\n\nCompartilhamos abaixo o link do questionário externo para preenchimento:\n{{form_link}}\n\nFormulário selecionado: {{form_name}} ({{form_id}})\n\nAssim que o envio for concluído, seguiremos com a análise.\n\nObrigado.",
     };
@@ -158,6 +160,9 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
       api_user: String((merged as { api_user?: string }).api_user ?? "").trim(),
       api_token: String((merged as { api_token?: string }).api_token ?? "").trim(),
       sender_email: String((merged as { sender_email?: string }).sender_email ?? "").trim(),
+      external_questionnaire_email_subject:
+        String((merged as { external_questionnaire_email_subject?: string }).external_questionnaire_email_subject ?? "").trim() ||
+        typeformBase.external_questionnaire_email_subject,
       external_questionnaire_email_template: String(
         (merged as { external_questionnaire_email_template?: string }).external_questionnaire_email_template ??
           typeformBase.external_questionnaire_email_template,

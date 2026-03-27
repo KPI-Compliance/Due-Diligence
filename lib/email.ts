@@ -79,6 +79,15 @@ async function getExternalQuestionnaireEmailTemplate() {
   );
 }
 
+async function getExternalQuestionnaireEmailSubject() {
+  const settings = await getIntegrationSettings();
+  const typeformSetting = settings.find((item) => item.provider === "TYPEFORM") as
+    | { config: TypeformConfig }
+    | undefined;
+
+  return typeformSetting?.config.external_questionnaire_email_subject?.trim() || "VTEX | Due Diligence Analysis";
+}
+
 async function getGoogleWorkspaceSender() {
   const configuredSender = await getTypeformSenderEmail();
   const sender = configuredSender || process.env.GOOGLE_WORKSPACE_IMPERSONATED_USER?.trim() || process.env.EMAIL_FROM?.trim();
@@ -122,6 +131,7 @@ export async function sendExternalQuestionnaireEmail(input: {
   const credentials = await getGoogleServiceAccountCredentials();
   const sender = await getGoogleWorkspaceSender();
   const replyTo = process.env.EMAIL_REPLY_TO?.trim() || sender;
+  const subject = await getExternalQuestionnaireEmailSubject();
   const template = await getExternalQuestionnaireEmailTemplate();
 
   if (!credentials.client_email || !credentials.private_key) {
@@ -158,7 +168,7 @@ export async function sendExternalQuestionnaireEmail(input: {
     `From: ${sender}`,
     `To: ${input.to.join(", ")}`,
     `Reply-To: ${replyTo}`,
-    "Subject: VTEX | Due Diligence Analysis",
+    `Subject: ${subject}`,
     "MIME-Version: 1.0",
     "Content-Type: text/html; charset=UTF-8",
     "",

@@ -343,6 +343,19 @@ export function IntegrationsSettings({
                   Endereço usado especificamente para disparar os questionários externos. Esse remetente precisa estar autorizado no provedor de e-mail.
                 </span>
               </label>
+              <label className="space-y-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Assunto do e-mail do questionário externo</span>
+                <input
+                  name="external_questionnaire_email_subject"
+                  type="text"
+                  defaultValue={typeform.config.external_questionnaire_email_subject}
+                  placeholder="VTEX | Due Diligence Analysis"
+                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                />
+                <span className="block text-xs text-[var(--color-neutral-600)]">
+                  Exibido no título do e-mail para o fornecedor. Use um assunto claro e institucional.
+                </span>
+              </label>
             </div>
 
             <div className="grid grid-cols-1 gap-4">
