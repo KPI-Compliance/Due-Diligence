@@ -85,6 +85,36 @@ function workflowBadgeClass(label: string) {
   return "bg-slate-100 text-slate-700 ring-slate-200";
 }
 
+function jiraStatusBadgeClass(label: string) {
+  const normalized = label.trim().toLowerCase();
+  if (normalized === "opened" || normalized === "open") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  if (normalized === "waiting vendor") {
+    return "border-orange-200 bg-orange-50 text-orange-700";
+  }
+  if (normalized === "received quest." || normalized === "received quest" || normalized === "responded") {
+    return "border-sky-200 bg-sky-50 text-sky-700";
+  }
+  if (normalized === "red team" || normalized.includes("review")) {
+    return "border-indigo-200 bg-indigo-50 text-indigo-700";
+  }
+  if (normalized === "concluido" || normalized === "concluído" || normalized === "completed") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
+
+function finalRiskBadgeClass(label: string) {
+  const normalized = label.trim().toLowerCase();
+  if (normalized.includes("pending")) return "border-slate-200 bg-slate-100 text-slate-700";
+  if (normalized.includes("low")) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (normalized.includes("moderate") || normalized.includes("medium")) return "border-amber-200 bg-amber-50 text-amber-700";
+  if (normalized.includes("high")) return "border-red-200 bg-red-50 text-red-700";
+  if (normalized.includes("extreme") || normalized.includes("critical")) return "border-rose-200 bg-rose-50 text-rose-700";
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
+
 const levelBadgeStyles: Record<RiskLevel, string> = {
   Low: "bg-emerald-100 text-emerald-700",
   Medium: "bg-amber-100 text-amber-700",
@@ -412,7 +442,9 @@ function DecisionSummaryCard({
         ) : (
           <div className="rounded-xl border border-[var(--color-primary)]/10 bg-white px-5 py-3">
             <span className="text-sm font-semibold uppercase tracking-widest text-[var(--color-neutral-600)]">Classification: </span>
-            <span className="text-lg font-extrabold text-[var(--color-primary)]">{decision.classification}</span>
+            <span className={`ml-1 inline-flex rounded-full border px-2.5 py-1 text-sm font-extrabold ${finalRiskBadgeClass(decision.classification)}`}>
+              {decision.classification}
+            </span>
           </div>
         )}
       </div>
@@ -775,7 +807,15 @@ export function EntityDetailView({
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status do Jira</p>
-                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.jiraStatus ?? "-"}</p>
+                        <div className="mt-1">
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${jiraStatusBadgeClass(
+                              detail.overview.jiraStatus ?? "-",
+                            )}`}
+                          >
+                            {detail.overview.jiraStatus ?? "-"}
+                          </span>
+                        </div>
                       </div>
                     </div>
                     <p className="mt-8 border-t border-[var(--color-neutral-100)] pt-6 text-sm leading-relaxed text-[var(--color-neutral-700)]">
@@ -824,7 +864,15 @@ export function EntityDetailView({
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status do Jira</p>
-                        <p className="mt-1 break-words text-sm font-semibold text-[var(--color-text)]">{detail.overview.jiraStatus ?? "-"}</p>
+                        <div className="mt-1">
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${jiraStatusBadgeClass(
+                              detail.overview.jiraStatus ?? "-",
+                            )}`}
+                          >
+                            {detail.overview.jiraStatus ?? "-"}
+                          </span>
+                        </div>
                       </div>
                     </div>
                     <div className="mt-8 border-t border-[var(--color-neutral-100)] pt-6">
