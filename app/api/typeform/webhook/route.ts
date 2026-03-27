@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
+import { findVendorAssessmentByRecipientDispatch } from "@/lib/vendor-questionnaire-dispatch";
 import {
   extractCompanyNameFromTypeformAnswers,
   extractRespondentEmailFromTypeformAnswers,
@@ -67,6 +68,30 @@ function normalizeComparable(value: string | undefined) {
 
 function normalizeEmail(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
+}
+
+function toTimestamp(value: string | null | undefined) {
+  if (!value) return Number.NaN;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.NaN : parsed;
+}
+
+const MATCH_WINDOW_BEFORE_MS = 3 * 24 * 60 * 60 * 1000;
+const MATCH_WINDOW_AFTER_MS = 120 * 24 * 60 * 60 * 1000;
+
+function isWithinMatchWindow(submittedAtTimestamp: number, referenceTimestamp: number) {
+  return (
+    submittedAtTimestamp >= referenceTimestamp - MATCH_WINDOW_BEFORE_MS &&
+    submittedAtTimestamp <= referenceTimestamp + MATCH_WINDOW_AFTER_MS
+  );
+}
+
+function assessmentStatusRank(status: string) {
+  if (status === "SENT") return 0;
+  if (status === "RESPONDED") return 1;
+  if (status === "IN_REVIEW") return 2;
+  if (status === "PENDING") return 3;
+  return 4;
 }
 
 async function dedupeAssessmentQuestionResponses(assessmentId: string) {
@@ -204,87 +229,152 @@ export async function POST(request: Request) {
 
     let assessmentId = normalizeAssessmentId(payload.form_response?.hidden, hiddenFieldName);
     let resolvedEntityKind: "VENDOR" | "PARTNER" | null = null;
+    let matchedEntityForCreation: {
+      id: string;
+      entity_kind: "VENDOR" | "PARTNER";
+      name: string;
+    } | null = null;
 
     if (!assessmentId || !isValidUuid(assessmentId)) {
+      const submittedAt = payload.form_response?.submitted_at ?? null;
+      const submittedAtTimestamp = toTimestamp(submittedAt);
+      const respondentEmail = normalizeEmail(extractRespondentEmailFromTypeformAnswers(payload.form_response?.answers));
+
+      if (respondentEmail && respondentEmail.includes("@") && formMapping.entity_kind !== "PARTNER") {
+        const matchedByRecipient = await findVendorAssessmentByRecipientDispatch({
+          formId,
+          respondentEmail,
+          submittedAt,
+        });
+
+        if (matchedByRecipient?.assessmentId && isValidUuid(matchedByRecipient.assessmentId)) {
+          assessmentId = matchedByRecipient.assessmentId;
+          resolvedEntityKind = "VENDOR";
+        }
+      }
+
       const companyName = extractCompanyNameFromTypeformAnswers(payload.form_response?.answers);
       const jiraTicket = extractTicketFromTypeformAnswers(payload.form_response?.answers);
 
-      if (!companyName) {
+      if (!assessmentId && !companyName) {
         return NextResponse.json(
           { ok: false, message: `Missing hidden field ${hiddenFieldName} and no company name answer was found.` },
           { status: 400 },
         );
       }
 
-      const entityRows = (await sql`
-        SELECT e.id::text, e.kind::text AS entity_kind, e.name, e.jira_issue_key, e.contact_email
-        FROM entities e
-        WHERE ${formMapping.entity_kind ?? null}::text IS NULL OR e.kind = ${formMapping.entity_kind ?? null}::entity_kind
-      `) as Array<{
-        id: string;
-        entity_kind: "VENDOR" | "PARTNER";
-        name: string;
-        jira_issue_key: string | null;
-        contact_email: string | null;
-      }>;
+      if (!assessmentId && companyName) {
+        const entityRows = (await sql`
+          SELECT e.id::text, e.kind::text AS entity_kind, e.name, e.jira_issue_key, e.contact_email
+          FROM entities e
+          WHERE ${formMapping.entity_kind ?? null}::text IS NULL OR e.kind = ${formMapping.entity_kind ?? null}::entity_kind
+        `) as Array<{
+          id: string;
+          entity_kind: "VENDOR" | "PARTNER";
+          name: string;
+          jira_issue_key: string | null;
+          contact_email: string | null;
+        }>;
 
-      const normalizedCompanyName = normalizeComparable(companyName);
-      const normalizedTicket = normalizeComparable(jiraTicket ?? "");
-      const respondentEmail = normalizeEmail(extractRespondentEmailFromTypeformAnswers(payload.form_response?.answers));
+        const normalizedCompanyName = normalizeComparable(companyName);
+        const normalizedTicket = normalizeComparable(jiraTicket ?? "");
 
-      const normalizeEntityName = (name: string) => normalizeComparable(name);
-      const byCompanyAndTicket = entityRows.find(
-        (row) =>
-          normalizeEntityName(row.name) === normalizedCompanyName &&
-          normalizedTicket &&
-          normalizeComparable(row.jira_issue_key ?? "") === normalizedTicket,
-      );
-      const byCompanyExact = entityRows.find((row) => normalizeEntityName(row.name) === normalizedCompanyName);
-      const byRespondentEmail =
-        respondentEmail && respondentEmail.includes("@")
-          ? entityRows.find((row) => normalizeEmail(row.contact_email) === respondentEmail)
-          : null;
-      const byCompanyFuzzy = entityRows.find((row) => {
-        const candidate = normalizeEntityName(row.name);
-        return candidate.includes(normalizedCompanyName) || normalizedCompanyName.includes(candidate);
-      });
-
-      const matchedEntity =
-        byCompanyAndTicket ??
-        byCompanyExact ??
-        byRespondentEmail ??
-        byCompanyFuzzy;
-
-      if (!matchedEntity) {
-        return NextResponse.json(
-          { ok: false, message: `No entity found for company name "${companyName}".` },
-          { status: 404 },
+        const normalizeEntityName = (name: string) => normalizeComparable(name);
+        const byCompanyAndTicket = entityRows.find(
+          (row) =>
+            normalizeEntityName(row.name) === normalizedCompanyName &&
+            normalizedTicket &&
+            normalizeComparable(row.jira_issue_key ?? "") === normalizedTicket,
         );
+        const byCompanyExact = entityRows.find((row) => normalizeEntityName(row.name) === normalizedCompanyName);
+        const byRespondentEmail =
+          respondentEmail && respondentEmail.includes("@")
+            ? entityRows.find((row) => normalizeEmail(row.contact_email) === respondentEmail)
+            : null;
+        const byCompanyFuzzy = entityRows.find((row) => {
+          const candidate = normalizeEntityName(row.name);
+          return candidate.includes(normalizedCompanyName) || normalizedCompanyName.includes(candidate);
+        });
+
+        const matchedEntity =
+          byCompanyAndTicket ??
+          byCompanyExact ??
+          byRespondentEmail ??
+          byCompanyFuzzy;
+
+        if (!matchedEntity) {
+          return NextResponse.json(
+            { ok: false, message: `No entity found for company name "${companyName}".` },
+            { status: 404 },
+          );
+        }
+
+        resolvedEntityKind = matchedEntity.entity_kind;
+        matchedEntityForCreation = matchedEntity;
+
+        const assessmentRowsByEntity = (await sql`
+          SELECT
+            id::text,
+            status::text,
+            typeform_form_id,
+            sent_at::text,
+            created_at::text
+          FROM assessments
+          WHERE entity_id = ${matchedEntity.id}::uuid
+          ORDER BY created_at DESC
+          LIMIT 20
+        `) as Array<{
+          id: string;
+          status: string;
+          typeform_form_id: string | null;
+          sent_at: string | null;
+          created_at: string;
+        }>;
+
+        assessmentRowsByEntity.sort((a, b) => {
+          const aFormMatch = a.typeform_form_id === formId ? 0 : 1;
+          const bFormMatch = b.typeform_form_id === formId ? 0 : 1;
+          if (aFormMatch !== bFormMatch) return aFormMatch - bFormMatch;
+
+          if (!Number.isNaN(submittedAtTimestamp)) {
+            const aSentTimestamp = toTimestamp(a.sent_at);
+            const bSentTimestamp = toTimestamp(b.sent_at);
+            const aHasSent = !Number.isNaN(aSentTimestamp);
+            const bHasSent = !Number.isNaN(bSentTimestamp);
+
+            if (aHasSent && bHasSent) {
+              const aWithin = isWithinMatchWindow(submittedAtTimestamp, aSentTimestamp);
+              const bWithin = isWithinMatchWindow(submittedAtTimestamp, bSentTimestamp);
+              if (aWithin !== bWithin) return aWithin ? -1 : 1;
+              const aDistance = Math.abs(aSentTimestamp - submittedAtTimestamp);
+              const bDistance = Math.abs(bSentTimestamp - submittedAtTimestamp);
+              if (aDistance !== bDistance) return aDistance - bDistance;
+            } else if (aHasSent !== bHasSent) {
+              return aHasSent ? -1 : 1;
+            }
+          }
+
+          const statusDelta = assessmentStatusRank(a.status) - assessmentStatusRank(b.status);
+          if (statusDelta !== 0) return statusDelta;
+          return toTimestamp(b.created_at) - toTimestamp(a.created_at);
+        });
+
+        assessmentId = assessmentRowsByEntity[0]?.id ?? null;
       }
 
-      resolvedEntityKind = matchedEntity.entity_kind;
-
-      const assessmentRowsByEntity = (await sql`
-        SELECT id::text
-        FROM assessments
-        WHERE entity_id = ${matchedEntity.id}::uuid
-        ORDER BY
-          CASE
-            WHEN status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW') THEN 0
-            ELSE 1
-          END,
-          created_at DESC
-        LIMIT 1
-      `) as Array<{ id: string }>;
-
-      assessmentId = assessmentRowsByEntity[0]?.id ?? null;
-
       if (!assessmentId) {
+        if (!matchedEntityForCreation) {
+          return NextResponse.json(
+            { ok: false, message: "No entity context available to create a new assessment." },
+            { status: 400 },
+          );
+        }
+
         const createdAssessments = (await sql`
           INSERT INTO assessments (entity_id, title, status)
           VALUES (
-            ${matchedEntity.id}::uuid,
-            ${`External Questionnaire - ${matchedEntity.name}`},
+            ${matchedEntityForCreation.id}::uuid,
+            ${`External Questionnaire - ${matchedEntityForCreation.name}`},
             'PENDING'
           )
           RETURNING id::text
@@ -294,7 +384,13 @@ export async function POST(request: Request) {
       }
 
       if (!assessmentId) {
-        return NextResponse.json({ ok: false, message: `Failed to create assessment for "${matchedEntity.name}".` }, { status: 500 });
+        return NextResponse.json(
+          {
+            ok: false,
+            message: `Failed to create assessment for "${matchedEntityForCreation?.name ?? "entity"}".`,
+          },
+          { status: 500 },
+        );
       }
     }
 

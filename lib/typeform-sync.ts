@@ -3,9 +3,11 @@ import { fetchJiraIssueCreatedAt } from "@/lib/jira";
 import { normalizeComparable } from "@/lib/normalization";
 import { getIntegrationSettings, type JiraConfig } from "@/lib/settings-data";
 import { getTypeformApiCredentials } from "@/lib/typeform-admin";
+import { getVendorQuestionnaireSignals } from "@/lib/vendor-questionnaire-dispatch";
 import {
   applyTypeformFieldDefinitions,
   extractCompanyNameFromTypeformAnswers,
+  extractRespondentEmailFromTypeformAnswers,
   normalizeTypeformAnswers,
   sortTypeformAnswersByFieldDefinitions,
   type TypeformAnswer,
@@ -214,6 +216,29 @@ function compareResponseDistance(candidate: TypeformResponseItem, referenceTimes
   }
 
   return Math.abs(submittedAt - referenceTimestamp);
+}
+
+const MATCH_WINDOW_BEFORE_MS = 3 * 24 * 60 * 60 * 1000;
+const MATCH_WINDOW_AFTER_MS = 120 * 24 * 60 * 60 * 1000;
+
+function isWithinMatchWindow(submittedAtTimestamp: number, referenceTimestamp: number) {
+  return (
+    submittedAtTimestamp >= referenceTimestamp - MATCH_WINDOW_BEFORE_MS &&
+    submittedAtTimestamp <= referenceTimestamp + MATCH_WINDOW_AFTER_MS
+  );
+}
+
+function distanceToClosestReference(candidate: TypeformResponseItem, references: number[]) {
+  if (references.length === 0) return Number.MAX_SAFE_INTEGER;
+  const submittedAt = toTimestamp(candidate.submitted_at);
+  if (Number.isNaN(submittedAt)) return Number.MAX_SAFE_INTEGER;
+
+  let closest = Number.MAX_SAFE_INTEGER;
+  for (const reference of references) {
+    const distance = Math.abs(submittedAt - reference);
+    if (distance < closest) closest = distance;
+  }
+  return closest;
 }
 
 function normalizeComparableToken(value: string | number | boolean | null | undefined) {
@@ -482,9 +507,19 @@ export async function syncExternalQuestionnaireForEntity(input: {
   const targetName = normalizeComparable(entityName);
   const jiraCreatedAt = await getJiraCreatedAt(jiraIssueKey);
   const jiraCreatedTimestamp = toTimestamp(jiraCreatedAt);
+  const emptyVendorSignals = { recipientEmails: [], sentTimestamps: [] };
   let matchedResponse: (TypeformResponseItem & { form_id: string; form_name: string }) | null = null;
 
   for (const form of formMappings) {
+    const formScopedVendorSignals =
+      entityKind === "VENDOR"
+        ? await getVendorQuestionnaireSignals({
+            entityId,
+            assessmentId: assessment.id,
+            formId: form.form_id,
+          })
+        : emptyVendorSignals;
+
     const formFields = await getTypeformFormFields(form.form_id, token);
     const response = await fetch(`https://api.typeform.com/forms/${form.form_id}/responses?page_size=100`, {
       headers: {
@@ -547,16 +582,55 @@ export async function syncExternalQuestionnaireForEntity(input: {
 
     const byCompanyName =
       normalizedItems
-        .filter((item) => normalizeComparable(extractCompanyNameFromTypeformAnswers(item.answers) ?? undefined) === targetName)
+        .filter((item) => {
+          const companyName = normalizeComparable(extractCompanyNameFromTypeformAnswers(item.answers) ?? undefined);
+          if (!companyName) return false;
+          return companyName === targetName || companyName.includes(targetName) || targetName.includes(companyName);
+        })
         .sort((a, b) => {
           if (!Number.isNaN(jiraCreatedTimestamp)) {
             return compareResponseDistance(a, jiraCreatedTimestamp) - compareResponseDistance(b, jiraCreatedTimestamp);
           }
 
+          if (formScopedVendorSignals.sentTimestamps.length > 0) {
+            return (
+              distanceToClosestReference(a, formScopedVendorSignals.sentTimestamps) -
+              distanceToClosestReference(b, formScopedVendorSignals.sentTimestamps)
+            );
+          }
+
           return Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? "");
         })[0] ?? null;
 
-    const candidate = byHiddenAssessment ?? byCompanyName;
+    const byRecipientAndPeriod =
+      entityKind === "VENDOR" && formScopedVendorSignals.recipientEmails.length > 0
+        ? normalizedItems
+            .filter((item) => {
+              const respondentEmail = normalizeComparableToken(extractRespondentEmailFromTypeformAnswers(item.answers));
+              if (!respondentEmail || !respondentEmail.includes("@")) return false;
+              if (!formScopedVendorSignals.recipientEmails.includes(respondentEmail)) return false;
+
+              if (formScopedVendorSignals.sentTimestamps.length === 0) return true;
+
+              const submittedTimestamp = toTimestamp(item.submitted_at);
+              if (Number.isNaN(submittedTimestamp)) return false;
+
+              return formScopedVendorSignals.sentTimestamps.some((referenceTimestamp) =>
+                isWithinMatchWindow(submittedTimestamp, referenceTimestamp),
+              );
+            })
+            .sort((a, b) => {
+              if (formScopedVendorSignals.sentTimestamps.length > 0) {
+                return (
+                  distanceToClosestReference(a, formScopedVendorSignals.sentTimestamps) -
+                  distanceToClosestReference(b, formScopedVendorSignals.sentTimestamps)
+                );
+              }
+              return Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? "");
+            })[0] ?? null
+        : null;
+
+    const candidate = byHiddenAssessment ?? byRecipientAndPeriod ?? byCompanyName;
 
     if (!candidate) continue;
 

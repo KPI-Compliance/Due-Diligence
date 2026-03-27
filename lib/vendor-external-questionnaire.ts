@@ -1,5 +1,6 @@
 import { sql } from "@/lib/db";
 import { sendExternalQuestionnaireEmail } from "@/lib/email";
+import { recordVendorQuestionnaireDispatch } from "@/lib/vendor-questionnaire-dispatch";
 
 async function resolveVendorAssessmentId(input: { assessmentId?: string | null; entitySlug?: string | null }) {
   const directAssessmentId = (input.assessmentId ?? "").trim();
@@ -97,6 +98,7 @@ export async function recordVendorExternalQuestionnaireSend(input: {
   hiddenAssessmentField?: string | null;
   questionnaireBaseUrl: string;
 }) {
+  const dispatchedAt = new Date().toISOString();
   const { assessmentId, form: selectedForm } = await ensureVendorQuestionnaireSelection({
     assessmentId: input.assessmentId,
     entitySlug: input.entitySlug,
@@ -132,9 +134,9 @@ export async function recordVendorExternalQuestionnaireSend(input: {
     UPDATE assessments
     SET
       status = 'SENT',
-      sent_at = COALESCE(sent_at, now()),
+      sent_at = COALESCE(sent_at, ${dispatchedAt}::timestamptz),
       completed_at = NULL,
-      updated_at = now()
+      updated_at = ${dispatchedAt}::timestamptz
     WHERE id = ${assessmentId}::uuid
   `;
 
@@ -143,7 +145,7 @@ export async function recordVendorExternalQuestionnaireSend(input: {
     SET
       status = 'SENT',
       status_label = 'Waiting vendor',
-      updated_at = now()
+      updated_at = ${dispatchedAt}::timestamptz
     WHERE id = ${entityId}::uuid
   `;
 
@@ -151,7 +153,7 @@ export async function recordVendorExternalQuestionnaireSend(input: {
     UPDATE entity_timeline_events
     SET
       is_current = false,
-      updated_at = now()
+      updated_at = ${dispatchedAt}::timestamptz
     WHERE entity_id = ${entityId}::uuid
   `;
 
@@ -168,11 +170,19 @@ export async function recordVendorExternalQuestionnaireSend(input: {
       ${entityId}::uuid,
       'Questionário externo enviado',
       ${`Formulário: ${selectedForm.name} (${selectedForm.form_id}). Destinatários: ${input.recipients.join(", ")}.`},
-      now(),
+      ${dispatchedAt}::timestamptz,
       COALESCE((SELECT MAX(sort_order) + 1 FROM entity_timeline_events WHERE entity_id = ${entityId}::uuid), 1),
       true
     )
   `;
+
+  await recordVendorQuestionnaireDispatch({
+    entityId,
+    assessmentId,
+    formId: selectedForm.form_id,
+    recipients: input.recipients,
+    sentAt: dispatchedAt,
+  });
 
   return {
     assessmentId,
