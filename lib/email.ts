@@ -75,7 +75,7 @@ async function getExternalQuestionnaireEmailTemplate() {
 
   return (
     typeformSetting?.config.external_questionnaire_email_template?.trim() ||
-    "Olá,\n\nCompartilhamos abaixo o link do questionário externo para preenchimento:\n{{form_link}}\n\nFormulário selecionado: {{form_name}} ({{form_id}})\n\nAssim que o envio for concluído, seguiremos com a análise.\n\nObrigado."
+    "[PT]\nOlá,\n\nComo parte do processo de compras da VTEX, realizamos a análise de Due Diligence de fornecedores.\n\nFormulário enviado: {{form_name}} ({{form_id}})\nAcesse o questionário: {{form_link}}\n\nEm caso de dúvidas, responda este e-mail.\n\n[EN]\nHello,\n\nAs part of VTEX procurement process, we perform vendors' Due Diligence analysis.\n\nSent form: {{form_name}} ({{form_id}})\nOpen questionnaire: {{form_link}}\n\nIf you have any questions, please reply to this email."
   );
 }
 
@@ -107,6 +107,12 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;");
 }
 
+function buildFormLinkLabel(input: { formName: string; formId: string }) {
+  const safeName = input.formName.trim() || "External Questionnaire";
+  const safeId = input.formId.trim();
+  return safeId ? `${safeName} (${safeId})` : safeName;
+}
+
 export async function sendExternalQuestionnaireEmail(input: {
   to: string[];
   questionnaireUrl: string;
@@ -126,6 +132,7 @@ export async function sendExternalQuestionnaireEmail(input: {
     .replaceAll("{{form_link}}", input.questionnaireUrl)
     .replaceAll("{{form_name}}", input.formName)
     .replaceAll("{{form_id}}", input.formId);
+  const linkLabel = buildFormLinkLabel({ formName: input.formName, formId: input.formId });
   const htmlBody = renderedTemplate
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -133,7 +140,7 @@ export async function sendExternalQuestionnaireEmail(input: {
     .map((paragraph) => {
       const withLinks = escapeHtml(paragraph).replaceAll(
         escapeHtml(input.questionnaireUrl),
-        `<a href="${input.questionnaireUrl}" target="_blank" rel="noreferrer">${escapeHtml(input.questionnaireUrl)}</a>`,
+        `<a href="${input.questionnaireUrl}" target="_blank" rel="noreferrer">${escapeHtml(linkLabel)}</a>`,
       );
       return `<p>${withLinks.replaceAll("\n", "<br />")}</p>`;
     })
@@ -151,7 +158,7 @@ export async function sendExternalQuestionnaireEmail(input: {
     `From: ${sender}`,
     `To: ${input.to.join(", ")}`,
     `Reply-To: ${replyTo}`,
-    "Subject: Questionario externo de due diligence",
+    "Subject: VTEX | Due Diligence Analysis",
     "MIME-Version: 1.0",
     "Content-Type: text/html; charset=UTF-8",
     "",
