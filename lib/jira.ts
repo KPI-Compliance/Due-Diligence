@@ -975,6 +975,137 @@ function parseTextByLabel(text: string, labels: string[], boundaries: string[]) 
   return null;
 }
 
+type ExtractedVendorAttachmentFields = {
+  vendorEmail: string | null;
+  scope: string | null;
+  vtexResponsibleEmail: string | null;
+  languagePreference: string | null;
+  priority: string | null;
+  company: string | null;
+  capNumber: string | null;
+};
+
+function extractVendorFieldsFromPdfText(rawText: string): ExtractedVendorAttachmentFields | null {
+  const rawNormalizedText = normalizeWhitespace(rawText);
+  if (!rawNormalizedText) return null;
+
+  const rawSingleLineText = rawNormalizedText.replace(/\s+/g, " ").trim();
+  const lines = rawText
+    .replace(/\r/g, "\n")
+    .split(/\n+/)
+    .map((line) => normalizeWhitespace(line))
+    .filter(Boolean);
+
+  if (lines.length === 0) return null;
+
+  const knownBoundaries = [
+    "Name of Vendor",
+    "Vendor e-mail address",
+    "Vendor e-mail",
+    "Vendor email address",
+    "Vendor email",
+    "VTEX e-mail responsible",
+    "VTEX email responsible",
+    "Vendor Language Preferences",
+    "Priority",
+    "CAP NUMBER",
+    "Company",
+    "Scope",
+    "Escopo",
+    "Context",
+    "Contexto",
+  ];
+
+  const vendorEmail = parseEmailByLabel(rawSingleLineText, [
+    "Vendor e-mail address",
+    "Vendor e-mail",
+    "Vendor email address",
+    "Vendor email",
+    "E-mail do vendor",
+    "Email do vendor",
+    "Email do fornecedor",
+  ]) ?? parseLabeledValueFromLines(lines, [
+    "Vendor e-mail address",
+    "Vendor e-mail",
+    "Vendor email address",
+    "Vendor email",
+    "E-mail do vendor",
+    "Email do vendor",
+    "Email do fornecedor",
+  ]);
+
+  const scope =
+    parseTextByLabel(rawNormalizedText, ["Scope", "Escopo", "Context", "Contexto"], knownBoundaries) ??
+    parseLabeledValueFromLines(lines, ["Scope", "Escopo", "Context", "Contexto"]);
+
+  const vtexResponsibleEmail = parseEmailByLabel(rawSingleLineText, [
+    "VTEX e-mail responsible",
+    "VTEX email responsible",
+    "Responsavel VTEX",
+    "Responsável VTEX",
+    "Ponto focal VTEX",
+  ]) ?? parseLabeledValueFromLines(lines, [
+    "VTEX e-mail responsible",
+    "VTEX email responsible",
+    "Responsavel VTEX",
+    "Responsável VTEX",
+  ]);
+
+  const languagePreference =
+    parseTextByLabel(rawNormalizedText, ["Vendor Language Preferences", "Language Preference", "Idioma", "Language"], knownBoundaries) ??
+    parseLabeledValueFromLines(lines, ["Vendor Language Preferences", "Language Preference", "Idioma", "Language"]);
+
+  const priority =
+    parseTextByLabel(rawNormalizedText, ["Priority", "Prioridade"], knownBoundaries) ??
+    parseLabeledValueFromLines(lines, ["Priority", "Prioridade"]);
+
+  const company =
+    parseTextByLabel(rawNormalizedText, ["Company", "Empresa", "Business unit", "Company group", "Grupo"], knownBoundaries) ??
+    parseLabeledValueFromLines(lines, ["Company", "Empresa", "Business unit", "Company group", "Grupo"]);
+
+  const capNumber =
+    parseTextByLabel(rawNormalizedText, ["CAP NUMBER", "CAP", "CAP Number"], knownBoundaries) ??
+    parseLabeledValueFromLines(lines, ["CAP NUMBER", "CAP", "CAP Number"]);
+
+  const normalizedVendorEmail = extractEmailFromText(vendorEmail);
+  const normalizedVtexResponsibleEmail = extractEmailFromText(vtexResponsibleEmail);
+
+  if (
+    normalizedVendorEmail ||
+    scope ||
+    normalizedVtexResponsibleEmail ||
+    languagePreference ||
+    priority ||
+    company ||
+    capNumber
+  ) {
+    return {
+      vendorEmail: normalizedVendorEmail,
+      scope: scope ?? null,
+      vtexResponsibleEmail: normalizedVtexResponsibleEmail,
+      languagePreference: languagePreference ?? null,
+      priority: priority ?? null,
+      company: company ?? null,
+      capNumber: capNumber ?? null,
+    };
+  }
+
+  return null;
+}
+
+function scoreExtractedVendorAttachmentFields(fields: ExtractedVendorAttachmentFields | null) {
+  if (!fields) return 0;
+  let score = 0;
+  if (fields.vendorEmail) score += 3;
+  if (fields.vtexResponsibleEmail) score += 3;
+  if (fields.scope) score += 3;
+  if (fields.languagePreference) score += 1;
+  if (fields.priority) score += 1;
+  if (fields.company) score += 1;
+  if (fields.capNumber) score += 1;
+  return score;
+}
+
 async function extractVendorFieldsFromAttachmentPdf(input: {
   baseUrl: string;
   email: string;
@@ -1102,104 +1233,21 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
       }
     }
 
-    const bestText = rawTexts.sort((left, right) => right.length - left.length)[0] ?? "";
-    const rawNormalizedText = normalizeWhitespace(bestText);
-    const rawSingleLineText = rawNormalizedText.replace(/\s+/g, " ").trim();
-    const lines = bestText
-      .replace(/\r/g, "\n")
-      .split(/\n+/)
-      .map((line) => normalizeWhitespace(line))
-      .filter(Boolean);
+    const uniqueRawTexts = Array.from(new Set(rawTexts.map((value) => normalizeWhitespace(value)).filter(Boolean)));
+    let bestExtracted: ExtractedVendorAttachmentFields | null = null;
+    let bestScore = 0;
 
-    if (lines.length === 0) continue;
+    for (const rawText of uniqueRawTexts) {
+      const extracted = extractVendorFieldsFromPdfText(rawText);
+      const score = scoreExtractedVendorAttachmentFields(extracted);
+      if (score > bestScore) {
+        bestScore = score;
+        bestExtracted = extracted;
+      }
+    }
 
-    const knownBoundaries = [
-      "Name of Vendor",
-      "Vendor e-mail address",
-      "Vendor e-mail",
-      "Vendor email address",
-      "Vendor email",
-      "VTEX e-mail responsible",
-      "VTEX email responsible",
-      "Vendor Language Preferences",
-      "Priority",
-      "CAP NUMBER",
-      "Company",
-      "Scope",
-      "Escopo",
-      "Context",
-      "Contexto",
-    ];
-
-    const vendorEmail = parseEmailByLabel(rawSingleLineText, [
-      "Vendor e-mail address",
-      "Vendor e-mail",
-      "Vendor email address",
-      "Vendor email",
-      "E-mail do vendor",
-      "Email do vendor",
-      "Email do fornecedor",
-    ]) ?? parseLabeledValueFromLines(lines, [
-      "Vendor e-mail address",
-      "Vendor e-mail",
-      "Vendor email address",
-      "Vendor email",
-      "E-mail do vendor",
-      "Email do vendor",
-      "Email do fornecedor",
-    ]);
-    const scope = parseTextByLabel(rawNormalizedText, ["Scope", "Escopo", "Context", "Contexto"], knownBoundaries) ??
-      parseLabeledValueFromLines(lines, [
-      "Scope",
-      "Escopo",
-      "Context",
-      "Contexto",
-    ]);
-    const vtexResponsibleEmail = parseEmailByLabel(rawSingleLineText, [
-      "VTEX e-mail responsible",
-      "VTEX email responsible",
-      "Responsavel VTEX",
-      "Responsável VTEX",
-      "Ponto focal VTEX",
-    ]) ?? parseLabeledValueFromLines(lines, [
-      "VTEX e-mail responsible",
-      "VTEX email responsible",
-      "Responsavel VTEX",
-      "Responsável VTEX",
-    ]);
-    const languagePreference = parseTextByLabel(
-      rawNormalizedText,
-      ["Vendor Language Preferences", "Language Preference", "Idioma", "Language"],
-      knownBoundaries,
-    ) ?? parseLabeledValueFromLines(lines, [
-      "Vendor Language Preferences",
-      "Language Preference",
-      "Idioma",
-      "Language",
-    ]);
-    const priority = parseTextByLabel(rawNormalizedText, ["Priority", "Prioridade"], knownBoundaries) ??
-      parseLabeledValueFromLines(lines, ["Priority", "Prioridade"]);
-    const company = parseTextByLabel(
-      rawNormalizedText,
-      ["Company", "Empresa", "Business unit", "Company group", "Grupo"],
-      knownBoundaries,
-    ) ?? parseLabeledValueFromLines(lines, ["Company", "Empresa", "Business unit", "Company group", "Grupo"]);
-    const capNumber = parseTextByLabel(rawNormalizedText, ["CAP NUMBER", "CAP", "CAP Number"], knownBoundaries) ??
-      parseLabeledValueFromLines(lines, ["CAP NUMBER", "CAP", "CAP Number"]);
-
-    const normalizedVendorEmail = extractEmailFromText(vendorEmail);
-    const normalizedVtexResponsibleEmail = extractEmailFromText(vtexResponsibleEmail);
-
-    if (normalizedVendorEmail || scope || normalizedVtexResponsibleEmail || languagePreference || priority || company || capNumber) {
-      return {
-        vendorEmail: normalizedVendorEmail,
-        scope,
-        vtexResponsibleEmail: normalizedVtexResponsibleEmail,
-        languagePreference: languagePreference ?? null,
-        priority: priority ?? null,
-        company: company ?? null,
-        capNumber: capNumber ?? null,
-      };
+    if (bestExtracted) {
+      return bestExtracted;
     }
   }
 
