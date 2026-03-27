@@ -1,5 +1,4 @@
 import { getIntegrationSettings, type JiraConfig } from "@/lib/settings-data";
-import { getDocument as getPdfDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 type JiraPrimitive = string | number | boolean | null | undefined;
 
@@ -950,7 +949,20 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
   token: string;
   issueKey: string;
 }) {
+  let getPdfDocument:
+    | ((typeof import("pdfjs-dist/legacy/build/pdf.mjs"))["getDocument"])
+    | null = null;
   let PDFParseCtor: (typeof import("pdf-parse"))["PDFParse"] | null = null;
+
+  try {
+    const pdfJsModule = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    getPdfDocument = pdfJsModule.getDocument;
+  } catch (error) {
+    console.warn(
+      `[jira] pdfjs module unavailable while enriching attachments for ${input.issueKey}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 
   try {
     const pdfParseModule = await import("pdf-parse");
@@ -998,7 +1010,7 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
     const fileBuffer = Buffer.from(await response.arrayBuffer());
     const rawTexts: string[] = [];
 
-    {
+    if (getPdfDocument) {
       try {
         const loadingTask = getPdfDocument({
           data: new Uint8Array(fileBuffer),
