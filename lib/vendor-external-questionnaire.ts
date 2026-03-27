@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { sql } from "@/lib/db";
 import { sendExternalQuestionnaireEmail } from "@/lib/email";
 import { recordVendorQuestionnaireDispatch } from "@/lib/vendor-questionnaire-dispatch";
@@ -99,17 +100,19 @@ export async function recordVendorExternalQuestionnaireSend(input: {
   questionnaireBaseUrl: string;
 }) {
   const dispatchedAt = new Date().toISOString();
+  const dispatchId = randomUUID();
   const { assessmentId, form: selectedForm } = await ensureVendorQuestionnaireSelection({
     assessmentId: input.assessmentId,
     entitySlug: input.entitySlug,
     selectedFormId: input.selectedFormId,
   });
-  const questionnaireUrl =
-    input.hiddenAssessmentField && input.hiddenAssessmentField.trim().length > 0
-      ? `${input.questionnaireBaseUrl}?${new URLSearchParams({
-          [input.hiddenAssessmentField]: assessmentId,
-        }).toString()}`
-      : input.questionnaireBaseUrl;
+  const queryParams = new URLSearchParams({
+    dispatch_id: dispatchId,
+  });
+  if (input.hiddenAssessmentField && input.hiddenAssessmentField.trim().length > 0) {
+    queryParams.set(input.hiddenAssessmentField, assessmentId);
+  }
+  const questionnaireUrl = `${input.questionnaireBaseUrl}?${queryParams.toString()}`;
 
   await sendExternalQuestionnaireEmail({
     to: input.recipients,
@@ -169,7 +172,7 @@ export async function recordVendorExternalQuestionnaireSend(input: {
     VALUES (
       ${entityId}::uuid,
       'Questionário externo enviado',
-      ${`Formulário: ${selectedForm.name} (${selectedForm.form_id}). Destinatários: ${input.recipients.join(", ")}.`},
+      ${`Formulário: ${selectedForm.name} (${selectedForm.form_id}). Destinatários: ${input.recipients.join(", ")}. Token de envio: ${dispatchId}.`},
       ${dispatchedAt}::timestamptz,
       COALESCE((SELECT MAX(sort_order) + 1 FROM entity_timeline_events WHERE entity_id = ${entityId}::uuid), 1),
       true
@@ -177,6 +180,7 @@ export async function recordVendorExternalQuestionnaireSend(input: {
   `;
 
   await recordVendorQuestionnaireDispatch({
+    dispatchId,
     entityId,
     assessmentId,
     formId: selectedForm.form_id,

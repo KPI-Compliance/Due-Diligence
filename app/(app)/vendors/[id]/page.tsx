@@ -4,7 +4,17 @@ import { getEntityDetailBySlug, normalizeTab } from "@/lib/data";
 
 type VendorDetailPageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string; section?: string; saved?: string; note_saved?: string; jira_error?: string; jira_synced?: string; status_guard?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    section?: string;
+    saved?: string;
+    note_saved?: string;
+    jira_error?: string;
+    jira_synced?: string;
+    status_guard?: string;
+    sync_forced?: string;
+    sync_error?: string;
+  }>;
 };
 
 export const dynamic = "force-dynamic";
@@ -32,6 +42,8 @@ export default async function VendorDetailPage({ params, searchParams }: VendorD
       jiraErrorStatus={resolvedSearchParams.jira_error}
       jiraSyncStatus={resolvedSearchParams.jira_synced}
       statusGuardStatus={resolvedSearchParams.status_guard}
+      syncForcedStatus={resolvedSearchParams.sync_forced}
+      syncErrorStatus={resolvedSearchParams.sync_error}
     />
   );
 }

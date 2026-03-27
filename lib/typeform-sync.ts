@@ -507,7 +507,7 @@ export async function syncExternalQuestionnaireForEntity(input: {
   const targetName = normalizeComparable(entityName);
   const jiraCreatedAt = await getJiraCreatedAt(jiraIssueKey);
   const jiraCreatedTimestamp = toTimestamp(jiraCreatedAt);
-  const emptyVendorSignals = { recipientEmails: [], sentTimestamps: [] };
+  const emptyVendorSignals = { recipientEmails: [] as string[], sentTimestamps: [] as number[], dispatchIds: [] as string[] };
   let matchedResponse: (TypeformResponseItem & { form_id: string; form_name: string }) | null = null;
 
   for (const form of formMappings) {
@@ -580,6 +580,20 @@ export async function syncExternalQuestionnaireForEntity(input: {
       })
       .sort((a, b) => Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? ""))[0] ?? null;
 
+    const byHiddenDispatch =
+      entityKind === "VENDOR" && formScopedVendorSignals.dispatchIds.length > 0
+        ? normalizedItems
+            .filter((item) => {
+              if (!item.hidden || typeof item.hidden !== "object") return false;
+              const dispatchValue =
+                normalizeComparableToken(item.hidden.dispatch_id) ||
+                normalizeComparableToken(item.hidden.dispatchId) ||
+                normalizeComparableToken(item.hidden.dispatch);
+              return Boolean(dispatchValue) && formScopedVendorSignals.dispatchIds.includes(dispatchValue);
+            })
+            .sort((a, b) => Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? ""))[0] ?? null
+        : null;
+
     const byCompanyName =
       normalizedItems
         .filter((item) => {
@@ -630,7 +644,7 @@ export async function syncExternalQuestionnaireForEntity(input: {
             })[0] ?? null
         : null;
 
-    const candidate = byHiddenAssessment ?? byRecipientAndPeriod ?? byCompanyName;
+    const candidate = byHiddenAssessment ?? byHiddenDispatch ?? byRecipientAndPeriod ?? byCompanyName;
 
     if (!candidate) continue;
 

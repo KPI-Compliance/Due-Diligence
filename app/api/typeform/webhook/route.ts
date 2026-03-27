@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { findVendorAssessmentByRecipientDispatch } from "@/lib/vendor-questionnaire-dispatch";
+import {
+  findVendorAssessmentByDispatchId,
+  findVendorAssessmentByRecipientDispatch,
+  normalizeDispatchId,
+} from "@/lib/vendor-questionnaire-dispatch";
 import {
   extractCompanyNameFromTypeformAnswers,
   extractRespondentEmailFromTypeformAnswers,
@@ -68,6 +72,16 @@ function normalizeComparable(value: string | undefined) {
 
 function normalizeEmail(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
+}
+
+function extractDispatchIdFromHidden(hidden: Record<string, string> | undefined) {
+  if (!hidden || typeof hidden !== "object") return null;
+  return (
+    normalizeDispatchId(hidden.dispatch_id) ??
+    normalizeDispatchId(hidden.dispatchId) ??
+    normalizeDispatchId(hidden.dispatch) ??
+    null
+  );
 }
 
 function toTimestamp(value: string | null | undefined) {
@@ -239,8 +253,20 @@ export async function POST(request: Request) {
       const submittedAt = payload.form_response?.submitted_at ?? null;
       const submittedAtTimestamp = toTimestamp(submittedAt);
       const respondentEmail = normalizeEmail(extractRespondentEmailFromTypeformAnswers(payload.form_response?.answers));
+      const hiddenDispatchId = extractDispatchIdFromHidden(payload.form_response?.hidden);
 
-      if (respondentEmail && respondentEmail.includes("@") && formMapping.entity_kind !== "PARTNER") {
+      if (hiddenDispatchId && formMapping.entity_kind !== "PARTNER") {
+        const matchedByDispatchId = await findVendorAssessmentByDispatchId({
+          dispatchId: hiddenDispatchId,
+          formId,
+        });
+        if (matchedByDispatchId?.assessmentId && isValidUuid(matchedByDispatchId.assessmentId)) {
+          assessmentId = matchedByDispatchId.assessmentId;
+          resolvedEntityKind = "VENDOR";
+        }
+      }
+
+      if (!assessmentId && respondentEmail && respondentEmail.includes("@") && formMapping.entity_kind !== "PARTNER") {
         const matchedByRecipient = await findVendorAssessmentByRecipientDispatch({
           formId,
           respondentEmail,

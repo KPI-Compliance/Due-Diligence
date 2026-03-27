@@ -8,6 +8,7 @@ import {
   updateConfiguredJiraIssueSecRisk,
   updateConfiguredJiraIssueWorkflowStatus,
 } from "@/lib/jira";
+import { syncExternalQuestionnaireForEntity } from "@/lib/typeform-sync";
 import { ensureVendorQuestionnaireSelection } from "@/lib/vendor-external-questionnaire";
 
 export async function saveVendorExternalQuestionnaire(formData: FormData) {
@@ -31,6 +32,53 @@ export async function saveVendorExternalQuestionnaire(formData: FormData) {
   });
 
   redirect(`/vendors/${entitySlug}?tab=overview&questionnaire=saved`);
+}
+
+export async function refreshVendorExternalQuestionnaire(formData: FormData) {
+  const sessionResult = await refreshServerActionSession("vendors.refreshVendorExternalQuestionnaire");
+  if (!sessionResult.session) {
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+
+  const entitySlug = String(formData.get("entity_slug") ?? "").trim();
+  if (!entitySlug) {
+    throw new Error("Invalid vendor refresh payload.");
+  }
+
+  const entityRows = (await sql`
+    SELECT id::text, name, jira_issue_key
+    FROM entities
+    WHERE slug = ${entitySlug}
+      AND kind = 'VENDOR'
+    LIMIT 1
+  `) as Array<{ id: string; name: string; jira_issue_key: string | null }>;
+
+  const entity = entityRows[0];
+  if (!entity) {
+    redirect(`/vendors/${entitySlug}?tab=external_questionnaire&sync_error=not_found`);
+  }
+
+  const assessmentRows = (await sql`
+    SELECT typeform_form_id
+    FROM assessments
+    WHERE entity_id = ${entity.id}::uuid
+    ORDER BY created_at DESC
+    LIMIT 1
+  `) as Array<{ typeform_form_id: string | null }>;
+
+  try {
+    await syncExternalQuestionnaireForEntity({
+      entityId: entity.id,
+      entityName: entity.name,
+      entityKind: "VENDOR",
+      jiraIssueKey: entity.jira_issue_key,
+      formId: assessmentRows[0]?.typeform_form_id ?? null,
+    });
+  } catch {
+    redirect(`/vendors/${entitySlug}?tab=external_questionnaire&sync_error=1`);
+  }
+
+  redirect(`/vendors/${entitySlug}?tab=external_questionnaire&sync_forced=1`);
 }
 
 const allowedDecisionOptions = new Set(["APPROVED", "APPROVED_WITH_RESTRICTIONS", "REJECTED"]);

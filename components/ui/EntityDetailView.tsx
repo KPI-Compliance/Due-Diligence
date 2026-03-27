@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { savePartnerAssessmentDecision, savePartnerExternalQuestionnaireSection } from "@/app/(app)/partners/actions";
-import { saveVendorAssessmentDecision } from "@/app/(app)/vendors/actions";
+import { refreshVendorExternalQuestionnaire, saveVendorAssessmentDecision } from "@/app/(app)/vendors/actions";
 import { AnalystEvaluationControl } from "@/components/ui/AnalystEvaluationControl";
 import { ExternalQuestionnairePendingNotice, SubmitActionButton } from "@/components/ui/ExternalQuestionnaireSubmitControls";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -24,6 +24,8 @@ type EntityDetailViewProps = {
   jiraErrorStatus?: string;
   jiraSyncStatus?: string;
   statusGuardStatus?: string;
+  syncForcedStatus?: string;
+  syncErrorStatus?: string;
 };
 
 const vendorTabs: Array<{ key: DetailTabKey; label: string }> = [
@@ -553,6 +555,8 @@ export function EntityDetailView({
   jiraErrorStatus,
   jiraSyncStatus,
   statusGuardStatus,
+  syncForcedStatus,
+  syncErrorStatus,
 }: EntityDetailViewProps) {
   const backHref = kind === "vendor" ? "/vendors" : "/partners";
   const visibleTabs = kind === "partner" ? partnerTabs : vendorTabs;
@@ -1041,6 +1045,35 @@ export function EntityDetailView({
           />
 
           <div className="space-y-6">
+            {kind === "vendor" ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-primary)]/10 bg-white p-4 shadow-sm">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--color-text)]">Sincronização manual</p>
+                  <p className="text-xs text-[var(--color-neutral-600)]">
+                    Use este botão para forçar uma nova busca da resposta do Typeform usando os dados do envio registrado.
+                  </p>
+                </div>
+                <form action={refreshVendorExternalQuestionnaire}>
+                  <input type="hidden" name="entity_slug" value={detail.id} />
+                  <button
+                    type="submit"
+                    className="rounded-lg border border-[var(--color-primary)]/20 bg-[var(--color-primary)]/5 px-4 py-2.5 text-sm font-semibold text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/10"
+                  >
+                    Atualizar resposta externa
+                  </button>
+                </form>
+              </div>
+            ) : null}
+            {syncForcedStatus === "1" ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                Sincronização executada. Atualizamos a busca de resposta do Typeform para este ticket.
+              </div>
+            ) : null}
+            {syncErrorStatus ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                Não foi possível concluir a sincronização manual agora. Tente novamente em alguns instantes.
+              </div>
+            ) : null}
             <div className="space-y-6">
               {questionnaireAnswerCount > 0 ? (
                 selectedExternalSection?.section === "Common" ? (

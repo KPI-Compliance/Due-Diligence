@@ -5,6 +5,7 @@ const MATCH_WINDOW_BEFORE_MS = 3 * 24 * 60 * 60 * 1000;
 const MATCH_WINDOW_AFTER_MS = 120 * 24 * 60 * 60 * 1000;
 
 let dispatchesTableReady = false;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function toTimestamp(value: string | null | undefined) {
   if (!value) return Number.NaN;
@@ -14,6 +15,11 @@ function toTimestamp(value: string | null | undefined) {
 
 function normalizeEmail(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
+}
+
+export function normalizeDispatchId(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return UUID_REGEX.test(normalized) ? normalized : null;
 }
 
 function parseEmails(value: string | null | undefined) {
@@ -51,6 +57,7 @@ async function ensureDispatchesTable() {
   await sql`
     CREATE TABLE IF NOT EXISTS vendor_external_questionnaire_dispatches (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      dispatch_id UUID,
       entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
       assessment_id UUID NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
       form_id TEXT NOT NULL,
@@ -58,6 +65,11 @@ async function ensureDispatchesTable() {
       sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `;
+
+  await sql`
+    ALTER TABLE vendor_external_questionnaire_dispatches
+    ADD COLUMN IF NOT EXISTS dispatch_id UUID
   `;
 
   await sql`
@@ -75,10 +87,17 @@ async function ensureDispatchesTable() {
     ON vendor_external_questionnaire_dispatches (assessment_id, form_id, recipient_email, sent_at)
   `;
 
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_external_questionnaire_dispatches_dispatch_id
+    ON vendor_external_questionnaire_dispatches (dispatch_id)
+    WHERE dispatch_id IS NOT NULL
+  `;
+
   dispatchesTableReady = true;
 }
 
 export async function recordVendorQuestionnaireDispatch(input: {
+  dispatchId?: string | null;
   entityId: string;
   assessmentId: string;
   formId: string;
@@ -95,6 +114,7 @@ export async function recordVendorQuestionnaireDispatch(input: {
   for (const recipientEmail of normalizedRecipients) {
     await sql`
       INSERT INTO vendor_external_questionnaire_dispatches (
+        dispatch_id,
         entity_id,
         assessment_id,
         form_id,
@@ -102,6 +122,7 @@ export async function recordVendorQuestionnaireDispatch(input: {
         sent_at
       )
       VALUES (
+        ${normalizeDispatchId(input.dispatchId)}::uuid,
         ${input.entityId}::uuid,
         ${input.assessmentId}::uuid,
         ${input.formId},
@@ -111,6 +132,50 @@ export async function recordVendorQuestionnaireDispatch(input: {
       ON CONFLICT DO NOTHING
     `;
   }
+}
+
+export async function findVendorAssessmentByDispatchId(input: {
+  dispatchId: string;
+  formId?: string | null;
+}) {
+  const dispatchId = normalizeDispatchId(input.dispatchId);
+  if (!dispatchId) return null;
+
+  try {
+    await ensureDispatchesTable();
+  } catch {
+    return null;
+  }
+
+  const rows = (await sql`
+    SELECT
+      d.assessment_id::text AS assessment_id,
+      d.entity_id::text AS entity_id,
+      e.name AS entity_name,
+      d.form_id
+    FROM vendor_external_questionnaire_dispatches d
+    INNER JOIN entities e ON e.id = d.entity_id
+    WHERE e.kind = 'VENDOR'
+      AND d.dispatch_id = ${dispatchId}::uuid
+      AND (${input.formId ?? null}::text IS NULL OR d.form_id = ${input.formId ?? null})
+    ORDER BY d.sent_at DESC
+    LIMIT 1
+  `) as Array<{
+    assessment_id: string;
+    entity_id: string;
+    entity_name: string;
+    form_id: string;
+  }>;
+
+  const found = rows[0];
+  if (!found) return null;
+
+  return {
+    assessmentId: found.assessment_id,
+    entityId: found.entity_id,
+    entityName: found.entity_name,
+    formId: found.form_id,
+  };
 }
 
 async function findVendorAssessmentByStructuredDispatch(input: {
@@ -265,22 +330,25 @@ export async function getVendorQuestionnaireSignals(input: {
 }) {
   const recipientEmails = new Set<string>();
   const sentTimestamps = new Set<number>();
+  const dispatchIds = new Set<string>();
 
   try {
     await ensureDispatchesTable();
     const dispatchRows = (await sql`
-      SELECT recipient_email, sent_at::text
+      SELECT recipient_email, sent_at::text, dispatch_id::text
       FROM vendor_external_questionnaire_dispatches
       WHERE assessment_id = ${input.assessmentId}::uuid
         AND form_id = ${input.formId}
       ORDER BY sent_at DESC
-    `) as Array<{ recipient_email: string; sent_at: string | null }>;
+    `) as Array<{ recipient_email: string; sent_at: string | null; dispatch_id: string | null }>;
 
     for (const row of dispatchRows) {
       const email = normalizeEmail(row.recipient_email);
       if (email) recipientEmails.add(email);
       const sentTimestamp = toTimestamp(row.sent_at);
       if (!Number.isNaN(sentTimestamp)) sentTimestamps.add(sentTimestamp);
+      const dispatchId = normalizeDispatchId(row.dispatch_id);
+      if (dispatchId) dispatchIds.add(dispatchId);
     }
   } catch {
     // Table might not exist yet in older environments. Timeline fallback below remains active.
@@ -327,6 +395,6 @@ export async function getVendorQuestionnaireSignals(input: {
   return {
     recipientEmails: Array.from(recipientEmails),
     sentTimestamps: Array.from(sentTimestamps),
+    dispatchIds: Array.from(dispatchIds),
   };
 }
-
