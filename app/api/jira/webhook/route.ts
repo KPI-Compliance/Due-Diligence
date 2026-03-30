@@ -452,6 +452,8 @@ export async function POST(request: Request) {
       company: prefersIncoming(existingJiraFormData.company, entity.jiraFormData.company),
       capNumber: prefersIncoming(existingJiraFormData.capNumber, entity.jiraFormData.capNumber),
       scope: prefersIncoming(existingJiraFormData.scope, entity.jiraFormData.scope),
+      reporterName: prefersIncoming(existingJiraFormData.reporterName, entity.jiraFormData.reporterName),
+      reporterEmail: prefersIncoming(existingJiraFormData.reporterEmail, entity.jiraFormData.reporterEmail),
     };
     entity.contactEmail = prefersExisting(existingEntity?.contact_email, entity.contactEmail);
     entity.description = prefersExisting(existingEntity?.description, entity.description);

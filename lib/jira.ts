@@ -17,6 +17,7 @@ type JiraIssueFields = {
   issuetype?: { name?: string | null } | null;
   project?: { key?: string | null } | null;
   assignee?: { emailAddress?: string | null; displayName?: string | null } | null;
+  reporter?: { emailAddress?: string | null; displayName?: string | null } | null;
   [key: string]: unknown;
 };
 
@@ -58,6 +59,8 @@ export type SyncedJiraEntityInput = {
     company: string | null;
     capNumber: string | null;
     scope: string | null;
+    reporterName: string | null;
+    reporterEmail: string | null;
   };
 };
 
@@ -1738,6 +1741,16 @@ export function extractEntityFromJiraIssue(
     valueFromTopLevelPayload(payload, ["priority", "vendor-priority", "vendor_priority", "vendor priority"]) ??
     findValueInObject(payload, ["vendor priority", "prioridade do vendor", "prioridade vendor"]) ??
     findFieldValue(description, ["vendor priority", "prioridade do vendor", "prioridade vendor"]);
+  const reporterName =
+    valueFromTopLevelPayload(payload, ["reporter-name", "reporter_name", "reporter name", "relator", "nome-relator"]) ??
+    findValueInObject(payload, ["reporter name", "reporter", "relator", "nome do relator"]) ??
+    fields.reporter?.displayName?.trim() ??
+    null;
+  const reporterEmail =
+    valueFromTopLevelPayload(payload, ["reporter-email", "reporter_email", "reporter email", "email-relator"]) ??
+    findValueInObject(payload, ["reporter email", "email do relator"]) ??
+    fields.reporter?.emailAddress?.trim() ??
+    null;
   const requestDescription =
     findValueInObject(payload, ["description", "descricao"]) ?? description;
   const website = cleanUrl(
@@ -1806,6 +1819,8 @@ export function extractEntityFromJiraIssue(
       company: companyGroupFromForm ?? companyGroup,
       capNumber,
       scope,
+      reporterName,
+      reporterEmail,
     },
   };
 }

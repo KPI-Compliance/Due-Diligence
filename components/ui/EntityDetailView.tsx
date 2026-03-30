@@ -886,12 +886,16 @@ export function EntityDetailView({
               <article className="rounded-xl border border-[var(--color-primary)]/10 bg-white p-6 shadow-sm">
                 <h3 className="mb-6 text-lg font-bold text-[var(--color-text)]">Ponto Focal Interno</h3>
                 {kind === "vendor" ? (
-                  <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Responsável VTEX</p>
                       <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">
                         {detail.overview.vtexResponsibleEmail ?? detail.overview.internalFocalPoint.email}
                       </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail do relator</p>
+                      <p className="mt-1 break-all text-sm font-semibold text-[var(--color-text)]">{detail.overview.reporterEmail ?? "-"}</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Prioridade</p>

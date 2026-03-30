@@ -165,6 +165,7 @@ function buildFormLinkLabel(input: { formName: string; formId: string }) {
 
 export async function sendExternalQuestionnaireEmail(input: {
   to: string[];
+  cc?: string[];
   questionnaireUrl: string;
   formName: string;
   formId: string;
@@ -206,9 +207,13 @@ export async function sendExternalQuestionnaireEmail(input: {
   });
 
   const gmail = google.gmail({ version: "v1", auth });
+  const ccRecipients = Array.isArray(input.cc)
+    ? input.cc.map((item) => item.trim()).filter(Boolean)
+    : [];
   const message = [
     `From: ${sender}`,
     `To: ${input.to.join(", ")}`,
+    ...(ccRecipients.length > 0 ? [`Cc: ${ccRecipients.join(", ")}`] : []),
     `Reply-To: ${replyTo}`,
     `Subject: ${subject}`,
     "MIME-Version: 1.0",

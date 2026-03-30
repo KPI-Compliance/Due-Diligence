@@ -1892,6 +1892,9 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   const vendorResponsibleEmail = cleanOverviewValue(
     jiraFormText("vtexResponsibleEmail", "vtex-e-mail-responsible", "vtex_email_responsible") ?? entity.owner_email,
   );
+  const vendorReporterEmail = cleanOverviewValue(
+    jiraFormText("reporterEmail", "reporter-email", "reporter_email", "email-relator"),
+  );
 
   const latestAssessment = assessments[0];
   const initialTypeformFormRows =
@@ -2352,6 +2355,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       vendorEmail: kind === "vendor" ? (vendorEmail ?? "-") : undefined,
       vendorLanguage: kind === "vendor" ? (vendorLanguage ?? entity.segment ?? "-") : undefined,
       vtexResponsibleEmail: kind === "vendor" ? (vendorResponsibleEmail ?? "-") : undefined,
+      reporterEmail: kind === "vendor" ? (vendorReporterEmail ?? "-") : undefined,
       priority: kind === "vendor" ? (vendorPriority ?? "-") : undefined,
       capNumber: kind === "vendor" ? (vendorCapNumber ?? "-") : undefined,
       scope: kind === "vendor" ? (vendorScope ?? entity.description ?? "-") : undefined,

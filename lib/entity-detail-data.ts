@@ -71,6 +71,7 @@ export type EntityDetailData = {
     vendorEmail?: string;
     vendorLanguage?: string;
     vtexResponsibleEmail?: string;
+    reporterEmail?: string;
     priority?: string;
     capNumber?: string;
     scope?: string;

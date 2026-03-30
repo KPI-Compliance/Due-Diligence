@@ -149,6 +149,10 @@ Custom data example:
       },
       "assignee": {
         "emailAddress": {{issue.assignee.emailAddress.asJsonString}}
+      },
+      "reporter": {
+        "displayName": {{issue.reporter.displayName.asJsonString}},
+        "emailAddress": {{issue.reporter.emailAddress.asJsonString}}
       }
     }
   },

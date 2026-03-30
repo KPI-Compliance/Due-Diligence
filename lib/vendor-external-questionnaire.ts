@@ -3,6 +3,15 @@ import { sql } from "@/lib/db";
 import { sendExternalQuestionnaireEmail } from "@/lib/email";
 import { recordVendorQuestionnaireDispatch } from "@/lib/vendor-questionnaire-dispatch";
 
+function normalizeEmail(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function isValidEmail(value: string | null | undefined) {
+  const normalized = normalizeEmail(value);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
+}
+
 async function resolveVendorAssessmentId(input: { assessmentId?: string | null; entitySlug?: string | null }) {
   const directAssessmentId = (input.assessmentId ?? "").trim();
   if (directAssessmentId) {
@@ -114,24 +123,43 @@ export async function recordVendorExternalQuestionnaireSend(input: {
   }
   const questionnaireUrl = `${input.questionnaireBaseUrl}?${queryParams.toString()}`;
 
+  const entityRows = (await sql`
+    SELECT
+      a.entity_id::text AS entity_id,
+      e.jira_form_data
+    FROM assessments a
+    JOIN entities e ON e.id = a.entity_id
+    WHERE a.id = ${assessmentId}::uuid
+    LIMIT 1
+  `) as Array<{ entity_id: string; jira_form_data: Record<string, unknown> | null }>;
+
+  const entityId = entityRows[0]?.entity_id ?? null;
+  if (!entityId) {
+    throw new Error("Assessment entity not found.");
+  }
+
+  const jiraFormData =
+    entityRows[0]?.jira_form_data &&
+    typeof entityRows[0].jira_form_data === "object" &&
+    !Array.isArray(entityRows[0].jira_form_data)
+      ? entityRows[0].jira_form_data
+      : {};
+  const reporterEmailRaw =
+    typeof jiraFormData.reporterEmail === "string" ? jiraFormData.reporterEmail : null;
+  const reporterEmail = isValidEmail(reporterEmailRaw) ? normalizeEmail(reporterEmailRaw) : null;
+  const normalizedRecipients = Array.from(new Set(input.recipients.map((item) => normalizeEmail(item)).filter(isValidEmail)));
+  const ccRecipients =
+    reporterEmail && !normalizedRecipients.includes(reporterEmail)
+      ? [reporterEmail]
+      : [];
+
   await sendExternalQuestionnaireEmail({
     to: input.recipients,
+    cc: ccRecipients,
     questionnaireUrl,
     formName: selectedForm.name,
     formId: selectedForm.form_id,
   });
-
-  const entityRows = (await sql`
-    SELECT entity_id::text
-    FROM assessments
-    WHERE id = ${assessmentId}::uuid
-    LIMIT 1
-  `) as Array<{ entity_id: string }>;
-
-  const entityId = entityRows[0]?.entity_id;
-  if (!entityId) {
-    throw new Error("Assessment entity not found.");
-  }
 
   await sql`
     UPDATE assessments
@@ -172,7 +200,7 @@ export async function recordVendorExternalQuestionnaireSend(input: {
     VALUES (
       ${entityId}::uuid,
       'Questionário externo enviado',
-      ${`Formulário: ${selectedForm.name} (${selectedForm.form_id}). Destinatários: ${input.recipients.join(", ")}. Token de envio: ${dispatchId}.`},
+      ${`Formulário: ${selectedForm.name} (${selectedForm.form_id}). Destinatários: ${input.recipients.join(", ")}.${ccRecipients.length > 0 ? ` Cópia: ${ccRecipients.join(", ")}.` : ""} Token de envio: ${dispatchId}.`},
       ${dispatchedAt}::timestamptz,
       COALESCE((SELECT MAX(sort_order) + 1 FROM entity_timeline_events WHERE entity_id = ${entityId}::uuid), 1),
       true
