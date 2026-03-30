@@ -167,6 +167,17 @@ function formatRiskSettingsError(errorCode: string | undefined) {
   return "Não foi possível salvar a pontuação de risco. Revise os valores informados.";
 }
 
+function formatSavedMessage(savedFlag: string | undefined) {
+  if (!savedFlag) return null;
+  if (savedFlag === "usuarios_bulk") {
+    return "Alterações de usuários e perfis salvas com sucesso.";
+  }
+  if (savedFlag === "usuario_removido") {
+    return "Usuário removido da lista de perfis com sucesso.";
+  }
+  return `Configurações de ${savedFlag.toUpperCase()} salvas com sucesso.`;
+}
+
 function parseDecimalField(formData: FormData, key: string, fallback: number) {
   const raw = Number(formData.get(key) ?? fallback);
   if (!Number.isFinite(raw)) return fallback;
@@ -493,6 +504,42 @@ async function saveUserAccessProfile(formData: FormData) {
   redirect("/settings?tab=usuarios&saved=usuarios");
 }
 
+async function saveUserAccessProfilesBulk(formData: FormData) {
+  "use server";
+  const { session } = await requireServerActionSession("settings.saveUserAccessProfilesBulk");
+
+  const rowCount = Math.max(0, Number.parseInt(String(formData.get("row_count") ?? "0"), 10) || 0);
+  const currentEmail = session.email.trim().toLowerCase();
+
+  for (let index = 0; index < rowCount; index += 1) {
+    const email = String(formData.get(`row_${index}_email`) ?? "").trim().toLowerCase();
+    const fullName = String(formData.get(`row_${index}_full_name`) ?? "").trim();
+    const rawGroup = String(formData.get(`row_${index}_access_group`) ?? "PROCUREMENT").trim().toUpperCase();
+    const isActive = formData.get(`row_${index}_is_active`) === "on";
+
+    if (!email || !email.includes("@")) continue;
+
+    const accessGroup = (["ADMIN", "TECGRC", "COMPLIANCE", "PRIVACY", "PROCUREMENT"].includes(rawGroup)
+      ? rawGroup
+      : "PROCUREMENT") as AccessGroup;
+
+    const isSelf = email === currentEmail;
+    const safeGroupForSelf = isSelf && (accessGroup === "PROCUREMENT" || accessGroup === "COMPLIANCE" || accessGroup === "PRIVACY")
+      ? "ADMIN"
+      : accessGroup;
+    const safeIsActiveForSelf = isSelf ? true : isActive;
+
+    await upsertUserAccessProfile({
+      email,
+      fullName: fullName || null,
+      group: safeGroupForSelf,
+      isActive: safeIsActiveForSelf,
+    });
+  }
+
+  redirect("/settings?tab=usuarios&saved=usuarios_bulk");
+}
+
 async function removeUserAccessProfile(formData: FormData) {
   "use server";
   const { session } = await requireServerActionSession("settings.removeUserAccessProfile");
@@ -506,7 +553,7 @@ async function removeUserAccessProfile(formData: FormData) {
   }
 
   await deleteUserAccessProfile(email);
-  redirect("/settings?tab=usuarios&saved=usuarios");
+  redirect("/settings?tab=usuarios&saved=usuario_removido");
 }
 
 function GeneralTab({
@@ -584,12 +631,14 @@ function UsersTab({
   currentAccessGroup,
   userProfiles,
   saveAction,
+  saveBulkAction,
   removeAction,
 }: {
   currentUser: { name: string; email: string };
   currentAccessGroup: AccessGroup;
   userProfiles: UserAccessProfileRow[];
   saveAction: (formData: FormData) => Promise<void>;
+  saveBulkAction: (formData: FormData) => Promise<void>;
   removeAction: (formData: FormData) => Promise<void>;
 }) {
   return (
@@ -677,47 +726,48 @@ function UsersTab({
       </form>
 
       <SectionCard title="Usuários e Perfis" description="Gerencie acessos da equipe e níveis de permissão.">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px] text-left">
-            <thead>
-              <tr className="border-b border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)]">
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome</th>
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail</th>
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Perfil</th>
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status</th>
-                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {userProfiles.map((user) => (
-                <tr key={user.email} className="border-b border-[var(--color-neutral-100)]">
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-primary)]/10 text-xs font-bold text-[var(--color-primary)]">
-                        {initialsFromName(user.fullName ?? user.email)}
+        <form action={saveBulkAction}>
+          <input type="hidden" name="row_count" value={String(userProfiles.length)} />
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px] text-left">
+              <thead>
+                <tr className="border-b border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)]">
+                  <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome</th>
+                  <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail</th>
+                  <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Perfil</th>
+                  <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status</th>
+                  <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {userProfiles.map((user, index) => (
+                  <tr key={user.email} className="border-b border-[var(--color-neutral-100)]">
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-primary)]/10 text-xs font-bold text-[var(--color-primary)]">
+                          {initialsFromName(user.fullName ?? user.email)}
+                        </div>
+                        <span className="text-sm font-medium text-[var(--color-text)]">{user.fullName ?? "-"}</span>
                       </div>
-                      <span className="text-sm font-medium text-[var(--color-text)]">{user.fullName ?? "-"}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <span className="text-sm text-[var(--color-neutral-700)]">{user.email}</span>
-                  </td>
-                  <td className="px-4 py-4">
-                    <span className={`rounded px-2 py-1 text-xs font-bold ${accessGroupClass[user.group]}`}>{accessGroupLabel[user.group]}</span>
-                  </td>
-                  <td className="px-4 py-4">
-                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${user.isActive ? "text-emerald-600" : "text-slate-400"}`}>
-                      <span className={`h-2 w-2 rounded-full ${user.isActive ? "bg-emerald-600" : "bg-slate-400"}`} />
-                      {user.isActive ? "Ativo" : "Inativo"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <form action={saveAction} className="flex flex-wrap items-center gap-2">
-                        <input type="hidden" name="email" value={user.email} />
-                        <input type="hidden" name="full_name" value={user.fullName ?? ""} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className="text-sm text-[var(--color-neutral-700)]">{user.email}</span>
+                      <input type="hidden" name={`row_${index}_email`} value={user.email} />
+                      <input type="hidden" name={`row_${index}_full_name`} value={user.fullName ?? ""} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className={`rounded px-2 py-1 text-xs font-bold ${accessGroupClass[user.group]}`}>{accessGroupLabel[user.group]}</span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${user.isActive ? "text-emerald-600" : "text-slate-400"}`}>
+                        <span className={`h-2 w-2 rounded-full ${user.isActive ? "bg-emerald-600" : "bg-slate-400"}`} />
+                        {user.isActive ? "Ativo" : "Inativo"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
                         <select
-                          name="access_group"
+                          name={`row_${index}_access_group`}
                           defaultValue={user.group}
                           className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-2 py-1 text-xs outline-none focus:border-[var(--color-primary)]/30 focus:ring-2 focus:ring-[var(--color-primary)]/10"
                         >
@@ -726,32 +776,34 @@ function UsersTab({
                           ))}
                         </select>
                         <label className="inline-flex items-center gap-1 text-xs text-[var(--color-neutral-700)]">
-                          <input name="is_active" type="checkbox" defaultChecked={user.isActive} className="h-3.5 w-3.5 accent-[var(--color-primary)]" />
+                          <input name={`row_${index}_is_active`} type="checkbox" defaultChecked={user.isActive} className="h-3.5 w-3.5 accent-[var(--color-primary)]" />
                           Ativo
                         </label>
                         <button
                           type="submit"
-                          className="rounded-lg border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10 px-2 py-1 text-xs font-bold text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/20"
-                        >
-                          Salvar
-                        </button>
-                      </form>
-                      <form action={removeAction}>
-                        <input type="hidden" name="email" value={user.email} />
-                        <button
-                          type="submit"
+                          formAction={removeAction}
+                          name="email"
+                          value={user.email}
                           className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-100"
                         >
                           Remover
                         </button>
-                      </form>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              type="submit"
+              className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white transition hover:brightness-95"
+            >
+              Salvar alterações
+            </button>
+          </div>
+        </form>
       </SectionCard>
     </div>
   );
@@ -858,6 +910,7 @@ export default async function SettingsPage({
   const savedFlag = params?.saved;
   const activeTab = normalizeTab(params?.tab);
   const errorMessage = formatRiskSettingsError(params?.error);
+  const savedMessage = formatSavedMessage(savedFlag);
 
   return (
     <PageContainer
@@ -865,9 +918,9 @@ export default async function SettingsPage({
       description="Gerencie preferências da plataforma, controles de acesso e integrações externas."
       className="space-y-8"
     >
-      {savedFlag ? (
+      {savedMessage ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-          Configurações de <span className="font-bold uppercase">{savedFlag}</span> salvas com sucesso.
+          {savedMessage}
         </div>
       ) : null}
       {errorMessage ? (
@@ -904,6 +957,7 @@ export default async function SettingsPage({
           currentAccessGroup={currentAccess.group}
           userProfiles={mergedUserProfiles}
           saveAction={saveUserAccessProfile}
+          saveBulkAction={saveUserAccessProfilesBulk}
           removeAction={removeUserAccessProfile}
         />
       ) : null}
