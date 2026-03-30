@@ -192,3 +192,22 @@ export async function upsertUserAccessProfile(input: {
   }
 }
 
+export async function deleteUserAccessProfile(emailInput: string) {
+  const email = normalizeEmail(emailInput);
+  if (!email || !email.includes("@")) {
+    throw new Error("E-mail inválido para remoção do perfil de acesso.");
+  }
+
+  try {
+    await sql`
+      DELETE FROM user_access_profiles
+      WHERE lower(email) = lower(${email})
+    `;
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code === "42P01") {
+      throw new Error("Tabela user_access_profiles não encontrada. Rode o migration 018.");
+    }
+    throw error;
+  }
+}

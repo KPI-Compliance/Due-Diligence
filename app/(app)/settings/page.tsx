@@ -6,6 +6,7 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { getAuthenticatedSessionResult, getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
 import {
+  deleteUserAccessProfile,
   listUserAccessProfiles,
   resolveUserAccess,
   upsertUserAccessProfile,
@@ -155,6 +156,12 @@ function formatRiskSettingsError(errorCode: string | undefined) {
   }
   if (errorCode === "vendor_thresholds") {
     return "Em Vendors, os thresholds precisam respeitar: Low < Medium e ambos entre 0 e 10.";
+  }
+  if (errorCode === "usuarios_self_remove") {
+    return "Você não pode remover seu próprio perfil de acesso.";
+  }
+  if (errorCode === "usuarios_invalid_email") {
+    return "E-mail inválido para atualização de perfil.";
   }
 
   return "Não foi possível salvar a pontuação de risco. Revise os valores informados.";
@@ -472,6 +479,10 @@ async function saveUserAccessProfile(formData: FormData) {
     ? rawGroup
     : "PROCUREMENT") as AccessGroup;
 
+  if (!email || !email.includes("@")) {
+    redirect("/settings?tab=usuarios&error=usuarios_invalid_email");
+  }
+
   await upsertUserAccessProfile({
     email,
     fullName: fullName || null,
@@ -479,6 +490,22 @@ async function saveUserAccessProfile(formData: FormData) {
     isActive,
   });
 
+  redirect("/settings?tab=usuarios&saved=usuarios");
+}
+
+async function removeUserAccessProfile(formData: FormData) {
+  "use server";
+  const { session } = await requireServerActionSession("settings.removeUserAccessProfile");
+
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    redirect("/settings?tab=usuarios&error=usuarios_invalid_email");
+  }
+  if (email === session.email.trim().toLowerCase()) {
+    redirect("/settings?tab=usuarios&error=usuarios_self_remove");
+  }
+
+  await deleteUserAccessProfile(email);
   redirect("/settings?tab=usuarios&saved=usuarios");
 }
 
@@ -557,11 +584,13 @@ function UsersTab({
   currentAccessGroup,
   userProfiles,
   saveAction,
+  removeAction,
 }: {
   currentUser: { name: string; email: string };
   currentAccessGroup: AccessGroup;
   userProfiles: UserAccessProfileRow[];
   saveAction: (formData: FormData) => Promise<void>;
+  removeAction: (formData: FormData) => Promise<void>;
 }) {
   return (
     <div className="space-y-6">
@@ -656,6 +685,7 @@ function UsersTab({
                 <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail</th>
                 <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Perfil</th>
                 <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status</th>
+                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -680,6 +710,42 @@ function UsersTab({
                       <span className={`h-2 w-2 rounded-full ${user.isActive ? "bg-emerald-600" : "bg-slate-400"}`} />
                       {user.isActive ? "Ativo" : "Inativo"}
                     </span>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <form action={saveAction} className="flex flex-wrap items-center gap-2">
+                        <input type="hidden" name="email" value={user.email} />
+                        <input type="hidden" name="full_name" value={user.fullName ?? ""} />
+                        <select
+                          name="access_group"
+                          defaultValue={user.group}
+                          className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-2 py-1 text-xs outline-none focus:border-[var(--color-primary)]/30 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+                        >
+                          {(["ADMIN", "TECGRC", "COMPLIANCE", "PRIVACY", "PROCUREMENT"] as AccessGroup[]).map((group) => (
+                            <option key={group} value={group}>{accessGroupLabel[group]}</option>
+                          ))}
+                        </select>
+                        <label className="inline-flex items-center gap-1 text-xs text-[var(--color-neutral-700)]">
+                          <input name="is_active" type="checkbox" defaultChecked={user.isActive} className="h-3.5 w-3.5 accent-[var(--color-primary)]" />
+                          Ativo
+                        </label>
+                        <button
+                          type="submit"
+                          className="rounded-lg border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10 px-2 py-1 text-xs font-bold text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/20"
+                        >
+                          Salvar
+                        </button>
+                      </form>
+                      <form action={removeAction}>
+                        <input type="hidden" name="email" value={user.email} />
+                        <button
+                          type="submit"
+                          className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-100"
+                        >
+                          Remover
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -838,6 +904,7 @@ export default async function SettingsPage({
           currentAccessGroup={currentAccess.group}
           userProfiles={mergedUserProfiles}
           saveAction={saveUserAccessProfile}
+          removeAction={removeUserAccessProfile}
         />
       ) : null}
       {activeTab === "integracoes" ? (
