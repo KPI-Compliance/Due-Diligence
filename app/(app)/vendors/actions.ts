@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { resolveUserAccess } from "@/lib/access-control";
 import { getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import {
@@ -15,6 +16,10 @@ export async function saveVendorExternalQuestionnaire(formData: FormData) {
   const sessionResult = await refreshServerActionSession("vendors.saveVendorExternalQuestionnaire");
   if (!sessionResult.session) {
     redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+  const access = await resolveUserAccess(sessionResult.session.email);
+  if (!access.permissions.canWriteVendors) {
+    redirect("/dashboard");
   }
 
   const entitySlug = String(formData.get("entity_slug") ?? "").trim();
@@ -38,6 +43,10 @@ export async function refreshVendorExternalQuestionnaire(formData: FormData) {
   const sessionResult = await refreshServerActionSession("vendors.refreshVendorExternalQuestionnaire");
   if (!sessionResult.session) {
     redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+  const access = await resolveUserAccess(sessionResult.session.email);
+  if (!access.permissions.canWriteVendors) {
+    redirect("/dashboard");
   }
 
   const entitySlug = String(formData.get("entity_slug") ?? "").trim();
@@ -99,6 +108,10 @@ export async function saveVendorAssessmentDecision(formData: FormData) {
   const sessionResult = await refreshServerActionSession("vendors.saveVendorAssessmentDecision");
   if (!sessionResult.session) {
     redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+  const access = await resolveUserAccess(sessionResult.session.email);
+  if (!access.permissions.canWriteVendors) {
+    redirect("/dashboard");
   }
 
   const entitySlug = String(formData.get("entity_slug") ?? "").trim();

@@ -69,6 +69,17 @@ This migration adds:
 - default values for the new Settings tabs
 - `updated_at` trigger
 
+## 7.1) Enable RBAC user groups (Admin/Teams)
+
+Execute:
+
+- `database/018_user_access_profiles.sql`
+
+This migration adds:
+- `user_access_profiles` table
+- access groups: `ADMIN`, `TECGRC`, `COMPLIANCE`, `PRIVACY`, `PROCUREMENT`
+- `is_active` flag for profile enable/disable
+
 ## 8) Enable Jira -> Vendors sync
 
 Execute:

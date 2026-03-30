@@ -4,7 +4,14 @@ import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings
 import { RiskScoringSettingsPanel } from "@/components/settings/RiskScoringSettingsPanel";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SectionCard } from "@/components/ui/SectionCard";
-import { getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
+import { getAuthenticatedSessionResult, getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
+import {
+  listUserAccessProfiles,
+  resolveUserAccess,
+  upsertUserAccessProfile,
+  type AccessGroup,
+  type UserAccessProfileRow,
+} from "@/lib/access-control";
 import {
   deleteTypeformForm as deleteTypeformFormRow,
   getTypeformForms,
@@ -31,14 +38,6 @@ import {
 import { recalculateAllPartnerAssessmentDecisions } from "@/lib/partner-risk-scoring";
 import { backfillExternalQuestionnaireForQueueTickets } from "@/lib/typeform-sync";
 
-type UserRow = {
-  initials: string;
-  name: string;
-  role: string;
-  roleTone: "admin" | "auditor" | "viewer";
-  status: "active" | "pending";
-};
-
 type SettingsTab = "geral" | "usuarios" | "integracoes" | "pontuacao" | "notificacoes";
 
 const tabs: Array<{ id: SettingsTab; label: string }> = [
@@ -49,22 +48,39 @@ const tabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "notificacoes", label: "Notificações" },
 ];
 
-const teamUsers: UserRow[] = [
-  { initials: "AR", name: "Alex Rivera", role: "Administrador", roleTone: "admin", status: "active" },
-  { initials: "SM", name: "Sarah Miller", role: "Auditor", roleTone: "auditor", status: "active" },
-  { initials: "JD", name: "John Dorsey", role: "Leitor", roleTone: "viewer", status: "pending" },
-];
-
-const roleToneClass: Record<UserRow["roleTone"], string> = {
-  admin: "bg-blue-100 text-blue-700",
-  auditor: "bg-purple-100 text-purple-700",
-  viewer: "bg-slate-100 text-slate-700",
+const accessGroupLabel: Record<AccessGroup, string> = {
+  ADMIN: "Administrador",
+  TECGRC: "TECGRC",
+  COMPLIANCE: "Compliance",
+  PRIVACY: "Privacy",
+  PROCUREMENT: "Procurement",
 };
 
-const statusClass: Record<UserRow["status"], string> = {
-  active: "text-emerald-600",
-  pending: "text-slate-400",
+const accessGroupClass: Record<AccessGroup, string> = {
+  ADMIN: "bg-blue-100 text-blue-700",
+  TECGRC: "bg-indigo-100 text-indigo-700",
+  COMPLIANCE: "bg-emerald-100 text-emerald-700",
+  PRIVACY: "bg-fuchsia-100 text-fuchsia-700",
+  PROCUREMENT: "bg-slate-100 text-slate-700",
 };
+
+const accessGroupDescription: Record<AccessGroup, string> = {
+  ADMIN: "Acesso total ao sistema e gestão de usuários/perfis.",
+  TECGRC: "Acesso total ao sistema.",
+  COMPLIANCE: "Pode escrever/atualizar apenas tickets da fila de Partners.",
+  PRIVACY: "Pode escrever/atualizar tickets de Partners e Vendors.",
+  PROCUREMENT: "Somente visibilidade (sem alteração).",
+};
+
+function initialsFromName(name: string) {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "??";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
+}
 
 const appUrl =
   process.env.NEXT_PUBLIC_APP_URL ??
@@ -92,6 +108,16 @@ async function requireServerActionSession(context: string) {
   if (!sessionResult.session) {
     redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
   }
+
+  const access = await resolveUserAccess(sessionResult.session.email);
+  if (!access.permissions.canManageSettings) {
+    redirect("/dashboard");
+  }
+
+  return {
+    session: sessionResult.session,
+    access,
+  };
 }
 
 function getSetting<T>(
@@ -433,6 +459,29 @@ async function saveNotificationSettings(formData: FormData) {
   redirect("/settings?tab=notificacoes&saved=notificacoes");
 }
 
+async function saveUserAccessProfile(formData: FormData) {
+  "use server";
+  await requireServerActionSession("settings.saveUserAccessProfile");
+
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const fullName = String(formData.get("full_name") ?? "").trim();
+  const rawGroup = String(formData.get("access_group") ?? "PROCUREMENT").trim().toUpperCase();
+  const isActive = formData.get("is_active") === "on";
+
+  const accessGroup = (["ADMIN", "TECGRC", "COMPLIANCE", "PRIVACY", "PROCUREMENT"].includes(rawGroup)
+    ? rawGroup
+    : "PROCUREMENT") as AccessGroup;
+
+  await upsertUserAccessProfile({
+    email,
+    fullName: fullName || null,
+    group: accessGroup,
+    isActive,
+  });
+
+  redirect("/settings?tab=usuarios&saved=usuarios");
+}
+
 function GeneralTab({
   value,
   saveAction,
@@ -503,13 +552,23 @@ function GeneralTab({
   );
 }
 
-function UsersTab() {
+function UsersTab({
+  currentUser,
+  currentAccessGroup,
+  userProfiles,
+  saveAction,
+}: {
+  currentUser: { name: string; email: string };
+  currentAccessGroup: AccessGroup;
+  userProfiles: UserAccessProfileRow[];
+  saveAction: (formData: FormData) => Promise<void>;
+}) {
   return (
     <div className="space-y-6">
       <SectionCard title="Perfil do Usuário" description="Informações básicas do usuário e preferências da conta.">
         <div className="flex flex-col gap-6 md:flex-row md:items-center">
           <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-[var(--color-primary)]/20 bg-[var(--color-neutral-100)] text-lg font-bold text-[var(--color-primary)]">
-            AR
+            {initialsFromName(currentUser.name)}
           </div>
 
           <div className="flex-1 space-y-4">
@@ -518,70 +577,110 @@ function UsersTab() {
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome Completo</span>
                 <input
                   type="text"
-                  defaultValue="Alex Rivera"
-                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)]/30 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+                  value={currentUser.name}
+                  readOnly
+                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm outline-none"
                 />
               </label>
               <label className="space-y-1">
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail</span>
                 <input
                   type="email"
-                  defaultValue="alex.rivera@enterprise.com"
-                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)]/30 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+                  value={currentUser.email}
+                  readOnly
+                  className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-2 text-sm outline-none"
                 />
               </label>
             </div>
-
-            <div className="flex justify-end gap-3">
-              <button type="button" className="rounded-lg bg-[var(--color-neutral-100)] px-4 py-2 text-sm font-bold text-[var(--color-neutral-700)]">
-                Cancelar
-              </button>
-              <button type="button" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">
-                Salvar Alterações
-              </button>
+            <div className="rounded-lg border border-[var(--color-primary)]/20 bg-[var(--color-primary)]/5 px-4 py-3 text-sm text-[var(--color-text)]">
+              Perfil atual: <span className={`rounded px-2 py-1 text-xs font-bold ${accessGroupClass[currentAccessGroup]}`}>{accessGroupLabel[currentAccessGroup]}</span>
+              <p className="mt-2 text-xs text-[var(--color-neutral-700)]">{accessGroupDescription[currentAccessGroup]}</p>
             </div>
           </div>
         </div>
       </SectionCard>
 
-      <SectionCard title="Usuários e Perfis" description="Gerencie acessos da equipe e níveis de permissão.">
-        <div className="mb-4 flex justify-end">
-          <button type="button" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">
-            Adicionar Usuário
-          </button>
-        </div>
+      <form action={saveAction} className="space-y-6">
+        <SectionCard title="Adicionar/Atualizar Acesso" description="Defina o grupo de acesso por e-mail da pessoa.">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <label className="space-y-1 md:col-span-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail</span>
+              <input
+                name="email"
+                type="email"
+                required
+                placeholder="nome@vtex.com"
+                className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)]/30 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome (opcional)</span>
+              <input
+                name="full_name"
+                type="text"
+                placeholder="Nome completo"
+                className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)]/30 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Grupo</span>
+              <select
+                name="access_group"
+                defaultValue="PROCUREMENT"
+                className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)]/30 focus:ring-2 focus:ring-[var(--color-primary)]/10"
+              >
+                {(["ADMIN", "TECGRC", "COMPLIANCE", "PRIVACY", "PROCUREMENT"] as AccessGroup[]).map((group) => (
+                  <option key={group} value={group}>{accessGroupLabel[group]}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="mt-4 inline-flex items-center gap-2 text-sm text-[var(--color-text)]">
+            <input name="is_active" type="checkbox" defaultChecked className="h-4 w-4 accent-[var(--color-primary)]" />
+            Usuário ativo
+          </label>
+          <div className="mt-4 flex justify-end">
+            <button type="submit" className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white">
+              Salvar acesso
+            </button>
+          </div>
+        </SectionCard>
+      </form>
 
+      <SectionCard title="Usuários e Perfis" description="Gerencie acessos da equipe e níveis de permissão.">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px] text-left">
             <thead>
               <tr className="border-b border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)]">
                 <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Nome</th>
+                <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">E-mail</th>
                 <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Perfil</th>
                 <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Status</th>
-                <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-[var(--color-neutral-600)]">Ações</th>
               </tr>
             </thead>
             <tbody>
-              {teamUsers.map((user) => (
-                <tr key={user.name} className="border-b border-[var(--color-neutral-100)]">
+              {userProfiles.map((user) => (
+                <tr key={user.email} className="border-b border-[var(--color-neutral-100)]">
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-primary)]/10 text-xs font-bold text-[var(--color-primary)]">
-                        {user.initials}
+                        {initialsFromName(user.fullName ?? user.email)}
                       </div>
-                      <span className="text-sm font-medium text-[var(--color-text)]">{user.name}</span>
+                      <span className="text-sm font-medium text-[var(--color-text)]">{user.fullName ?? "-"}</span>
                     </div>
                   </td>
                   <td className="px-4 py-4">
-                    <span className={`rounded px-2 py-1 text-xs font-bold ${roleToneClass[user.roleTone]}`}>{user.role}</span>
+                    <span className="text-sm text-[var(--color-neutral-700)]">{user.email}</span>
                   </td>
                   <td className="px-4 py-4">
-                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${statusClass[user.status]}`}>
-                      <span className={`h-2 w-2 rounded-full ${user.status === "active" ? "bg-emerald-600" : "bg-slate-400"}`} />
-                      {user.status === "active" ? "Ativo" : "Pendente"}
+                    <span className={`rounded px-2 py-1 text-xs font-bold ${accessGroupClass[user.group]}`}>{accessGroupLabel[user.group]}</span>
+                  </td>
+                  <td className="px-4 py-4">
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${user.isActive ? "text-emerald-600" : "text-slate-400"}`}>
+                      <span className={`h-2 w-2 rounded-full ${user.isActive ? "bg-emerald-600" : "bg-slate-400"}`} />
+                      {user.isActive ? "Ativo" : "Inativo"}
                     </span>
                   </td>
-                  <td className="px-4 py-4 text-right text-[var(--color-neutral-600)]">•••</td>
                 </tr>
               ))}
             </tbody>
@@ -652,12 +751,23 @@ export default async function SettingsPage({
 }: {
   searchParams?: Promise<{ saved?: string; tab?: string; error?: string }>;
 }) {
-  const [settings, typeformForms, generalSettings, riskScoringSettings, notificationSettings, params] = await Promise.all([
+  const sessionResult = await getAuthenticatedSessionResult();
+  if (!sessionResult.session) {
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+
+  const currentAccess = await resolveUserAccess(sessionResult.session.email);
+  if (!currentAccess.permissions.canManageSettings) {
+    redirect("/dashboard");
+  }
+
+  const [settings, typeformForms, generalSettings, riskScoringSettings, notificationSettings, userProfiles, params] = await Promise.all([
     getIntegrationSettings(),
     getTypeformForms(),
     getPlatformSettings("GENERAL", normalizeGeneralSettings),
     getPlatformSettings("RISK_SCORING", normalizeRiskScoringSettings),
     getPlatformSettings("NOTIFICATIONS", normalizeNotificationSettings),
+    listUserAccessProfiles(),
     searchParams ? searchParams : Promise.resolve(undefined),
   ]);
 
@@ -665,6 +775,19 @@ export default async function SettingsPage({
   const jira = getSetting<JiraConfig>(settings, "JIRA");
   const slack = getSetting<SlackConfig>(settings, "SLACK");
   const googleSheets = getSetting<GoogleSheetsConfig>(settings, "GOOGLE_SHEETS");
+  const currentEmail = sessionResult.session.email.trim().toLowerCase();
+  const mergedUserProfiles = userProfiles.some((profile) => profile.email === currentEmail)
+    ? userProfiles
+    : [
+        {
+          email: currentEmail,
+          fullName: sessionResult.session.name || null,
+          group: currentAccess.group,
+          isActive: true,
+          updatedAt: null,
+        } satisfies UserAccessProfileRow,
+        ...userProfiles,
+      ];
 
   const savedFlag = params?.saved;
   const activeTab = normalizeTab(params?.tab);
@@ -709,7 +832,14 @@ export default async function SettingsPage({
       </div>
 
       {activeTab === "geral" ? <GeneralTab value={generalSettings} saveAction={saveGeneralSettings} /> : null}
-      {activeTab === "usuarios" ? <UsersTab /> : null}
+      {activeTab === "usuarios" ? (
+        <UsersTab
+          currentUser={{ name: sessionResult.session.name, email: sessionResult.session.email }}
+          currentAccessGroup={currentAccess.group}
+          userProfiles={mergedUserProfiles}
+          saveAction={saveUserAccessProfile}
+        />
+      ) : null}
       {activeTab === "integracoes" ? (
         <IntegrationsSettings
           appUrl={appUrl}

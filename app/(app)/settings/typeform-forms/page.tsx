@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { TypeformQuestionMappingModal } from "@/components/settings/TypeformQuestionMappingModal";
 import { SectionCard } from "@/components/ui/SectionCard";
-import { getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
+import { resolveUserAccess } from "@/lib/access-control";
+import { getAuthenticatedSessionResult, getSessionErrorCode, refreshServerActionSession } from "@/lib/auth";
 import {
   deleteTypeformForm,
   getIntegrationSettings,
@@ -39,6 +40,16 @@ async function requireServerActionSession(context: string) {
   if (!sessionResult.session) {
     redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
   }
+
+  const access = await resolveUserAccess(sessionResult.session.email);
+  if (!access.permissions.canManageSettings) {
+    redirect("/dashboard");
+  }
+
+  return {
+    session: sessionResult.session,
+    access,
+  };
 }
 
 type FormMappingStatus = {
@@ -195,6 +206,15 @@ export default async function TypeformFormsSettingsPage({
 }: {
   searchParams: SearchParams;
 }) {
+  const sessionResult = await getAuthenticatedSessionResult();
+  if (!sessionResult.session) {
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+  const access = await resolveUserAccess(sessionResult.session.email);
+  if (!access.permissions.canManageSettings) {
+    redirect("/dashboard");
+  }
+
   const params = await searchParams;
   const selectedFormId = typeof params.form === "string" ? params.form : "";
   const savedFlag = typeof params.saved === "string" ? params.saved : "";

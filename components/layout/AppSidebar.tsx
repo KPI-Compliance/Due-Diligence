@@ -14,19 +14,20 @@ const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/vendors", label: "Vendors" },
   { href: "/partners", label: "Partners" },
-  { href: "/settings", label: "Settings" },
 ];
 
 type AppSidebarProps = {
   userName: string;
+  canManageSettings?: boolean;
 };
 
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function AppSidebar({ userName }: AppSidebarProps) {
+export function AppSidebar({ userName, canManageSettings = false }: AppSidebarProps) {
   const pathname = usePathname();
+  const resolvedNavItems = canManageSettings ? [...navItems, { href: "/settings", label: "Settings" }] : navItems;
 
   return (
     <aside className="hidden h-screen w-64 shrink-0 border-r border-[var(--color-primary)]/10 bg-white lg:fixed lg:inset-y-0 lg:flex lg:flex-col">
@@ -42,7 +43,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-4">
-        {navItems.map((item) => {
+        {resolvedNavItems.map((item) => {
           const active = isActive(pathname, item.href);
 
           return (
