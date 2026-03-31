@@ -1,5 +1,4 @@
 import { getIntegrationSettings, type JiraConfig } from "@/lib/settings-data";
-import { getDocument as getPdfDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 type JiraPrimitive = string | number | boolean | null | undefined;
 
@@ -124,6 +123,29 @@ type JiraTransitionsResponse = {
     } | null;
   }>;
 };
+
+let cachedPdfGetDocument:
+  | ((typeof import("pdfjs-dist/legacy/build/pdf.mjs"))["getDocument"])
+  | null = null;
+let attemptedPdfGetDocumentLoad = false;
+
+async function loadPdfGetDocument() {
+  if (cachedPdfGetDocument) return cachedPdfGetDocument;
+  if (attemptedPdfGetDocumentLoad) return null;
+  attemptedPdfGetDocumentLoad = true;
+
+  try {
+    const pdfJsModule = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    cachedPdfGetDocument = pdfJsModule.getDocument;
+    return cachedPdfGetDocument;
+  } catch (error) {
+    console.warn(
+      "[jira] pdfjs module unavailable:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+}
 
 type JiraServiceDeskRequestDetailResponse = {
   requestFieldValues?: unknown;
@@ -1228,6 +1250,11 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
   token: string;
   issueKey: string;
 }) {
+  const getPdfDocument = await loadPdfGetDocument();
+  if (!getPdfDocument) {
+    return null;
+  }
+
   const issue = await fetchJiraJson<JiraIssueDetailResponse>(
     `${input.baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(input.issueKey)}?fields=attachment`,
     input.email,
