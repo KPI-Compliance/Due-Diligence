@@ -227,20 +227,34 @@ function scoreExtractedFields(fields) {
   return score;
 }
 
-function isSuspiciousCapNumber(value) {
-  const normalized = normalizeWhitespace(value ?? "").toLowerCase();
-  if (!normalized) return false;
-  return normalized.includes("company") || normalized.includes("empresa");
-}
-
-function isLikelyLabelOnlyValue(value, labels) {
-  const normalized = normalizeWhitespace(value ?? "").toLowerCase();
-  if (!normalized) return false;
-  return labels.some((label) => normalized === String(label).toLowerCase());
-}
-
 function isBlank(value) {
   return !value || String(value).trim().length === 0;
+}
+
+function sanitizeLabelOnlyTextValue(value, labels) {
+  const normalized = normalizeWhitespace(value ?? "");
+  if (!normalized) return null;
+  const lowered = normalized.toLowerCase();
+  const isLabelOnly = labels.some((label) => lowered === normalizeWhitespace(label).toLowerCase());
+  if (isLabelOnly) return null;
+  return normalized;
+}
+
+function sanitizeVendorFormFieldValues(fields) {
+  return {
+    vendorEmail: extractEmailFromText(fields.vendorEmail ?? null),
+    vtexResponsibleEmail: extractEmailFromText(fields.vtexResponsibleEmail ?? null),
+    languagePreference: sanitizeLabelOnlyTextValue(fields.languagePreference ?? null, [
+      "vendor language preferences",
+      "language preference",
+      "language",
+      "idioma",
+    ]),
+    priority: sanitizeLabelOnlyTextValue(fields.priority ?? null, ["priority", "prioridade"]),
+    company: normalizeExtractedCompany(fields.company ?? null),
+    capNumber: normalizeExtractedCapNumber(fields.capNumber ?? null),
+    scope: sanitizeLabelOnlyTextValue(fields.scope ?? null, ["scope", "escopo", "context", "contexto"]),
+  };
 }
 
 async function getJiraConfig() {
@@ -430,13 +444,7 @@ async function extractFieldsFromPdfUrl(jira, contentUrl) {
       parseLabeledValueFromLines(lines, ["CAP NUMBER", "CAP", "CAP Number"]),
   };
 
-  const normalized = {
-    ...parsed,
-    vendorEmail: extractEmailFromText(parsed.vendorEmail),
-    vtexResponsibleEmail: extractEmailFromText(parsed.vtexResponsibleEmail),
-    company: normalizeExtractedCompany(parsed.company),
-    capNumber: normalizeExtractedCapNumber(parsed.capNumber),
-  };
+  const normalized = sanitizeVendorFormFieldValues(parsed);
 
   if (scoreExtractedFields(normalized) === 0) return null;
 
@@ -522,40 +530,40 @@ async function main() {
         row.jira_form_data && typeof row.jira_form_data === "object" && !Array.isArray(row.jira_form_data)
           ? row.jira_form_data
           : {};
+      const sanitizedExisting = sanitizeVendorFormFieldValues({
+        vendorEmail: jiraFormData.vendorEmail,
+        vtexResponsibleEmail: jiraFormData.vtexResponsibleEmail,
+        languagePreference: jiraFormData.languagePreference,
+        priority: jiraFormData.priority,
+        company: jiraFormData.company,
+        capNumber: jiraFormData.capNumber,
+        scope: jiraFormData.scope,
+      });
 
       const nextJiraFormData = {
         ...jiraFormData,
-        vendorEmail: !isBlank(jiraFormData.vendorEmail) ? jiraFormData.vendorEmail : parsed.vendorEmail ?? null,
-        scope: !isBlank(jiraFormData.scope) ? jiraFormData.scope : parsed.scope ?? null,
+        vendorEmail: parsed.vendorEmail ?? sanitizedExisting.vendorEmail ?? null,
+        scope: parsed.scope ?? sanitizedExisting.scope ?? null,
         vtexResponsibleEmail:
-          !isBlank(jiraFormData.vtexResponsibleEmail)
-            ? jiraFormData.vtexResponsibleEmail
-            : parsed.vtexResponsibleEmail ?? null,
+          parsed.vtexResponsibleEmail ?? sanitizedExisting.vtexResponsibleEmail ?? null,
         languagePreference:
           parsed.languagePreference ??
-          (
-            !isBlank(jiraFormData.languagePreference)
-            && !isLikelyLabelOnlyValue(jiraFormData.languagePreference, ["language", "idioma", "language preference", "vendor language preferences"])
-              ? jiraFormData.languagePreference
-              : null
-          ),
+          sanitizedExisting.languagePreference ??
+          null,
         priority:
           parsed.priority ??
-          (
-            !isBlank(jiraFormData.priority) && !isLikelyLabelOnlyValue(jiraFormData.priority, ["priority", "prioridade"])
-              ? jiraFormData.priority
-              : null
-          ),
-        company: parsed.company ?? (!isBlank(jiraFormData.company) ? jiraFormData.company : null),
-        capNumber:
-          !isBlank(jiraFormData.capNumber) && !isSuspiciousCapNumber(jiraFormData.capNumber)
-            ? jiraFormData.capNumber
-            : parsed.capNumber ?? null,
+          sanitizedExisting.priority ??
+          null,
+        company: parsed.company ?? sanitizedExisting.company ?? null,
+        capNumber: parsed.capNumber ?? sanitizedExisting.capNumber ?? null,
       };
 
-      const shouldUpdateEmail = isBlank(row.contact_email) && !isBlank(parsed.vendorEmail);
-      const shouldUpdateScope = isBlank(row.description) && !isBlank(parsed.scope);
-      const shouldUpdateResponsible = isBlank(jiraFormData.vtexResponsibleEmail) && !isBlank(parsed.vtexResponsibleEmail);
+      const currentEmail = extractEmailFromText(row.contact_email);
+      const currentScope = sanitizeLabelOnlyTextValue(row.description, ["scope", "escopo", "context", "contexto"]);
+      const currentResponsible = extractEmailFromText(jiraFormData.vtexResponsibleEmail);
+      const shouldUpdateEmail = parsed.vendorEmail && parsed.vendorEmail !== currentEmail;
+      const shouldUpdateScope = parsed.scope && parsed.scope !== currentScope;
+      const shouldUpdateResponsible = parsed.vtexResponsibleEmail && parsed.vtexResponsibleEmail !== currentResponsible;
       const shouldUpdateJiraFormData =
         JSON.stringify(nextJiraFormData) !== JSON.stringify(jiraFormData);
       const parsedCompanyGroup = normalizeCompanyGroup(parsed.company);

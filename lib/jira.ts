@@ -702,7 +702,7 @@ export async function enrichVendorFieldsFromJiraIssue(input: {
       findIssueFieldValue(issueFields, issueFieldNames, ["scope", "escopo", "context", "contexto"]) ??
       findFieldValue(issueDescription, ["scope", "escopo", "context", "contexto"]);
 
-    return {
+    const sanitized = sanitizeVendorFormFieldValues({
       vendorEmail: vendorEmail || null,
       vtexResponsibleEmail: vtexResponsibleEmail || null,
       languagePreference: languagePreference || null,
@@ -710,6 +710,16 @@ export async function enrichVendorFieldsFromJiraIssue(input: {
       company: company || null,
       capNumber: capNumber || null,
       scope: scope || null,
+    });
+
+    return {
+      vendorEmail: sanitized.vendorEmail,
+      vtexResponsibleEmail: sanitized.vtexResponsibleEmail,
+      languagePreference: sanitized.languagePreference,
+      priority: sanitized.priority,
+      company: sanitized.company,
+      capNumber: sanitized.capNumber,
+      scope: sanitized.scope,
       description: issueDescription || null,
     };
   } catch (error) {
@@ -1023,6 +1033,50 @@ function normalizeExtractedCapNumber(value: string | null | undefined) {
   return null;
 }
 
+function sanitizeLabelOnlyTextValue(value: string | null | undefined, labels: string[]) {
+  const normalized = normalizeWhitespace(value ?? "");
+  if (!normalized) return null;
+
+  const lowered = normalized.toLowerCase();
+  const isLabelOnly = labels.some((label) => lowered === normalizeWhitespace(label).toLowerCase());
+  if (isLabelOnly) return null;
+
+  return normalized;
+}
+
+function sanitizeVendorFormFieldValues(fields: {
+  vendorEmail?: string | null;
+  vtexResponsibleEmail?: string | null;
+  languagePreference?: string | null;
+  priority?: string | null;
+  company?: string | null;
+  capNumber?: string | null;
+  scope?: string | null;
+}) {
+  const vendorEmail = extractEmailFromText(fields.vendorEmail ?? null);
+  const vtexResponsibleEmail = extractEmailFromText(fields.vtexResponsibleEmail ?? null);
+  const languagePreference = sanitizeLabelOnlyTextValue(fields.languagePreference ?? null, [
+    "vendor language preferences",
+    "language preference",
+    "language",
+    "idioma",
+  ]);
+  const priority = sanitizeLabelOnlyTextValue(fields.priority ?? null, ["priority", "prioridade"]);
+  const company = normalizeExtractedCompany(fields.company ?? null);
+  const capNumber = normalizeExtractedCapNumber(fields.capNumber ?? null);
+  const scope = sanitizeLabelOnlyTextValue(fields.scope ?? null, ["scope", "escopo", "context", "contexto"]);
+
+  return {
+    vendorEmail,
+    vtexResponsibleEmail,
+    languagePreference,
+    priority,
+    company,
+    capNumber,
+    scope,
+  };
+}
+
 function isVendorRequestPdfFilename(filename: string | null | undefined) {
   const normalized = String(filename ?? "").trim().toLowerCase();
   if (!normalized) return false;
@@ -1121,28 +1175,33 @@ function extractVendorFieldsFromPdfText(rawText: string): ExtractedVendorAttachm
     parseTextByLabel(rawNormalizedText, ["CAP NUMBER", "CAP", "CAP Number"], knownBoundaries) ??
     parseLabeledValueFromLines(lines, ["CAP NUMBER", "CAP", "CAP Number"]);
 
-  const normalizedVendorEmail = extractEmailFromText(vendorEmail);
-  const normalizedVtexResponsibleEmail = extractEmailFromText(vtexResponsibleEmail);
-  const normalizedCompany = normalizeExtractedCompany(company);
-  const normalizedCapNumber = normalizeExtractedCapNumber(capNumber);
+  const normalized = sanitizeVendorFormFieldValues({
+    vendorEmail,
+    vtexResponsibleEmail,
+    languagePreference,
+    priority,
+    company,
+    capNumber,
+    scope,
+  });
 
   if (
-    normalizedVendorEmail ||
-    scope ||
-    normalizedVtexResponsibleEmail ||
-    languagePreference ||
-    priority ||
-    company ||
-    capNumber
+    normalized.vendorEmail ||
+    normalized.scope ||
+    normalized.vtexResponsibleEmail ||
+    normalized.languagePreference ||
+    normalized.priority ||
+    normalized.company ||
+    normalized.capNumber
   ) {
     return {
-      vendorEmail: normalizedVendorEmail,
-      scope: scope ?? null,
-      vtexResponsibleEmail: normalizedVtexResponsibleEmail,
-      languagePreference: languagePreference ?? null,
-      priority: priority ?? null,
-      company: normalizedCompany,
-      capNumber: normalizedCapNumber,
+      vendorEmail: normalized.vendorEmail,
+      scope: normalized.scope,
+      vtexResponsibleEmail: normalized.vtexResponsibleEmail,
+      languagePreference: normalized.languagePreference,
+      priority: normalized.priority,
+      company: normalized.company,
+      capNumber: normalized.capNumber,
     };
   }
 
@@ -1792,6 +1851,15 @@ export function extractEntityFromJiraIssue(
   const category = capNumber ? `CAP ${capNumber}` : languagePreference;
   const initialWorkflowLabel =
     kind === "VENDOR" && status === "PENDING" ? "Opened" : formatStatusLabel(status);
+  const sanitizedVendorFormData = sanitizeVendorFormFieldValues({
+    vendorEmail: contactEmail,
+    vtexResponsibleEmail: vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
+    languagePreference,
+    priority: formPriority,
+    company: companyGroupFromForm ? companyGroupFromForm : null,
+    capNumber,
+    scope,
+  });
 
   return {
     issueKey,
@@ -1810,15 +1878,15 @@ export function extractEntityFromJiraIssue(
     statusLabel: initialWorkflowLabel,
     status,
     riskLevel,
-    ownerEmail: vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
+    ownerEmail: sanitizedVendorFormData.vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
     jiraFormData: {
-      vendorEmail: contactEmail,
-      vtexResponsibleEmail: vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
-      languagePreference,
-      priority: formPriority,
-      company: companyGroupFromForm ?? companyGroup,
-      capNumber,
-      scope,
+      vendorEmail: sanitizedVendorFormData.vendorEmail,
+      vtexResponsibleEmail: sanitizedVendorFormData.vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
+      languagePreference: sanitizedVendorFormData.languagePreference,
+      priority: sanitizedVendorFormData.priority,
+      company: sanitizedVendorFormData.company,
+      capNumber: sanitizedVendorFormData.capNumber,
+      scope: sanitizedVendorFormData.scope,
       reporterName,
       reporterEmail,
     },
