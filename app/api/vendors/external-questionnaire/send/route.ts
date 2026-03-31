@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveUserAccess } from "@/lib/access-control";
 import { getAuthenticatedSessionResult, getSessionErrorCode } from "@/lib/auth";
+import { sendVendorInternalQuestionnaire } from "@/lib/internal-questionnaire-dispatch";
 import { recordVendorExternalQuestionnaireSend } from "@/lib/vendor-external-questionnaire";
 
 export const runtime = "nodejs";
@@ -52,7 +53,33 @@ export async function POST(request: Request) {
       questionnaireEntryBaseUrl: new URL(request.url).origin,
     });
 
-    return NextResponse.json({ ok: true, assessmentId: result.assessmentId, questionnaireUrl: result.questionnaireUrl });
+    let internalQuestionnaireResult:
+      | { ok: true; mode: "dm" | "channel"; focalEmail: string | null }
+      | { ok: false; message: string }
+      | null = null;
+
+    if (entitySlug) {
+      try {
+        const internalResult = await sendVendorInternalQuestionnaire({ entitySlug });
+        internalQuestionnaireResult = {
+          ok: true,
+          mode: internalResult.slackMode,
+          focalEmail: internalResult.focalEmail,
+        };
+      } catch (error) {
+        internalQuestionnaireResult = {
+          ok: false,
+          message: error instanceof Error ? error.message : "Falha ao enviar mini questionário interno no Slack.",
+        };
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      assessmentId: result.assessmentId,
+      questionnaireUrl: result.questionnaireUrl,
+      internalQuestionnaire: internalQuestionnaireResult,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown send error.";
     return NextResponse.json({ ok: false, message }, { status: 500 });

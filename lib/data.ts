@@ -1029,6 +1029,7 @@ export async function getVendorsList() {
     latest_privacy_level: string | null;
     latest_classification: string | null;
     latest_decision_updated_at: string | null;
+    internal_questionnaire_sent_at: string | null;
     open_assessments: number;
   };
 
@@ -1057,6 +1058,7 @@ export async function getVendorsList() {
         latest_decision.privacy_level AS latest_privacy_level,
         latest_decision.classification AS latest_classification,
         latest_decision.updated_at AS latest_decision_updated_at,
+        internal_dispatch.internal_questionnaire_sent_at,
         COUNT(a.id) FILTER (
           WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
         )::int AS open_assessments
@@ -1084,6 +1086,12 @@ export async function getVendorsList() {
         WHERE ad.assessment_id = latest_assessment.id
         LIMIT 1
       ) latest_decision ON true
+      LEFT JOIN LATERAL (
+        SELECT MAX(t.event_at)::text AS internal_questionnaire_sent_at
+        FROM entity_timeline_events t
+        WHERE t.entity_id = e.id
+          AND lower(trim(t.title)) IN ('mini questionário interno enviado', 'mini questionario interno enviado')
+      ) internal_dispatch ON true
       WHERE e.kind = 'VENDOR'
         AND e.id::text NOT LIKE '10000000-0000-0000-0000-%'
       GROUP BY
@@ -1096,7 +1104,8 @@ export async function getVendorsList() {
         latest_decision.security_level,
         latest_decision.privacy_level,
         latest_decision.classification,
-        latest_decision.updated_at
+        latest_decision.updated_at,
+        internal_dispatch.internal_questionnaire_sent_at
       ORDER BY e.jira_issue_created_at DESC NULLS LAST, e.created_at DESC, e.name ASC
     `) as VendorListRow[];
 
@@ -1125,6 +1134,7 @@ export async function getVendorsList() {
         latest_decision.privacy_level AS latest_privacy_level,
         latest_decision.classification AS latest_classification,
         latest_decision.updated_at AS latest_decision_updated_at,
+        internal_dispatch.internal_questionnaire_sent_at,
         COUNT(a.id) FILTER (
           WHERE a.status IN ('PENDING', 'SENT', 'RESPONDED', 'IN_REVIEW')
         )::int AS open_assessments
@@ -1152,6 +1162,12 @@ export async function getVendorsList() {
         WHERE ad.assessment_id = latest_assessment.id
         LIMIT 1
       ) latest_decision ON true
+      LEFT JOIN LATERAL (
+        SELECT MAX(t.event_at)::text AS internal_questionnaire_sent_at
+        FROM entity_timeline_events t
+        WHERE t.entity_id = e.id
+          AND lower(trim(t.title)) IN ('mini questionário interno enviado', 'mini questionario interno enviado')
+      ) internal_dispatch ON true
       WHERE e.kind = 'VENDOR'
         AND e.id::text NOT LIKE '10000000-0000-0000-0000-%'
       GROUP BY
@@ -1164,7 +1180,8 @@ export async function getVendorsList() {
         latest_decision.security_level,
         latest_decision.privacy_level,
         latest_decision.classification,
-        latest_decision.updated_at
+        latest_decision.updated_at,
+        internal_dispatch.internal_questionnaire_sent_at
       ORDER BY e.created_at DESC, e.name ASC
     `) as VendorListRow[];
 
@@ -1227,6 +1244,7 @@ export async function getVendorsList() {
               : "Opened";
     const jiraStatus = normalizedWorkflowStatus ?? fallbackWorkflowStatus;
     const redTeamStatus = jiraStatus === "Red Team" ? "Sent" : "Not Sent";
+    const internalQuestionnaireStatus = row.internal_questionnaire_sent_at ? "Sent" : "Not Sent";
     const jiraCreatedAt =
       row.jira_issue_created_at ??
       (typeof jiraFormData?.jiraIssueCreatedAt === "string" ? jiraFormData.jiraIssueCreatedAt : null);
@@ -1247,6 +1265,7 @@ export async function getVendorsList() {
         row.latest_privacy_level,
         row.latest_security_level,
       ),
+      internalQuestionnaireStatus,
       technicalReviewStatus: redTeamStatus,
       risk: displayRiskLabel,
       privacyRisk: mapDecisionRisk(row.latest_privacy_level),

@@ -45,6 +45,15 @@ function renderTechnicalReviewBadge(label: string) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{label}</span>;
 }
 
+function renderInternalQuestionnaireBadge(label: string) {
+  const className =
+    label === "Sent"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-slate-200 bg-slate-100 text-slate-700";
+
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{label}</span>;
+}
+
 function renderFinalRiskBadge(label: string) {
   const normalized = label.trim().toLowerCase();
   const className =
@@ -233,6 +242,7 @@ export default async function VendorsPage({
           "Chamado Jira",
           "Jira Status",
           "Grupo Empresarial",
+          "Triagem Interna",
           "Red Team",
           "Risco Final",
           "Última Revisão",
@@ -301,6 +311,7 @@ export default async function VendorsPage({
               </Link>
             </td>
             <td className="px-6 py-4 text-sm font-medium text-[var(--color-neutral-700)]"><Link href={`/vendors/${item.id}`} className="block">{item.companyGroup}</Link></td>
+            <td className="px-6 py-4"><Link href={`/vendors/${item.id}`} className="block">{renderInternalQuestionnaireBadge(item.internalQuestionnaireStatus)}</Link></td>
             <td className="px-6 py-4"><Link href={`/vendors/${item.id}`} className="block">{renderTechnicalReviewBadge(item.technicalReviewStatus)}</Link></td>
             <td className="px-6 py-4">
               <Link href={`/vendors/${item.id}`} className="block space-y-1">

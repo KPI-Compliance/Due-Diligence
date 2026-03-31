@@ -370,6 +370,7 @@ async function saveGoogleSheetsSettings(formData: FormData) {
                   .split(/\r?\n|,/)
                   .map((item) => item.trim())
                   .filter(Boolean),
+            impersonated_user: String(row.impersonated_user ?? "").trim(),
           };
         })
         .filter((item): item is NonNullable<typeof item> => Boolean(item)) as GoogleSheetsConfig["spreadsheets"];

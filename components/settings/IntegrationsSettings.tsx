@@ -93,6 +93,7 @@ export function IntegrationsSettings({
       workflow: "internal_questionnaire" | "external_questionnaire";
       spreadsheet_url: string;
       worksheet_names: string[];
+      impersonated_user?: string;
     }>
   >(
     googleSheets.config.spreadsheets.length > 0
@@ -104,6 +105,7 @@ export function IntegrationsSettings({
             workflow: "internal_questionnaire",
             spreadsheet_url: "",
             worksheet_names: ["Página 1"],
+            impersonated_user: "",
           },
       ],
   );
@@ -1093,6 +1095,7 @@ export function IntegrationsSettings({
                         workflow: "internal_questionnaire",
                         spreadsheet_url: "",
                         worksheet_names: ["Página 1"],
+                        impersonated_user: "",
                       },
                     ]);
                     setGoogleWorksheetDrafts((current) => [...current, ""]);
@@ -1120,6 +1123,7 @@ export function IntegrationsSettings({
                                   workflow: "internal_questionnaire",
                                   spreadsheet_url: "",
                                   worksheet_names: ["Página 1"],
+                                  impersonated_user: "",
                                 },
                               ],
                         );
@@ -1208,6 +1212,19 @@ export function IntegrationsSettings({
                       setGoogleSpreadsheets((current) =>
                         current.map((item, itemIndex) =>
                           itemIndex === index ? { ...item, spreadsheet_url: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="w-full rounded-lg border border-[var(--color-neutral-200)] bg-white px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="email"
+                    placeholder="Usuário delegado (opcional) - ex.: jeff.brito@vtex.com"
+                    value={sheet.impersonated_user ?? ""}
+                    onChange={(event) =>
+                      setGoogleSpreadsheets((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, impersonated_user: event.target.value } : item,
                         ),
                       )
                     }

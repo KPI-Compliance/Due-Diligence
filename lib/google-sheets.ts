@@ -180,7 +180,21 @@ async function getGoogleSheetsIntegrationConfig(): Promise<{ enabled: boolean; c
   };
 }
 
-async function readWorksheetValuesWithServiceAccount(spreadsheetUrl: string, worksheetName: string) {
+function resolveDelegatedUser(value: string | null | undefined) {
+  const explicit = (value ?? "").trim();
+  if (explicit) return explicit;
+  return (
+    process.env.GOOGLE_SHEETS_IMPERSONATED_USER?.trim() ??
+    process.env.GOOGLE_WORKSPACE_IMPERSONATED_USER?.trim() ??
+    ""
+  );
+}
+
+async function readWorksheetValuesWithServiceAccount(
+  spreadsheetUrl: string,
+  worksheetName: string,
+  delegatedUser?: string | null,
+) {
   const spreadsheetId = parseSpreadsheetId(spreadsheetUrl);
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL;
   const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n");
@@ -193,6 +207,7 @@ async function readWorksheetValuesWithServiceAccount(spreadsheetUrl: string, wor
     email: clientEmail,
     key: privateKey,
     scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    subject: resolveDelegatedUser(delegatedUser) || undefined,
   });
 
   const sheets = google.sheets({ version: "v4", auth });
@@ -236,7 +251,11 @@ async function readConfiguredSheetRows(
 
     for (const worksheetName of worksheetNames) {
       try {
-        const rows = await readWorksheetValuesWithServiceAccount(spreadsheet.spreadsheet_url, worksheetName);
+        const rows = await readWorksheetValuesWithServiceAccount(
+          spreadsheet.spreadsheet_url,
+          worksheetName,
+          spreadsheet.impersonated_user,
+        );
         if (rows) {
           results.push(rows);
         }
@@ -647,7 +666,11 @@ export async function getGoogleSheetsHealth() {
         : "Página 1";
     const rows =
       configuredSheet?.spreadsheet_url
-      ? await readWorksheetValuesWithServiceAccount(configuredSheet.spreadsheet_url, worksheetName)
+      ? await readWorksheetValuesWithServiceAccount(
+          configuredSheet.spreadsheet_url,
+          worksheetName,
+          configuredSheet.impersonated_user,
+        )
       : csvUrl
         ? await readRowsFromCsvUrl(csvUrl, "health")
         : null;

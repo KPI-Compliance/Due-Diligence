@@ -3,6 +3,7 @@ import { savePartnerAssessmentDecision, savePartnerExternalQuestionnaireSection 
 import { refreshVendorExternalQuestionnaire, saveVendorAssessmentDecision } from "@/app/(app)/vendors/actions";
 import { AnalystEvaluationControl } from "@/components/ui/AnalystEvaluationControl";
 import { ExternalQuestionnairePendingNotice, SubmitActionButton } from "@/components/ui/ExternalQuestionnaireSubmitControls";
+import { InternalQuestionnaireDispatchCard } from "@/components/ui/InternalQuestionnaireDispatchCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { VendorExternalQuestionnaireCard } from "@/components/ui/VendorExternalQuestionnaireCard";
 import type {
@@ -981,6 +982,14 @@ export function EntityDetailView({
         detail.internalQuestionnaire ? (
           (() => {
             const internalQuestionnaire = detail.internalQuestionnaire;
+            const defaultInternalFocalEmail =
+              kind === "vendor"
+                ? (detail.overview.vtexResponsibleEmail && detail.overview.vtexResponsibleEmail !== "-"
+                    ? detail.overview.vtexResponsibleEmail
+                    : detail.overview.internalFocalPoint.email !== "-"
+                      ? detail.overview.internalFocalPoint.email
+                      : "")
+                : "";
 
             return (
           <section className="space-y-6">
@@ -989,6 +998,15 @@ export function EntityDetailView({
               title="Mini Questionario Interno"
               description="Visualize as respostas recebidas do ponto focal interno e centralize as anotações da análise em um layout de revisão mais estruturado."
             />
+
+            {kind === "vendor" ? (
+              <InternalQuestionnaireDispatchCard
+                entitySlug={detail.id}
+                vendorName={detail.name}
+                jiraTicket={detail.jiraTicket}
+                defaultFocalEmail={defaultInternalFocalEmail}
+              />
+            ) : null}
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
               <div className="space-y-6 lg:col-span-8">
@@ -1078,11 +1096,27 @@ export function EntityDetailView({
             );
           })()
         ) : (
-          <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-10 text-center shadow-sm">
-            <p className="text-lg font-bold text-[var(--color-text)]">Mini questionário interno não encontrado</p>
-            <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
-              Nenhuma linha correspondente foi localizada na planilha do Google Sheets para este vendor.
-            </p>
+          <section className="space-y-6">
+            {kind === "vendor" ? (
+              <InternalQuestionnaireDispatchCard
+                entitySlug={detail.id}
+                vendorName={detail.name}
+                jiraTicket={detail.jiraTicket}
+                defaultFocalEmail={
+                  detail.overview.vtexResponsibleEmail && detail.overview.vtexResponsibleEmail !== "-"
+                    ? detail.overview.vtexResponsibleEmail
+                    : detail.overview.internalFocalPoint.email !== "-"
+                      ? detail.overview.internalFocalPoint.email
+                      : ""
+                }
+              />
+            ) : null}
+            <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-10 text-center shadow-sm">
+              <p className="text-lg font-bold text-[var(--color-text)]">Mini questionário interno não encontrado</p>
+              <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                Nenhuma linha correspondente foi localizada na planilha do Google Sheets para este vendor.
+              </p>
+            </section>
           </section>
         )
       ) : null}

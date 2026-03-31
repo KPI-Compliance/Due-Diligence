@@ -38,19 +38,6 @@ function prefersIncoming(existing: unknown, incoming: unknown) {
   return normalizeNonEmptyString(incoming) ?? normalizeNonEmptyString(existing) ?? null;
 }
 
-function isLikelyLabelOnlyValue(value: unknown, labels: string[]) {
-  const normalized = normalizeNonEmptyString(value)?.toLowerCase();
-  if (!normalized) return false;
-  return labels.some((label) => normalized === label.toLowerCase().trim());
-}
-
-function isSuspiciousCapNumber(value: unknown) {
-  const normalized = normalizeNonEmptyString(value)?.toLowerCase();
-  if (!normalized) return false;
-  if (normalized.includes("company") || normalized.includes("empresa")) return true;
-  return false;
-}
-
 function normalizeCompanyGroup(value: unknown): "VTEX" | "WENI" | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toUpperCase();
@@ -340,32 +327,15 @@ export async function POST(request: Request) {
         }
       }
 
-      const stillMissingCoreVendorFields = Boolean(
-        !entity.jiraFormData.vendorEmail || !entity.jiraFormData.scope || !entity.jiraFormData.vtexResponsibleEmail,
-      );
-      const hasMissingAdditionalVendorFields = Boolean(
-        !entity.jiraFormData.languagePreference ||
-          !entity.jiraFormData.priority ||
-          !entity.jiraFormData.company ||
-          !entity.jiraFormData.capNumber,
-      );
-      const hasSuspiciousVendorFields = Boolean(
-        isLikelyLabelOnlyValue(entity.jiraFormData.priority, ["priority", "prioridade"]) ||
-          isLikelyLabelOnlyValue(entity.jiraFormData.languagePreference, [
-            "vendor language preferences",
-            "language preference",
-            "language",
-            "idioma",
-          ]) ||
-          isSuspiciousCapNumber(entity.jiraFormData.capNumber),
-      );
-      const shouldTryAttachmentFallback = Boolean(
-        stillMissingCoreVendorFields || hasMissingAdditionalVendorFields || hasSuspiciousVendorFields,
-      );
+      const shouldTryAttachmentFallback = true;
 
       if (shouldTryAttachmentFallback) {
         syncDebug.attachmentFallbackAttempted = true;
-        const retryDelaysMs = [0, 1200, 2800];
+        const isIssueCreatedEvent = String(payload.issue_event_type_name ?? payload.webhookEvent ?? "")
+          .toLowerCase()
+          .includes("created");
+        // Attachments from Jira Forms may not be immediately available on issue_created.
+        const retryDelaysMs = isIssueCreatedEvent ? [0, 2000, 5000, 10000] : [0, 1500];
         let attachmentFallback: Awaited<ReturnType<typeof enrichVendorFieldsFromJiraAttachments>> = null;
         let attachmentFallbackTry = 0;
 
@@ -391,19 +361,20 @@ export async function POST(request: Request) {
 
         if (attachmentFallback) {
           syncDebug.attachmentFallbackApplied = true;
-          entity.jiraFormData.vendorEmail = entity.jiraFormData.vendorEmail || attachmentFallback.vendorEmail || null;
-          entity.jiraFormData.scope = entity.jiraFormData.scope || attachmentFallback.scope || null;
+          // PDF attachment is the source of truth for Vendor intake fields.
+          entity.jiraFormData.vendorEmail = attachmentFallback.vendorEmail || entity.jiraFormData.vendorEmail || null;
+          entity.jiraFormData.scope = attachmentFallback.scope || entity.jiraFormData.scope || null;
           entity.jiraFormData.vtexResponsibleEmail =
-            entity.jiraFormData.vtexResponsibleEmail || attachmentFallback.vtexResponsibleEmail || null;
+            attachmentFallback.vtexResponsibleEmail || entity.jiraFormData.vtexResponsibleEmail || null;
           entity.jiraFormData.languagePreference =
             attachmentFallback.languagePreference || entity.jiraFormData.languagePreference || null;
           entity.jiraFormData.priority = attachmentFallback.priority || entity.jiraFormData.priority || null;
           entity.jiraFormData.company = attachmentFallback.company || entity.jiraFormData.company || null;
           entity.jiraFormData.capNumber = attachmentFallback.capNumber || entity.jiraFormData.capNumber || null;
 
-          entity.contactEmail = entity.contactEmail || attachmentFallback.vendorEmail || null;
-          entity.ownerEmail = entity.ownerEmail || attachmentFallback.vtexResponsibleEmail || null;
-          entity.description = entity.description || attachmentFallback.scope || null;
+          entity.contactEmail = attachmentFallback.vendorEmail || entity.contactEmail || null;
+          entity.ownerEmail = attachmentFallback.vtexResponsibleEmail || entity.ownerEmail || null;
+          entity.description = attachmentFallback.scope || entity.description || null;
         } else {
           syncDebug.attachmentFallbackReason = "attachment_parse_empty";
         }

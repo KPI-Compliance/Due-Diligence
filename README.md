@@ -98,6 +98,35 @@ GOOGLE_SHEETS_INTERNAL_COLUMN_REQUESTER="Solicitado por"
 GOOGLE_SHEETS_INTERNAL_COLUMN_STATUS="Status Mini Questionário"
 ```
 
+## Internal Questionnaire Dispatch (Slack + Google Forms)
+
+The vendor detail page (`Internal Questionnaire` tab) can send the internal triage form to the VTEX focal point via Slack.
+
+Required environment variables:
+
+```bash
+SLACK_BOT_TOKEN="xoxb-..."
+INTERNAL_QUESTIONNAIRE_FORM_URL="https://docs.google.com/forms/d/e/<FORM_ID>/viewform"
+```
+
+Optional query parameter mapping (for Google Forms prefill):
+
+```bash
+INTERNAL_QUESTIONNAIRE_FORM_PARAM_TICKET="entry.123456789"
+INTERNAL_QUESTIONNAIRE_FORM_PARAM_VENDOR="entry.987654321"
+INTERNAL_QUESTIONNAIRE_FORM_PARAM_ENTITY_SLUG="entry.111111111"
+INTERNAL_QUESTIONNAIRE_FORM_PARAM_FOCAL_EMAIL="entry.222222222"
+```
+
+Optional template mode (if you prefer explicit placeholders instead of param mapping):
+
+```bash
+INTERNAL_QUESTIONNAIRE_FORM_URL_TEMPLATE="https://docs.google.com/forms/d/e/<FORM_ID>/viewform?usp=pp_url&entry.123={{ticket}}&entry.456={{vendor}}&entry.789={{focal_email}}"
+```
+
+New API endpoint:
+- `POST /api/vendors/internal-questionnaire/send`
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

@@ -43,6 +43,7 @@ export type GoogleSheetsConfig = {
     workflow: "internal_questionnaire" | "external_questionnaire";
     spreadsheet_url: string;
     worksheet_names: string[];
+    impersonated_user?: string;
   }>;
 };
 
@@ -126,6 +127,7 @@ function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraCon
           workflow: "internal_questionnaire",
           spreadsheet_url: "",
           worksheet_names: ["Página 1"],
+          impersonated_user: "",
         },
       ],
     };
@@ -207,6 +209,7 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
               worksheet_names: Array.isArray(row.worksheet_names)
                 ? row.worksheet_names.map((item) => String(item).trim()).filter(Boolean)
                 : [String(row.worksheet_name ?? "Página 1").trim() || "Página 1"],
+              impersonated_user: String(row.impersonated_user ?? "").trim(),
             };
           })
           .filter((item): item is NonNullable<typeof item> => Boolean(item))
@@ -218,6 +221,7 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
               workflow: "internal_questionnaire",
               spreadsheet_url: String(raw.spreadsheet_url).trim(),
               worksheet_names: [String(raw.worksheet_name ?? "Página 1").trim() || "Página 1"],
+              impersonated_user: "",
             },
           ]
         : [];
@@ -234,6 +238,7 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
                 workflow: "internal_questionnaire",
                 spreadsheet_url: "",
                 worksheet_names: ["Página 1"],
+                impersonated_user: "",
               },
             ],
     } as GoogleSheetsConfig;

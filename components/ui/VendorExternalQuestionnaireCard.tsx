@@ -185,7 +185,19 @@ export function VendorExternalQuestionnaireCard({
                   }),
                 })
                   .then(async (response) => {
-                    const payload = (await response.json().catch(() => null)) as { ok?: boolean; message?: string; assessmentId?: string } | null;
+                    const payload = (await response.json().catch(() => null)) as
+                      | {
+                          ok?: boolean;
+                          message?: string;
+                          assessmentId?: string;
+                          internalQuestionnaire?: {
+                            ok?: boolean;
+                            mode?: "dm" | "channel";
+                            focalEmail?: string | null;
+                            message?: string;
+                          } | null;
+                        }
+                      | null;
 
                     if (!response.ok || !payload?.ok) {
                       throw new Error(payload?.message ?? "Não foi possível enviar o questionário.");
@@ -194,7 +206,18 @@ export function VendorExternalQuestionnaireCard({
                     if (payload.assessmentId) {
                       setResolvedAssessmentId(payload.assessmentId);
                     }
-                    setSendFeedback("Questionário enviado com sucesso e registrado na timeline.");
+                    const internalResult = payload.internalQuestionnaire;
+                    if (internalResult?.ok) {
+                      const destination = internalResult.mode === "dm" ? "Slack DM" : "canal Slack";
+                      const target = internalResult.focalEmail ? ` para ${internalResult.focalEmail}` : "";
+                      setSendFeedback(`Questionário externo enviado. Mini questionário interno também enviado via ${destination}${target}.`);
+                    } else if (internalResult && internalResult.ok === false) {
+                      setSendFeedback(
+                        `Questionário externo enviado, mas houve falha no envio interno via Slack: ${internalResult.message ?? "erro não identificado."}`,
+                      );
+                    } else {
+                      setSendFeedback("Questionário enviado com sucesso e registrado na timeline.");
+                    }
                     router.refresh();
                   })
                   .catch((error) => {
