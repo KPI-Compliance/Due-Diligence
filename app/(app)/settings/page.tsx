@@ -38,6 +38,7 @@ import {
 } from "@/lib/platform-settings";
 import { recalculateAllPartnerAssessmentDecisions } from "@/lib/partner-risk-scoring";
 import { backfillExternalQuestionnaireForQueueTickets } from "@/lib/typeform-sync";
+import { getTypeformHiddenHealth } from "@/lib/typeform-hidden-health";
 
 type SettingsTab = "geral" | "usuarios" | "integracoes" | "pontuacao" | "notificacoes";
 
@@ -212,7 +213,7 @@ async function saveTypeformSettings(formData: FormData) {
       String(formData.get("external_questionnaire_email_subject") ?? "").trim() || "VTEX | Due Diligence Analysis",
     external_questionnaire_email_template:
       String(formData.get("external_questionnaire_email_template") ?? "").trim() ||
-      "Olá,\n\nCompartilhamos abaixo o link do questionário externo para preenchimento:\n{{form_link}}\n\nFormulário selecionado: {{form_name}} ({{form_id}})\n\nAssim que o envio for concluído, seguiremos com a análise.\n\nObrigado.",
+      "[PT]\nPrezado(a), tudo bem?\n\nParte do processo de aquisição da VTEX consiste em avaliar as práticas de segurança da informação dos fornecedores. Por favor, responda ao questionário abaixo.\n\n{{form_link}}\n\nImportante: caso seja necessário encaminhar este questionário internamente, compartilhe o link completo (sem remover parâmetros) para preservar a qualidade e a assertividade das análises realizadas pelo time.\n\nCaso tenha dúvidas, entre em contato com a equipe de Compras da VTEX.\n\n[EN]\nDear all, hope you are doing well.\n\nAs part of VTEX's procurement process, we evaluate vendors' information security practices. Please complete the questionnaire below.\n\n{{form_link}}\n\nImportant: if you need to forward this questionnaire internally, share the full link (without removing parameters) to preserve the quality and accuracy of the analyses performed by our team.\n\nIf you have any questions, please contact the VTEX Procurement team.",
     external_questionnaire_email_signature_html:
       String(formData.get("external_questionnaire_email_signature_html") ?? "").trim() ||
       "<div style=\"margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;font-family:Arial,sans-serif;color:#111827;\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;max-width:620px;\"><tr><td style=\"vertical-align:top;\"><p style=\"margin:0;font-size:24px;line-height:1.2;font-weight:700;color:#111827;\">SEC GRC Integrations</p><p style=\"margin:8px 0 0 0;font-size:14px;line-height:1.5;color:#1f2937;\">Official VTEX channel for vendor Due Diligence.</p><p style=\"margin:10px 0 0 0;font-size:14px;line-height:1.5;\"><a href=\"https://www.vtex.com\" target=\"_blank\" rel=\"noreferrer\" style=\"color:#0f4fd6;text-decoration:underline;\">www.vtex.com</a></p><div style=\"margin-top:16px;padding-top:12px;border-top:1px solid #e5e7eb;\"><img src=\"{{logo_data_uri}}\" alt=\"VTEX\" style=\"height:26px;width:auto;display:block;\" /></div></td></tr></table></div>",
@@ -909,6 +910,10 @@ export default async function SettingsPage({
 
   const savedFlag = params?.saved;
   const activeTab = normalizeTab(params?.tab);
+  const typeformHiddenHealth =
+    activeTab === "integracoes"
+      ? await getTypeformHiddenHealth({ entityKind: "VENDOR", days: 30, pageSize: 200 })
+      : null;
   const errorMessage = formatRiskSettingsError(params?.error);
   const savedMessage = formatSavedMessage(savedFlag);
 
@@ -977,6 +982,7 @@ export default async function SettingsPage({
           googleWorkspaceCredentialsConfigured={googleWorkspaceCredentialsConfigured}
           googleWorkspaceImpersonatedConfigured={googleWorkspaceImpersonatedConfigured}
           emailReplyToConfigured={emailReplyToConfigured}
+          typeformHiddenHealth={typeformHiddenHealth}
           saveTypeformSettings={saveTypeformSettings}
           saveTypeformForm={saveTypeformForm}
           deleteTypeformForm={deleteTypeformForm}

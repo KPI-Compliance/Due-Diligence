@@ -14,6 +14,7 @@ type VendorDetailPageProps = {
     status_guard?: string;
     sync_forced?: string;
     sync_error?: string;
+    sync_empty?: string;
   }>;
 };
 
@@ -44,6 +45,7 @@ export default async function VendorDetailPage({ params, searchParams }: VendorD
       statusGuardStatus={resolvedSearchParams.status_guard}
       syncForcedStatus={resolvedSearchParams.sync_forced}
       syncErrorStatus={resolvedSearchParams.sync_error}
+      syncEmptyStatus={resolvedSearchParams.sync_empty}
     />
   );
 }

@@ -218,22 +218,6 @@ function resolvePartnerFinalRisk(
   return maxRisk(securityLevel, privacyLevel, complianceLevel, fallbackRisk);
 }
 
-function resolveVendorFinalRisk(
-  status: string | null,
-  securityLevel: string | null,
-  privacyLevel: string | null,
-  fallbackRisk: string | null,
-) {
-  const workflowStatus = toWorkflowStatus(status);
-  const hasAnyDecision = Boolean(securityLevel || privacyLevel || fallbackRisk);
-
-  if (!hasAnyDecision && (!workflowStatus || workflowStatus === "pending" || workflowStatus === "sent" || workflowStatus === "responded")) {
-    return null;
-  }
-
-  return maxRisk(securityLevel, privacyLevel, fallbackRisk);
-}
-
 function mapPartnerQuestionSection(section: string | null | undefined): "Common" | "Compliance" | "Privacy" | "Security" | "Unclassified" {
   const normalized = (section ?? "").trim().toUpperCase();
   if (normalized === "COMMON") return "Common";
@@ -529,6 +513,7 @@ function getPartnerFormNameFromTable(tableName: PartnerResponseTableName) {
 type PartnerSectionReviewDate = {
   section: string | null;
   analyzed_at: string | null;
+  analyst_name: string | null;
 };
 
 async function getPartnerSectionReviewDates(
@@ -547,92 +532,140 @@ async function getPartnerSectionReviewDates(
   const queryByTable = async (resolvedTableName: string) => {
     if (resolvedTableName === "partner_typeform_assessment_ptbr_responses") {
       return (await sql`
-        SELECT section::text, MAX(analyzed_at) AS analyzed_at
-        FROM partner_typeform_assessment_ptbr_responses
-        WHERE analyzed_at IS NOT NULL
-          AND (
-            (${input.assessmentId ?? null}::uuid IS NOT NULL AND assessment_id = ${input.assessmentId ?? null}::uuid)
-            OR (
-              ${input.responseToken ?? null}::text IS NOT NULL
-              AND typeform_response_token = ${input.responseToken ?? null}
-            )
-            OR (
-              lower(company_name) = lower(${input.companyName})
-              AND (
-                ${input.typeformFormId ?? null}::text IS NULL
-                OR typeform_form_id = ${input.typeformFormId ?? null}
+        WITH ranked AS (
+          SELECT
+            t.section::text AS section,
+            t.analyzed_at,
+            COALESCE(u.full_name, u.email, 'Analista não identificado') AS analyst_name,
+            ROW_NUMBER() OVER (
+              PARTITION BY t.section
+              ORDER BY t.analyzed_at DESC NULLS LAST, t.created_at DESC, t.id DESC
+            ) AS rn
+          FROM partner_typeform_assessment_ptbr_responses t
+          LEFT JOIN users u ON u.id = t.analyst_user_id
+          WHERE t.analyzed_at IS NOT NULL
+            AND (
+              (${input.assessmentId ?? null}::uuid IS NOT NULL AND t.assessment_id = ${input.assessmentId ?? null}::uuid)
+              OR (
+                ${input.responseToken ?? null}::text IS NOT NULL
+                AND t.typeform_response_token = ${input.responseToken ?? null}
+              )
+              OR (
+                lower(t.company_name) = lower(${input.companyName})
+                AND (
+                  ${input.typeformFormId ?? null}::text IS NULL
+                  OR t.typeform_form_id = ${input.typeformFormId ?? null}
+                )
               )
             )
-          )
-        GROUP BY section
+        )
+        SELECT section, analyzed_at, analyst_name
+        FROM ranked
+        WHERE rn = 1
       `) as PartnerSectionReviewDate[];
     }
 
     if (resolvedTableName === "partner_typeform_assessment_en_responses") {
       return (await sql`
-        SELECT section::text, MAX(analyzed_at) AS analyzed_at
-        FROM partner_typeform_assessment_en_responses
-        WHERE analyzed_at IS NOT NULL
-          AND (
-            (${input.assessmentId ?? null}::uuid IS NOT NULL AND assessment_id = ${input.assessmentId ?? null}::uuid)
-            OR (
-              ${input.responseToken ?? null}::text IS NOT NULL
-              AND typeform_response_token = ${input.responseToken ?? null}
-            )
-            OR (
-              lower(company_name) = lower(${input.companyName})
-              AND (
-                ${input.typeformFormId ?? null}::text IS NULL
-                OR typeform_form_id = ${input.typeformFormId ?? null}
+        WITH ranked AS (
+          SELECT
+            t.section::text AS section,
+            t.analyzed_at,
+            COALESCE(u.full_name, u.email, 'Analista não identificado') AS analyst_name,
+            ROW_NUMBER() OVER (
+              PARTITION BY t.section
+              ORDER BY t.analyzed_at DESC NULLS LAST, t.created_at DESC, t.id DESC
+            ) AS rn
+          FROM partner_typeform_assessment_en_responses t
+          LEFT JOIN users u ON u.id = t.analyst_user_id
+          WHERE t.analyzed_at IS NOT NULL
+            AND (
+              (${input.assessmentId ?? null}::uuid IS NOT NULL AND t.assessment_id = ${input.assessmentId ?? null}::uuid)
+              OR (
+                ${input.responseToken ?? null}::text IS NOT NULL
+                AND t.typeform_response_token = ${input.responseToken ?? null}
+              )
+              OR (
+                lower(t.company_name) = lower(${input.companyName})
+                AND (
+                  ${input.typeformFormId ?? null}::text IS NULL
+                  OR t.typeform_form_id = ${input.typeformFormId ?? null}
+                )
               )
             )
-          )
-        GROUP BY section
+        )
+        SELECT section, analyzed_at, analyst_name
+        FROM ranked
+        WHERE rn = 1
       `) as PartnerSectionReviewDate[];
     }
 
     if (resolvedTableName === "partner_typeform_assessment_en_v2_responses") {
       return (await sql`
-        SELECT section::text, MAX(analyzed_at) AS analyzed_at
-        FROM partner_typeform_assessment_en_v2_responses
-        WHERE analyzed_at IS NOT NULL
-          AND (
-            (${input.assessmentId ?? null}::uuid IS NOT NULL AND assessment_id = ${input.assessmentId ?? null}::uuid)
-            OR (
-              ${input.responseToken ?? null}::text IS NOT NULL
-              AND typeform_response_token = ${input.responseToken ?? null}
-            )
-            OR (
-              lower(company_name) = lower(${input.companyName})
-              AND (
-                ${input.typeformFormId ?? null}::text IS NULL
-                OR typeform_form_id = ${input.typeformFormId ?? null}
+        WITH ranked AS (
+          SELECT
+            t.section::text AS section,
+            t.analyzed_at,
+            COALESCE(u.full_name, u.email, 'Analista não identificado') AS analyst_name,
+            ROW_NUMBER() OVER (
+              PARTITION BY t.section
+              ORDER BY t.analyzed_at DESC NULLS LAST, t.created_at DESC, t.id DESC
+            ) AS rn
+          FROM partner_typeform_assessment_en_v2_responses t
+          LEFT JOIN users u ON u.id = t.analyst_user_id
+          WHERE t.analyzed_at IS NOT NULL
+            AND (
+              (${input.assessmentId ?? null}::uuid IS NOT NULL AND t.assessment_id = ${input.assessmentId ?? null}::uuid)
+              OR (
+                ${input.responseToken ?? null}::text IS NOT NULL
+                AND t.typeform_response_token = ${input.responseToken ?? null}
+              )
+              OR (
+                lower(t.company_name) = lower(${input.companyName})
+                AND (
+                  ${input.typeformFormId ?? null}::text IS NULL
+                  OR t.typeform_form_id = ${input.typeformFormId ?? null}
+                )
               )
             )
-          )
-        GROUP BY section
+        )
+        SELECT section, analyzed_at, analyst_name
+        FROM ranked
+        WHERE rn = 1
       `) as PartnerSectionReviewDate[];
     }
 
     return (await sql`
-      SELECT section::text, MAX(analyzed_at) AS analyzed_at
-      FROM partner_typeform_assessment_pt_v2_responses
-      WHERE analyzed_at IS NOT NULL
-        AND (
-          (${input.assessmentId ?? null}::uuid IS NOT NULL AND assessment_id = ${input.assessmentId ?? null}::uuid)
-          OR (
-            ${input.responseToken ?? null}::text IS NOT NULL
-            AND typeform_response_token = ${input.responseToken ?? null}
-          )
-          OR (
-            lower(company_name) = lower(${input.companyName})
-            AND (
-              ${input.typeformFormId ?? null}::text IS NULL
-              OR typeform_form_id = ${input.typeformFormId ?? null}
+      WITH ranked AS (
+        SELECT
+          t.section::text AS section,
+          t.analyzed_at,
+          COALESCE(u.full_name, u.email, 'Analista não identificado') AS analyst_name,
+          ROW_NUMBER() OVER (
+            PARTITION BY t.section
+            ORDER BY t.analyzed_at DESC NULLS LAST, t.created_at DESC, t.id DESC
+          ) AS rn
+        FROM partner_typeform_assessment_pt_v2_responses t
+        LEFT JOIN users u ON u.id = t.analyst_user_id
+        WHERE t.analyzed_at IS NOT NULL
+          AND (
+            (${input.assessmentId ?? null}::uuid IS NOT NULL AND t.assessment_id = ${input.assessmentId ?? null}::uuid)
+            OR (
+              ${input.responseToken ?? null}::text IS NOT NULL
+              AND t.typeform_response_token = ${input.responseToken ?? null}
+            )
+            OR (
+              lower(t.company_name) = lower(${input.companyName})
+              AND (
+                ${input.typeformFormId ?? null}::text IS NULL
+                OR t.typeform_form_id = ${input.typeformFormId ?? null}
+              )
             )
           )
-        )
-      GROUP BY section
+      )
+      SELECT section, analyzed_at, analyst_name
+      FROM ranked
+      WHERE rn = 1
     `) as PartnerSectionReviewDate[];
   };
 
@@ -1149,12 +1182,6 @@ export async function getVendorsList() {
   }
 
   return rows.map((row) => {
-    const finalRisk = resolveVendorFinalRisk(
-      row.latest_assessment_status,
-      row.latest_security_level,
-      row.latest_privacy_level,
-      row.risk_level,
-    );
     const riskLabel = getModelOneDisplayClassification({
       kind: "vendor",
       securityLevel: row.latest_security_level,
@@ -1162,6 +1189,14 @@ export async function getVendorsList() {
       complianceLevel: null,
       storedClassification: row.latest_classification,
     });
+    const hasStoredClassification = Boolean(normalizeStoredClassificationLabel(row.latest_classification));
+    const waitingVendorWithoutResponse =
+      toWorkflowStatus(row.latest_assessment_status) === "sent" &&
+      row.latest_response_count <= 0 &&
+      !row.latest_security_level &&
+      !row.latest_privacy_level &&
+      !hasStoredClassification;
+    const displayRiskLabel = waitingVendorWithoutResponse ? "Waiting vendor" : riskLabel;
     const mappedClassificationRisk = classificationToUiRisk(riskLabel);
     const riskUi = mappedClassificationRisk
       ? riskClasses(mappedClassificationRisk)
@@ -1213,7 +1248,7 @@ export async function getVendorsList() {
         row.latest_security_level,
       ),
       technicalReviewStatus: redTeamStatus,
-      risk: riskLabel,
+      risk: displayRiskLabel,
       privacyRisk: mapDecisionRisk(row.latest_privacy_level),
       securityRisk: mapDecisionRisk(row.latest_security_level),
       ...riskUi,
@@ -2231,8 +2266,14 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     kind === "partner" && latestAssessment
       ? (() => {
           const sectionDateMap = new Map(
-            partnerSectionReviewDates.map((row) => [mapPartnerQuestionSection(row.section), row.analyzed_at]),
+            partnerSectionReviewDates.map((row) => [
+              mapPartnerQuestionSection(row.section),
+              { analyzedAt: row.analyzed_at, analystName: row.analyst_name },
+            ]),
           );
+          const securityReview = sectionDateMap.get("Security");
+          const privacyReview = sectionDateMap.get("Privacy");
+          const complianceReview = sectionDateMap.get("Compliance");
 
           const events = [
             {
@@ -2242,23 +2283,23 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
             },
             {
               title: "Security analisado",
-              eventAt: sectionDateMap.get("Security") ?? null,
-              note: sectionDateMap.get("Security")
-                ? "A aba Security recebeu a análise do time responsável."
+              eventAt: securityReview?.analyzedAt ?? null,
+              note: securityReview?.analyzedAt
+                ? `A aba Security foi analisada por ${securityReview.analystName ?? "Analista não identificado"}.`
                 : "Aguardando análise da frente de Security.",
             },
             {
               title: "Privacy analisado",
-              eventAt: sectionDateMap.get("Privacy") ?? null,
-              note: sectionDateMap.get("Privacy")
-                ? "A aba Privacy recebeu a análise do time responsável."
+              eventAt: privacyReview?.analyzedAt ?? null,
+              note: privacyReview?.analyzedAt
+                ? `A aba Privacy foi analisada por ${privacyReview.analystName ?? "Analista não identificado"}.`
                 : "Aguardando análise da frente de Privacy.",
             },
             {
               title: "Compliance analisado",
-              eventAt: sectionDateMap.get("Compliance") ?? null,
-              note: sectionDateMap.get("Compliance")
-                ? "A aba Compliance recebeu a análise do time responsável."
+              eventAt: complianceReview?.analyzedAt ?? null,
+              note: complianceReview?.analyzedAt
+                ? `A aba Compliance foi analisada por ${complianceReview.analystName ?? "Analista não identificado"}.`
                 : "Aguardando análise da frente de Compliance.",
             },
             {

@@ -78,7 +78,7 @@ async function getExternalQuestionnaireEmailTemplate() {
 
   return (
     typeformSetting?.config.external_questionnaire_email_template?.trim() ||
-    "[PT]\nOlá,\n\nComo parte do processo de compras da VTEX, realizamos a análise de Due Diligence de fornecedores.\n\nFormulário enviado: {{form_name}} ({{form_id}})\nAcesse o questionário: {{form_link}}\n\nEm caso de dúvidas, responda este e-mail.\n\n[EN]\nHello,\n\nAs part of VTEX procurement process, we perform vendors' Due Diligence analysis.\n\nSent form: {{form_name}} ({{form_id}})\nOpen questionnaire: {{form_link}}\n\nIf you have any questions, please reply to this email."
+    "[PT]\nPrezado(a), tudo bem?\n\nParte do processo de aquisição da VTEX consiste em avaliar as práticas de segurança da informação dos fornecedores. Por favor, responda ao questionário abaixo.\n\n{{form_link}}\n\nImportante: caso seja necessário encaminhar este questionário internamente, compartilhe o link completo (sem remover parâmetros) para preservar a qualidade e a assertividade das análises realizadas pelo time.\n\nCaso tenha dúvidas, entre em contato com a equipe de Compras da VTEX.\n\n[EN]\nDear all, hope you are doing well.\n\nAs part of VTEX's procurement process, we evaluate vendors' information security practices. Please complete the questionnaire below.\n\n{{form_link}}\n\nImportant: if you need to forward this questionnaire internally, share the full link (without removing parameters) to preserve the quality and accuracy of the analyses performed by our team.\n\nIf you have any questions, please contact the VTEX Procurement team."
   );
 }
 

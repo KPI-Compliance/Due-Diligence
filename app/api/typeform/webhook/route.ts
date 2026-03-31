@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
+import { normalizeLooseLookup } from "@/lib/normalization";
 import {
   findVendorAssessmentByDispatchId,
   findVendorAssessmentByRecipientDispatch,
@@ -68,6 +69,10 @@ function normalizeComparable(value: string | undefined) {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
+}
+
+function normalizeStrictEntityKey(value: string | undefined) {
+  return normalizeComparable(value).replace(/[^a-z0-9]+/g, "");
 }
 
 function normalizeEmail(value: string | null | undefined) {
@@ -283,9 +288,15 @@ export async function POST(request: Request) {
       const jiraTicket = extractTicketFromTypeformAnswers(payload.form_response?.answers);
 
       if (!assessmentId && !companyName) {
+        console.warn("[typeform-webhook] orphan response: missing hidden field and no company match hint", {
+          formId,
+          eventId,
+          hiddenFieldName,
+          submittedAt,
+        });
         return NextResponse.json(
-          { ok: false, message: `Missing hidden field ${hiddenFieldName} and no company name answer was found.` },
-          { status: 400 },
+          { ok: true, orphan: true, message: `Missing hidden field ${hiddenFieldName} and no company name answer was found.` },
+          { status: 202 },
         );
       }
 
@@ -303,9 +314,13 @@ export async function POST(request: Request) {
         }>;
 
         const normalizedCompanyName = normalizeComparable(companyName);
+        const normalizedCompanyNameLoose = normalizeLooseLookup(companyName);
+        const normalizedCompanyNameStrict = normalizeStrictEntityKey(companyName);
         const normalizedTicket = normalizeComparable(jiraTicket ?? "");
 
         const normalizeEntityName = (name: string) => normalizeComparable(name);
+        const normalizeEntityNameLoose = (name: string) => normalizeLooseLookup(name);
+        const normalizeEntityNameStrict = (name: string) => normalizeStrictEntityKey(name);
         const byCompanyAndTicket = entityRows.find(
           (row) =>
             normalizeEntityName(row.name) === normalizedCompanyName &&
@@ -313,6 +328,12 @@ export async function POST(request: Request) {
             normalizeComparable(row.jira_issue_key ?? "") === normalizedTicket,
         );
         const byCompanyExact = entityRows.find((row) => normalizeEntityName(row.name) === normalizedCompanyName);
+        const byCompanyExactLoose = entityRows.find(
+          (row) => normalizeEntityNameLoose(row.name) === normalizedCompanyNameLoose,
+        );
+        const byCompanyExactStrict = entityRows.find(
+          (row) => normalizeEntityNameStrict(row.name) === normalizedCompanyNameStrict,
+        );
         const byRespondentEmail =
           respondentEmail && respondentEmail.includes("@")
             ? entityRows.find((row) => normalizeEmail(row.contact_email) === respondentEmail)
@@ -321,17 +342,35 @@ export async function POST(request: Request) {
           const candidate = normalizeEntityName(row.name);
           return candidate.includes(normalizedCompanyName) || normalizedCompanyName.includes(candidate);
         });
+        const byCompanyFuzzyLoose = entityRows.find((row) => {
+          const candidate = normalizeEntityNameLoose(row.name);
+          return candidate.includes(normalizedCompanyNameLoose) || normalizedCompanyNameLoose.includes(candidate);
+        });
+        const byCompanyFuzzyStrict = entityRows.find((row) => {
+          const candidate = normalizeEntityNameStrict(row.name);
+          return candidate.includes(normalizedCompanyNameStrict) || normalizedCompanyNameStrict.includes(candidate);
+        });
 
         const matchedEntity =
           byCompanyAndTicket ??
           byCompanyExact ??
+          byCompanyExactLoose ??
+          byCompanyExactStrict ??
           byRespondentEmail ??
-          byCompanyFuzzy;
+          byCompanyFuzzy ??
+          byCompanyFuzzyLoose ??
+          byCompanyFuzzyStrict;
 
         if (!matchedEntity) {
+          console.warn("[typeform-webhook] orphan response: company not mapped to entity", {
+            formId,
+            eventId,
+            companyName,
+            submittedAt,
+          });
           return NextResponse.json(
-            { ok: false, message: `No entity found for company name "${companyName}".` },
-            { status: 404 },
+            { ok: true, orphan: true, message: `No entity found for company name "${companyName}".` },
+            { status: 202 },
           );
         }
 
@@ -390,9 +429,14 @@ export async function POST(request: Request) {
 
       if (!assessmentId) {
         if (!matchedEntityForCreation) {
+          console.warn("[typeform-webhook] orphan response: missing context to create assessment", {
+            formId,
+            eventId,
+            submittedAt,
+          });
           return NextResponse.json(
-            { ok: false, message: "No entity context available to create a new assessment." },
-            { status: 400 },
+            { ok: true, orphan: true, message: "No entity context available to create a new assessment." },
+            { status: 202 },
           );
         }
 
@@ -429,7 +473,12 @@ export async function POST(request: Request) {
     `) as Array<{ id: string; entity_id: string; entity_kind: "VENDOR" | "PARTNER" }>;
 
     if (assessmentRows.length === 0) {
-      return NextResponse.json({ ok: false, message: "Assessment not found for resolved Typeform response." }, { status: 404 });
+      console.warn("[typeform-webhook] orphan response: resolved assessment not found", {
+        formId,
+        eventId,
+        assessmentId,
+      });
+      return NextResponse.json({ ok: true, orphan: true, message: "Assessment not found for resolved Typeform response." }, { status: 202 });
     }
 
     resolvedEntityKind = assessmentRows[0].entity_kind;

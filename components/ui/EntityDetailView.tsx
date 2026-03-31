@@ -26,6 +26,7 @@ type EntityDetailViewProps = {
   statusGuardStatus?: string;
   syncForcedStatus?: string;
   syncErrorStatus?: string;
+  syncEmptyStatus?: string;
 };
 
 const vendorTabs: Array<{ key: DetailTabKey; label: string }> = [
@@ -589,6 +590,7 @@ export function EntityDetailView({
   statusGuardStatus,
   syncForcedStatus,
   syncErrorStatus,
+  syncEmptyStatus,
 }: EntityDetailViewProps) {
   const backHref = kind === "vendor" ? "/vendors" : "/partners";
   const visibleTabs = kind === "partner" ? partnerTabs : vendorTabs;
@@ -1119,6 +1121,11 @@ export function EntityDetailView({
             {syncForcedStatus === "1" ? (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
                 Sincronização executada. Atualizamos a busca de resposta do Typeform para este ticket.
+              </div>
+            ) : null}
+            {syncEmptyStatus === "1" ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                Sincronização executada, mas nenhuma resposta correspondente foi encontrada no Typeform para este envio.
               </div>
             ) : null}
             {syncErrorStatus ? (

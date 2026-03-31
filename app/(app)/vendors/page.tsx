@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 const MAX_VENDOR_ROWS = 20;
 const INTAKE_STATUS_ORDER = ["Pending", "Sent", "Responded", "Reviewed"] as const;
 const MAIN_QUESTIONNAIRE_STATUS_ORDER = ["Pending", "Responded", "Reviewed"] as const;
-const RISK_LEVEL_ORDER = ["Pending Review", "Low", "Moderate", "High", "Extreme"] as const;
+const RISK_LEVEL_ORDER = ["Waiting vendor", "Pending Review", "Low", "Moderate", "High", "Extreme"] as const;
 const JIRA_STATUS_ORDER = ["Opened", "Waiting vendor", "Received Quest.", "Red Team", "Concluido"] as const;
 
 function buildOrderedOptions(values: string[], preferredOrder: readonly string[]) {
@@ -48,7 +48,9 @@ function renderTechnicalReviewBadge(label: string) {
 function renderFinalRiskBadge(label: string) {
   const normalized = label.trim().toLowerCase();
   const className =
-    normalized.includes("pending")
+    normalized === "waiting vendor"
+      ? "border-orange-200 bg-orange-50 text-orange-700"
+      : normalized.includes("pending")
       ? "border-slate-200 bg-slate-100 text-slate-700"
       : normalized.includes("low")
         ? "border-emerald-200 bg-emerald-50 text-emerald-700"

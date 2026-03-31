@@ -75,8 +75,9 @@ export async function refreshVendorExternalQuestionnaire(formData: FormData) {
     LIMIT 1
   `) as Array<{ typeform_form_id: string | null }>;
 
+  let result: Awaited<ReturnType<typeof syncExternalQuestionnaireForEntity>>;
   try {
-    await syncExternalQuestionnaireForEntity({
+    result = await syncExternalQuestionnaireForEntity({
       entityId: entity.id,
       entityName: entity.name,
       entityKind: "VENDOR",
@@ -84,6 +85,14 @@ export async function refreshVendorExternalQuestionnaire(formData: FormData) {
       formId: assessmentRows[0]?.typeform_form_id ?? null,
     });
   } catch {
+    redirect(`/vendors/${entitySlug}?tab=external_questionnaire&sync_error=1`);
+  }
+
+  if (result.status === "no_match") {
+    redirect(`/vendors/${entitySlug}?tab=external_questionnaire&sync_empty=1`);
+  }
+
+  if (result.status !== "updated" && result.status !== "already_linked") {
     redirect(`/vendors/${entitySlug}?tab=external_questionnaire&sync_error=1`);
   }
 

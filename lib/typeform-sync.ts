@@ -1,6 +1,6 @@
 import { sql } from "@/lib/db";
 import { fetchJiraIssueCreatedAt } from "@/lib/jira";
-import { normalizeComparable } from "@/lib/normalization";
+import { normalizeComparable, normalizeLooseLookup } from "@/lib/normalization";
 import { getIntegrationSettings, type JiraConfig } from "@/lib/settings-data";
 import { getTypeformApiCredentials } from "@/lib/typeform-admin";
 import { getVendorQuestionnaireSignals } from "@/lib/vendor-questionnaire-dispatch";
@@ -70,6 +70,19 @@ type QuestionMappingRow = {
   question_text: string;
   question_order: number;
   section: "COMMON" | "COMPLIANCE" | "PRIVACY" | "SECURITY";
+};
+
+export type ExternalQuestionnaireSyncResultStatus =
+  | "updated"
+  | "already_linked"
+  | "no_match"
+  | "missing_credentials"
+  | "no_form_mapping";
+
+export type ExternalQuestionnaireSyncResult = {
+  status: ExternalQuestionnaireSyncResultStatus;
+  assessmentId: string | null;
+  responseToken: string | null;
 };
 
 let diagnosticsTableReady = false;
@@ -244,6 +257,10 @@ function distanceToClosestReference(candidate: TypeformResponseItem, references:
 function normalizeComparableToken(value: string | number | boolean | null | undefined) {
   if (value === null || value === undefined) return "";
   return String(value).trim().toLowerCase();
+}
+
+function normalizeStrictEntityKey(value: string | null | undefined) {
+  return normalizeComparable(value).replace(/[^a-z0-9]+/g, "");
 }
 
 async function getTypeformFormFields(formId: string, token: string) {
@@ -438,7 +455,7 @@ export async function syncExternalQuestionnaireForEntity(input: {
   entityKind: "VENDOR" | "PARTNER";
   jiraIssueKey?: string | null;
   formId?: string | null;
-}) {
+}): Promise<ExternalQuestionnaireSyncResult> {
   const { entityId, entityName, entityKind, jiraIssueKey, formId } = input;
   await logTypeformSyncDiagnostic({
     source: "entity_sync",
@@ -465,7 +482,11 @@ export async function syncExternalQuestionnaireForEntity(input: {
       status: "error",
       message: "Typeform API token is not configured.",
     });
-    return;
+    return {
+      status: "missing_credentials",
+      assessmentId: null,
+      responseToken: null,
+    };
   }
 
   const formMappings = await getExternalFormMappings(entityKind, formId);
@@ -482,7 +503,11 @@ export async function syncExternalQuestionnaireForEntity(input: {
       status: "skipped",
       message: "No enabled external_questionnaire form mapping found for this entity kind.",
     });
-    return;
+    return {
+      status: "no_form_mapping",
+      assessmentId: null,
+      responseToken: null,
+    };
   }
 
   let latestAssessment = (await sql`
@@ -502,9 +527,17 @@ export async function syncExternalQuestionnaireForEntity(input: {
   }
 
   const assessment = latestAssessment[0];
-  if (!assessment) return;
+  if (!assessment) {
+    return {
+      status: "no_match",
+      assessmentId: null,
+      responseToken: null,
+    };
+  }
 
   const targetName = normalizeComparable(entityName);
+  const targetNameLoose = normalizeLooseLookup(entityName);
+  const targetNameStrict = normalizeStrictEntityKey(entityName);
   const jiraCreatedAt = await getJiraCreatedAt(jiraIssueKey);
   const jiraCreatedTimestamp = toTimestamp(jiraCreatedAt);
   const emptyVendorSignals = { recipientEmails: [] as string[], sentTimestamps: [] as number[], dispatchIds: [] as string[] };
@@ -597,9 +630,22 @@ export async function syncExternalQuestionnaireForEntity(input: {
     const byCompanyName =
       normalizedItems
         .filter((item) => {
-          const companyName = normalizeComparable(extractCompanyNameFromTypeformAnswers(item.answers) ?? undefined);
-          if (!companyName) return false;
-          return companyName === targetName || companyName.includes(targetName) || targetName.includes(companyName);
+          const companyNameRaw = extractCompanyNameFromTypeformAnswers(item.answers) ?? undefined;
+          const companyName = normalizeComparable(companyNameRaw);
+          const companyNameLoose = normalizeLooseLookup(companyNameRaw);
+          const companyNameStrict = normalizeStrictEntityKey(companyNameRaw);
+          if (!companyName && !companyNameLoose && !companyNameStrict) return false;
+          return (
+            companyName === targetName ||
+            companyName.includes(targetName) ||
+            targetName.includes(companyName) ||
+            companyNameLoose === targetNameLoose ||
+            companyNameLoose.includes(targetNameLoose) ||
+            targetNameLoose.includes(companyNameLoose) ||
+            companyNameStrict === targetNameStrict ||
+            companyNameStrict.includes(targetNameStrict) ||
+            targetNameStrict.includes(companyNameStrict)
+          );
         })
         .sort((a, b) => {
           if (!Number.isNaN(jiraCreatedTimestamp)) {
@@ -683,7 +729,11 @@ export async function syncExternalQuestionnaireForEntity(input: {
         current_token: assessment.typeform_response_token,
       },
     });
-    return;
+    return {
+      status: !matchedResponse?.token ? "no_match" : "already_linked",
+      assessmentId: assessment.id,
+      responseToken: matchedResponse?.token ?? assessment.typeform_response_token ?? null,
+    };
   }
 
   const matchedForm = formMappings.find((form) => form.form_id === matchedResponse.form_id) ?? null;
@@ -775,6 +825,12 @@ export async function syncExternalQuestionnaireForEntity(input: {
       submitted_at: matchedResponse.submitted_at ?? null,
     },
   });
+
+  return {
+    status: "updated",
+    assessmentId: assessment.id,
+    responseToken: matchedResponse.token,
+  };
 }
 
 export async function syncPartnerExternalQuestionnaire(entityId: string, entityName: string, jiraIssueKey?: string | null) {

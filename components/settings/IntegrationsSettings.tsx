@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { SectionCard } from "@/components/ui/SectionCard";
 import type { GoogleSheetsConfig, JiraConfig, SlackConfig, TypeformConfig, TypeformFormItem } from "@/lib/settings-data";
+import type { TypeformHiddenHealthReport } from "@/lib/typeform-hidden-health";
 
 type ModalKey = "typeform" | "typeform_forms" | "jira" | "slack" | "google_sheets" | null;
 
@@ -29,6 +30,7 @@ type IntegrationsSettingsProps = {
   googleWorkspaceCredentialsConfigured: boolean;
   googleWorkspaceImpersonatedConfigured: boolean;
   emailReplyToConfigured: boolean;
+  typeformHiddenHealth: TypeformHiddenHealthReport | null;
   saveTypeformSettings: (formData: FormData) => Promise<void>;
   saveTypeformForm: (formData: FormData) => Promise<void>;
   deleteTypeformForm: (formData: FormData) => Promise<void>;
@@ -71,6 +73,7 @@ export function IntegrationsSettings({
   googleWorkspaceCredentialsConfigured,
   googleWorkspaceImpersonatedConfigured,
   emailReplyToConfigured,
+  typeformHiddenHealth,
   saveTypeformSettings,
   saveTypeformForm,
   deleteTypeformForm,
@@ -109,6 +112,27 @@ export function IntegrationsSettings({
   );
   const senderConfigured = Boolean(typeform.config.sender_email?.trim()) || googleWorkspaceImpersonatedConfigured;
   const emailDeliveryReady = typeform.enabled && googleWorkspaceCredentialsConfigured && senderConfigured;
+  const hiddenHealthSummary = typeformHiddenHealth?.summary;
+  const hiddenHealthCriticalCount = typeformHiddenHealth?.forms.filter((form) => form.status === "critical").length ?? 0;
+  const hiddenHealthWarningCount = typeformHiddenHealth?.forms.filter((form) => form.status === "warning").length ?? 0;
+  const hiddenHealthCardClass =
+    hiddenHealthCriticalCount > 0
+      ? "border-rose-200"
+      : hiddenHealthWarningCount > 0
+        ? "border-amber-200"
+        : "border-emerald-200";
+  const hiddenHealthStatusLabel =
+    hiddenHealthCriticalCount > 0
+      ? "Crítico"
+      : hiddenHealthWarningCount > 0
+        ? "Atenção"
+        : "Saudável";
+  const hiddenHealthStatusClass =
+    hiddenHealthCriticalCount > 0
+      ? "text-rose-600"
+      : hiddenHealthWarningCount > 0
+        ? "text-amber-600"
+        : "text-emerald-600";
 
   async function copyToClipboard(value: string, successMessage: string) {
     try {
@@ -154,7 +178,7 @@ export function IntegrationsSettings({
         <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Configure Typeform, Jira, Slack e Google Sheets para automatizar fluxos operacionais.</p>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
         <SectionCard
           title="Typeform"
           description="Formularios de intake e respostas de questionarios"
@@ -237,6 +261,32 @@ export function IntegrationsSettings({
             >
               Configurar
             </button>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Typeform Hidden Health"
+          description="Monitoramento de respostas sem hidden (dispatch_id/assessment_id)"
+          className={hiddenHealthCardClass}
+        >
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-[var(--color-text)]">
+              Status: <span className={hiddenHealthStatusClass}>{hiddenHealthStatusLabel}</span>
+            </p>
+            <p className="text-xs text-[var(--color-neutral-600)]">
+              Forms: {hiddenHealthSummary?.forms_checked ?? 0} | Missing hidden: {hiddenHealthSummary?.forms_with_recent_missing_hidden ?? 0}
+            </p>
+            <p className="text-xs text-[var(--color-neutral-600)]">
+              Dispatch sem vínculo: {hiddenHealthSummary?.forms_with_recent_dispatch_but_no_hidden_linkage ?? 0}
+            </p>
+            <Link
+              href="/api/health/typeform-hidden?entity_kind=VENDOR"
+              target="_blank"
+              rel="noreferrer"
+              className="block w-full rounded-lg border border-[var(--color-primary)] px-3 py-2 text-center text-sm font-bold text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/5"
+            >
+              Ver Diagnóstico
+            </Link>
           </div>
         </SectionCard>
       </div>

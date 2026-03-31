@@ -49,6 +49,7 @@ export async function POST(request: Request) {
       recipients,
       hiddenAssessmentField,
       questionnaireBaseUrl,
+      questionnaireEntryBaseUrl: new URL(request.url).origin,
     });
 
     return NextResponse.json({ ok: true, assessmentId: result.assessmentId, questionnaireUrl: result.questionnaireUrl });

@@ -107,6 +107,7 @@ export async function recordVendorExternalQuestionnaireSend(input: {
   recipients: string[];
   hiddenAssessmentField?: string | null;
   questionnaireBaseUrl: string;
+  questionnaireEntryBaseUrl?: string | null;
 }) {
   const dispatchedAt = new Date().toISOString();
   const dispatchId = randomUUID();
@@ -115,13 +116,18 @@ export async function recordVendorExternalQuestionnaireSend(input: {
     entitySlug: input.entitySlug,
     selectedFormId: input.selectedFormId,
   });
-  const queryParams = new URLSearchParams({
+  const directTypeformParams = new URLSearchParams({
     dispatch_id: dispatchId,
+    assessment_id: assessmentId,
   });
   if (input.hiddenAssessmentField && input.hiddenAssessmentField.trim().length > 0) {
-    queryParams.set(input.hiddenAssessmentField, assessmentId);
+    directTypeformParams.set(input.hiddenAssessmentField, assessmentId);
   }
-  const questionnaireUrl = `${input.questionnaireBaseUrl}?${queryParams.toString()}`;
+  const directTypeformUrl = `${input.questionnaireBaseUrl}?${directTypeformParams.toString()}`;
+  const questionnaireUrl =
+    input.questionnaireEntryBaseUrl && input.questionnaireEntryBaseUrl.trim().length > 0
+      ? `${input.questionnaireEntryBaseUrl.replace(/\/$/, "")}/q/${dispatchId}`
+      : directTypeformUrl;
 
   const entityRows = (await sql`
     SELECT
