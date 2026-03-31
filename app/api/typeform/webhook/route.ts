@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { normalizeLooseLookup } from "@/lib/normalization";
+import { fetchTypeformFormFields } from "@/lib/typeform-admin";
 import {
   findVendorAssessmentByDispatchId,
   findVendorAssessmentByRecipientDispatch,
   normalizeDispatchId,
 } from "@/lib/vendor-questionnaire-dispatch";
 import {
+  applyTypeformFieldDefinitions,
   extractCompanyNameFromTypeformAnswers,
   extractRespondentEmailFromTypeformAnswers,
   extractTicketFromTypeformAnswers,
   normalizeAssessmentId,
   normalizeTypeformAnswers,
+  sortTypeformAnswersByFieldDefinitions,
   verifyTypeformSignature,
 } from "@/lib/typeform";
 
@@ -242,7 +245,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, message: "Form not configured or disabled. Event stored and ignored." });
     }
 
-    const answers = normalizeTypeformAnswers(payload.form_response?.answers);
+    const formFields = await fetchTypeformFormFields(formId);
+    const resolvedAnswers = sortTypeformAnswersByFieldDefinitions(
+      applyTypeformFieldDefinitions(payload.form_response?.answers, formFields),
+      formFields,
+    );
+    const answers = normalizeTypeformAnswers(resolvedAnswers);
     const hiddenFieldName =
       formMapping.hidden_assessment_field || typeformSetting.config?.default_hidden_assessment_field || "assessment_id";
 
@@ -257,7 +265,7 @@ export async function POST(request: Request) {
     if (!assessmentId || !isValidUuid(assessmentId)) {
       const submittedAt = payload.form_response?.submitted_at ?? null;
       const submittedAtTimestamp = toTimestamp(submittedAt);
-      const respondentEmail = normalizeEmail(extractRespondentEmailFromTypeformAnswers(payload.form_response?.answers));
+      const respondentEmail = normalizeEmail(extractRespondentEmailFromTypeformAnswers(resolvedAnswers));
       const hiddenDispatchId = extractDispatchIdFromHidden(payload.form_response?.hidden);
 
       if (hiddenDispatchId && formMapping.entity_kind !== "PARTNER") {
@@ -284,8 +292,8 @@ export async function POST(request: Request) {
         }
       }
 
-      const companyName = extractCompanyNameFromTypeformAnswers(payload.form_response?.answers);
-      const jiraTicket = extractTicketFromTypeformAnswers(payload.form_response?.answers);
+      const companyName = extractCompanyNameFromTypeformAnswers(resolvedAnswers);
+      const jiraTicket = extractTicketFromTypeformAnswers(resolvedAnswers);
 
       if (!assessmentId && !companyName) {
         console.warn("[typeform-webhook] orphan response: missing hidden field and no company match hint", {
