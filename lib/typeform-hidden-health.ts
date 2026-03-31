@@ -81,6 +81,12 @@ export async function getTypeformHiddenHealth(input?: {
       message: "Typeform API token is not configured.",
       checked_at: new Date().toISOString(),
       days,
+      summary: {
+        forms_checked: 0,
+        forms_with_no_recent_responses: 0,
+        forms_with_recent_missing_hidden: 0,
+        forms_with_recent_dispatch_but_no_hidden_linkage: 0,
+      },
       forms: [],
     };
   }
