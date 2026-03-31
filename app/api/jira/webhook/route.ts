@@ -26,6 +26,10 @@ function normalizeNonEmptyString(value: unknown) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function prefersExisting(existing: unknown, incoming: unknown) {
   return normalizeNonEmptyString(existing) ?? normalizeNonEmptyString(incoming) ?? null;
 }
@@ -361,12 +365,29 @@ export async function POST(request: Request) {
 
       if (shouldTryAttachmentFallback) {
         syncDebug.attachmentFallbackAttempted = true;
-        const attachmentFallback = await enrichVendorFieldsFromJiraAttachments({
-          baseUrl: jiraSetting.config.base_url,
-          email: jiraApiEmail,
-          token: jiraApiToken,
-          issueKey: entity.issueKey,
-        });
+        const retryDelaysMs = [0, 1200, 2800];
+        let attachmentFallback: Awaited<ReturnType<typeof enrichVendorFieldsFromJiraAttachments>> = null;
+        let attachmentFallbackTry = 0;
+
+        for (const delayMs of retryDelaysMs) {
+          attachmentFallbackTry += 1;
+          if (delayMs > 0) {
+            await wait(delayMs);
+          }
+
+          attachmentFallback = await enrichVendorFieldsFromJiraAttachments({
+            baseUrl: jiraSetting.config.base_url,
+            email: jiraApiEmail,
+            token: jiraApiToken,
+            issueKey: entity.issueKey,
+          });
+
+          if (attachmentFallback) {
+            break;
+          }
+        }
+
+        syncDebug.attachmentFallbackTryCount = attachmentFallbackTry;
 
         if (attachmentFallback) {
           syncDebug.attachmentFallbackApplied = true;
@@ -383,6 +404,8 @@ export async function POST(request: Request) {
           entity.contactEmail = entity.contactEmail || attachmentFallback.vendorEmail || null;
           entity.ownerEmail = entity.ownerEmail || attachmentFallback.vtexResponsibleEmail || null;
           entity.description = entity.description || attachmentFallback.scope || null;
+        } else {
+          syncDebug.attachmentFallbackReason = "attachment_parse_empty";
         }
       }
     }
