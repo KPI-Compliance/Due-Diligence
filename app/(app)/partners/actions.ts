@@ -321,6 +321,13 @@ export async function savePartnerExternalQuestionnaireSection(formData: FormData
   if (submitIntent !== "save_final_observation") {
     const responseUpdateStartedAt = Date.now();
     let updatedRows = 0;
+    const analystUserRows = (await sql`
+      SELECT id::text
+      FROM users
+      WHERE lower(email) = lower(${sessionResult.session.email})
+      LIMIT 1
+    `) as Array<{ id: string }>;
+    const analystUserId = analystUserRows[0]?.id ?? null;
 
     for (const responseId of responseIds) {
       const evaluationRaw = String(formData.get(`evaluation_${responseId}`) ?? "NOT_EVALUATED").trim().toUpperCase();
@@ -333,6 +340,11 @@ export async function savePartnerExternalQuestionnaireSection(formData: FormData
           SET
             analyst_evaluation = ${analystEvaluation}::analyst_evaluation_status,
             analyst_observations = ${analystObservations},
+            analyst_user_id = CASE
+              WHEN ${analystEvaluation} = 'NOT_EVALUATED' AND ${analystObservations} = '' THEN NULL
+              WHEN ${analystUserId ?? null}::uuid IS NOT NULL THEN ${analystUserId ?? null}::uuid
+              ELSE analyst_user_id
+            END,
             analyzed_at = CASE
               WHEN ${analystEvaluation} = 'NOT_EVALUATED' AND ${analystObservations} = '' THEN NULL
               ELSE now()
@@ -350,6 +362,11 @@ export async function savePartnerExternalQuestionnaireSection(formData: FormData
           SET
             analyst_evaluation = ${analystEvaluation}::analyst_evaluation_status,
             analyst_observations = ${analystObservations},
+            analyst_user_id = CASE
+              WHEN ${analystEvaluation} = 'NOT_EVALUATED' AND ${analystObservations} = '' THEN NULL
+              WHEN ${analystUserId ?? null}::uuid IS NOT NULL THEN ${analystUserId ?? null}::uuid
+              ELSE analyst_user_id
+            END,
             analyzed_at = CASE
               WHEN ${analystEvaluation} = 'NOT_EVALUATED' AND ${analystObservations} = '' THEN NULL
               ELSE now()
@@ -367,6 +384,11 @@ export async function savePartnerExternalQuestionnaireSection(formData: FormData
           SET
             analyst_evaluation = ${analystEvaluation}::analyst_evaluation_status,
             analyst_observations = ${analystObservations},
+            analyst_user_id = CASE
+              WHEN ${analystEvaluation} = 'NOT_EVALUATED' AND ${analystObservations} = '' THEN NULL
+              WHEN ${analystUserId ?? null}::uuid IS NOT NULL THEN ${analystUserId ?? null}::uuid
+              ELSE analyst_user_id
+            END,
             analyzed_at = CASE
               WHEN ${analystEvaluation} = 'NOT_EVALUATED' AND ${analystObservations} = '' THEN NULL
               ELSE now()
@@ -383,6 +405,11 @@ export async function savePartnerExternalQuestionnaireSection(formData: FormData
         SET
           analyst_evaluation = ${analystEvaluation}::analyst_evaluation_status,
           analyst_observations = ${analystObservations},
+          analyst_user_id = CASE
+            WHEN ${analystEvaluation} = 'NOT_EVALUATED' AND ${analystObservations} = '' THEN NULL
+            WHEN ${analystUserId ?? null}::uuid IS NOT NULL THEN ${analystUserId ?? null}::uuid
+            ELSE analyst_user_id
+          END,
           analyzed_at = CASE
             WHEN ${analystEvaluation} = 'NOT_EVALUATED' AND ${analystObservations} = '' THEN NULL
             ELSE now()

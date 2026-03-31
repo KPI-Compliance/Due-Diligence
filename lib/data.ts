@@ -536,7 +536,7 @@ async function getPartnerSectionReviewDates(
           SELECT
             t.section::text AS section,
             t.analyzed_at,
-            COALESCE(u.full_name, u.email, 'Analista não identificado') AS analyst_name,
+            COALESCE(u.email, u.full_name, 'Analista não identificado') AS analyst_name,
             ROW_NUMBER() OVER (
               PARTITION BY t.section
               ORDER BY t.analyzed_at DESC NULLS LAST, t.created_at DESC, t.id DESC
@@ -571,7 +571,7 @@ async function getPartnerSectionReviewDates(
           SELECT
             t.section::text AS section,
             t.analyzed_at,
-            COALESCE(u.full_name, u.email, 'Analista não identificado') AS analyst_name,
+            COALESCE(u.email, u.full_name, 'Analista não identificado') AS analyst_name,
             ROW_NUMBER() OVER (
               PARTITION BY t.section
               ORDER BY t.analyzed_at DESC NULLS LAST, t.created_at DESC, t.id DESC
@@ -606,7 +606,7 @@ async function getPartnerSectionReviewDates(
           SELECT
             t.section::text AS section,
             t.analyzed_at,
-            COALESCE(u.full_name, u.email, 'Analista não identificado') AS analyst_name,
+            COALESCE(u.email, u.full_name, 'Analista não identificado') AS analyst_name,
             ROW_NUMBER() OVER (
               PARTITION BY t.section
               ORDER BY t.analyzed_at DESC NULLS LAST, t.created_at DESC, t.id DESC
@@ -640,7 +640,7 @@ async function getPartnerSectionReviewDates(
         SELECT
           t.section::text AS section,
           t.analyzed_at,
-          COALESCE(u.full_name, u.email, 'Analista não identificado') AS analyst_name,
+          COALESCE(u.email, u.full_name, 'Analista não identificado') AS analyst_name,
           ROW_NUMBER() OVER (
             PARTITION BY t.section
             ORDER BY t.analyzed_at DESC NULLS LAST, t.created_at DESC, t.id DESC
