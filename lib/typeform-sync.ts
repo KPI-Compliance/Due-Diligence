@@ -710,7 +710,31 @@ export async function syncExternalQuestionnaireForEntity(input: {
     }
   }
 
-  if (!matchedResponse?.token || assessment.typeform_response_token === matchedResponse.token) {
+  const existingAssessmentQuestionRows = (await sql`
+    SELECT question_text
+    FROM assessment_question_responses
+    WHERE assessment_id = ${assessment.id}::uuid
+    ORDER BY created_at ASC
+    LIMIT 300
+  `) as Array<{ question_text: string | null }>;
+  const hasExistingAssessmentAnswers = existingAssessmentQuestionRows.length > 0;
+  const hasOpaqueQuestionText = existingAssessmentQuestionRows.some((row) => {
+    const question = String(row.question_text ?? "").trim();
+    if (!question) return true;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(question);
+  });
+
+  const matchedToken = matchedResponse?.token ?? null;
+  const tokenAlreadyLinked = Boolean(
+    matchedToken &&
+      assessment.typeform_response_token &&
+      assessment.typeform_response_token === matchedToken,
+  );
+  const needsRehydration =
+    tokenAlreadyLinked &&
+    (!hasExistingAssessmentAnswers || hasOpaqueQuestionText);
+
+  if (!matchedResponse?.token || (tokenAlreadyLinked && !needsRehydration)) {
     await logTypeformSyncDiagnostic({
       source: "entity_sync",
       entityId,
@@ -727,6 +751,8 @@ export async function syncExternalQuestionnaireForEntity(input: {
       payload: {
         matched_token: matchedResponse?.token ?? null,
         current_token: assessment.typeform_response_token,
+        existing_answer_count: existingAssessmentQuestionRows.length,
+        has_opaque_question_text: hasOpaqueQuestionText,
       },
     });
     return {
@@ -734,6 +760,26 @@ export async function syncExternalQuestionnaireForEntity(input: {
       assessmentId: assessment.id,
       responseToken: matchedResponse?.token ?? assessment.typeform_response_token ?? null,
     };
+  }
+
+  if (needsRehydration) {
+    await logTypeformSyncDiagnostic({
+      source: "entity_sync",
+      entityId,
+      entityName,
+      entityKind,
+      jiraIssueKey,
+      assessmentId: assessment.id,
+      formId: matchedResponse?.form_id ?? formId ?? null,
+      stage: "rehydrate",
+      status: "started",
+      message: "Token already linked but stored answers are empty/opaque. Rehydrating from Typeform API.",
+      payload: {
+        existing_answer_count: existingAssessmentQuestionRows.length,
+        has_opaque_question_text: hasOpaqueQuestionText,
+        token: matchedToken,
+      },
+    });
   }
 
   const matchedForm = formMappings.find((form) => form.form_id === matchedResponse.form_id) ?? null;

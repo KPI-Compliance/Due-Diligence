@@ -599,10 +599,14 @@ export function EntityDetailView({
   const externalQuestionsBySection = getExternalQuestionsBySection(detail.questions).filter((entry) =>
     availableExternalSections.includes(entry.section),
   );
+  const firstSectionWithAnswers =
+    externalQuestionsBySection.find((entry) => entry.items.length > 0)?.section ??
+    externalQuestionsBySection[0]?.section ??
+    "Common";
   const normalizedActiveSection = (
     activeQuestionnaireSection && availableExternalSections.includes(activeQuestionnaireSection as ExternalSection)
       ? activeQuestionnaireSection
-      : "Common"
+      : firstSectionWithAnswers
   ) as ExternalSection;
   const supportsSectionFinalObservation =
     kind === "partner" &&
