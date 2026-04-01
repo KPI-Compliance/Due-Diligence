@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { savePartnerAssessmentDecision, savePartnerExternalQuestionnaireSection } from "@/app/(app)/partners/actions";
-import { refreshVendorExternalQuestionnaire, saveVendorAssessmentDecision } from "@/app/(app)/vendors/actions";
+import {
+  refreshVendorExternalQuestionnaire,
+  saveVendorAssessmentDecision,
+  saveVendorExternalQuestionnaireSection,
+} from "@/app/(app)/vendors/actions";
 import { AnalystEvaluationControl } from "@/components/ui/AnalystEvaluationControl";
 import { ExternalQuestionnairePendingNotice, SubmitActionButton } from "@/components/ui/ExternalQuestionnaireSubmitControls";
 import { InternalQuestionnaireDispatchCard } from "@/components/ui/InternalQuestionnaireDispatchCard";
@@ -650,6 +654,8 @@ export function EntityDetailView({
       : isDecisionFinalized
       ? "Concluido"
       : "Opened";
+  const externalQuestionnaireSaveAction =
+    kind === "partner" ? savePartnerExternalQuestionnaireSection : saveVendorExternalQuestionnaireSection;
 
   return (
     <div className="space-y-6">
@@ -1205,7 +1211,7 @@ export function EntityDetailView({
                     </div>
                   </article>
                 ) : (
-                  <form action={savePartnerExternalQuestionnaireSection} className="space-y-6">
+                  <form action={externalQuestionnaireSaveAction} className="space-y-6">
                     <input type="hidden" name="entity_slug" value={detail.id} />
                     <input type="hidden" name="assessment_id" value={detail.externalQuestionnaire.assessmentId ?? ""} />
                     <input type="hidden" name="response_table" value={detail.externalQuestionnaire.responseTable ?? ""} />
@@ -1248,7 +1254,11 @@ export function EntityDetailView({
                             responseId={item.responseId}
                             analystEvaluation={item.analystEvaluation}
                             analystObservations={item.analystObservations}
-                            editable={kind === "partner" && Boolean(detail.externalQuestionnaire.responseTable)}
+                            editable={
+                              kind === "partner"
+                                ? Boolean(detail.externalQuestionnaire.responseTable)
+                                : Boolean(item.responseId)
+                            }
                           />
                         ))}
                         <div className="flex justify-end">

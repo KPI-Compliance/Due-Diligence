@@ -2068,19 +2068,64 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
   } else {
     const sectionOverrides =
       kind === "vendor" ? await getTypeformQuestionSectionOverrides(resolvedTypeformFormId) : new Map<string, string>();
-    const questions = latestAssessment
-      ? ((await sql`
-          SELECT domain, question_text, answer_text, review_status
+    let questions: Array<{
+      id: string;
+      domain: string;
+      question_text: string;
+      answer_text: string | null;
+      review_status: string;
+      analyst_evaluation: string | null;
+      analyst_observations: string | null;
+    }> = [];
+    if (latestAssessment) {
+      try {
+        questions = (await sql`
+          SELECT
+            id::text,
+            domain,
+            question_text,
+            answer_text,
+            review_status::text,
+            analyst_evaluation::text,
+            analyst_observations
           FROM assessment_question_responses
           WHERE assessment_id = ${latestAssessment.id}
           ORDER BY created_at ASC
         `) as Array<{
+          id: string;
           domain: string;
           question_text: string;
           answer_text: string | null;
           review_status: string;
-        }>)
-      : [];
+          analyst_evaluation: string | null;
+          analyst_observations: string | null;
+        }>;
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code !== "42703" && code !== "42704") {
+          throw error;
+        }
+        questions = (await sql`
+          SELECT
+            id::text,
+            domain,
+            question_text,
+            answer_text,
+            review_status::text
+          FROM assessment_question_responses
+          WHERE assessment_id = ${latestAssessment.id}
+          ORDER BY created_at ASC
+        `) as Array<{
+          id: string;
+          domain: string;
+          question_text: string;
+          answer_text: string | null;
+          review_status: string;
+          analyst_evaluation: null;
+          analyst_observations: null;
+        }>;
+      }
+    }
 
     finalQuestions = questions.map((q) => {
       const overrideSection =
@@ -2096,11 +2141,24 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
               formName: resolvedTypeformFormName ?? resolvedTypeformFormId,
             }))
           : undefined;
+      const analystEvaluation =
+        q.analyst_evaluation === "NA" ||
+        q.analyst_evaluation === "DOES_NOT_MEET" ||
+        q.analyst_evaluation === "PARTIALLY" ||
+        q.analyst_evaluation === "FULLY" ||
+        q.analyst_evaluation === "NOT_EVALUATED"
+          ? q.analyst_evaluation
+          : q.review_status.toLowerCase() === "needs_review"
+            ? "PARTIALLY"
+            : "FULLY";
 
       return {
+        responseId: q.id,
         domain: q.domain,
         section,
         status: q.review_status.toLowerCase() === "needs_review" ? ("needs_review" as const) : ("compliant" as const),
+        analystEvaluation,
+        analystObservations: q.analyst_observations ?? "",
         question: q.question_text,
         answer: q.answer_text ?? "No answer provided.",
         source: "database" as const,

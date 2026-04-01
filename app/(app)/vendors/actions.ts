@@ -12,6 +12,8 @@ import {
 import { syncExternalQuestionnaireForEntity } from "@/lib/typeform-sync";
 import { ensureVendorQuestionnaireSelection } from "@/lib/vendor-external-questionnaire";
 
+const allowedAnalystEvaluations = new Set(["NOT_EVALUATED", "NA", "DOES_NOT_MEET", "PARTIALLY", "FULLY"]);
+
 export async function saveVendorExternalQuestionnaire(formData: FormData) {
   const sessionResult = await refreshServerActionSession("vendors.saveVendorExternalQuestionnaire");
   if (!sessionResult.session) {
@@ -37,6 +39,95 @@ export async function saveVendorExternalQuestionnaire(formData: FormData) {
   });
 
   redirect(`/vendors/${entitySlug}?tab=overview&questionnaire=saved`);
+}
+
+export async function saveVendorExternalQuestionnaireSection(formData: FormData) {
+  const sessionResult = await refreshServerActionSession("vendors.saveVendorExternalQuestionnaireSection");
+  if (!sessionResult.session) {
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+  const access = await resolveUserAccess(sessionResult.session.email);
+  if (!access.permissions.canWriteVendors) {
+    redirect("/dashboard");
+  }
+
+  const entitySlug = String(formData.get("entity_slug") ?? "").trim();
+  const assessmentId = String(formData.get("assessment_id") ?? "").trim();
+  const activeTab = String(formData.get("active_tab") ?? "external_questionnaire").trim() || "external_questionnaire";
+  const activeSection = String(formData.get("active_section") ?? "Common").trim() || "Common";
+  const responseIds = formData.getAll("response_id").map((value) => String(value).trim()).filter(Boolean);
+
+  if (!entitySlug || !assessmentId) {
+    throw new Error("Invalid vendor questionnaire section payload.");
+  }
+
+  const analystUserRows = (await sql`
+    SELECT id::text
+    FROM users
+    WHERE lower(email) = lower(${sessionResult.session.email})
+    LIMIT 1
+  `) as Array<{ id: string }>;
+  const analystUserId = analystUserRows[0]?.id ?? null;
+
+  let updatedRows = 0;
+  let supportsExtendedColumns = true;
+
+  for (const responseId of responseIds) {
+    const evaluationRaw = String(formData.get(`evaluation_${responseId}`) ?? "NOT_EVALUATED").trim().toUpperCase();
+    const analystEvaluation = allowedAnalystEvaluations.has(evaluationRaw) ? evaluationRaw : "NOT_EVALUATED";
+    const analystObservations = String(formData.get(`observations_${responseId}`) ?? "").trim();
+    const reviewStatus = analystEvaluation === "FULLY" || analystEvaluation === "NA" ? "COMPLIANT" : "NEEDS_REVIEW";
+
+    if (supportsExtendedColumns) {
+      try {
+        const result = (await sql`
+          UPDATE assessment_question_responses
+          SET
+            review_status = ${reviewStatus}::review_status,
+            analyst_evaluation = ${analystEvaluation}::analyst_evaluation_status,
+            analyst_observations = ${analystObservations},
+            analyst_user_id = CASE
+              WHEN ${analystEvaluation} = 'NOT_EVALUATED' AND ${analystObservations} = '' THEN NULL
+              WHEN ${analystUserId ?? null}::uuid IS NOT NULL THEN ${analystUserId ?? null}::uuid
+              ELSE analyst_user_id
+            END,
+            analyzed_at = CASE
+              WHEN ${analystEvaluation} = 'NOT_EVALUATED' AND ${analystObservations} = '' THEN NULL
+              ELSE now()
+            END,
+            updated_at = now()
+          WHERE id = ${responseId}::uuid
+            AND assessment_id = ${assessmentId}::uuid
+          RETURNING id
+        `) as Array<{ id: string }>;
+        updatedRows += result.length;
+        continue;
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code !== "42703" && code !== "42704") {
+          throw error;
+        }
+        supportsExtendedColumns = false;
+      }
+    }
+
+    const fallbackResult = (await sql`
+      UPDATE assessment_question_responses
+      SET
+        review_status = ${reviewStatus}::review_status,
+        updated_at = now()
+      WHERE id = ${responseId}::uuid
+        AND assessment_id = ${assessmentId}::uuid
+      RETURNING id
+    `) as Array<{ id: string }>;
+    updatedRows += fallbackResult.length;
+  }
+
+  if (responseIds.length > 0 && updatedRows === 0) {
+    throw new Error("No vendor questionnaire responses were updated.");
+  }
+
+  redirect(`/vendors/${entitySlug}?tab=${encodeURIComponent(activeTab)}&section=${encodeURIComponent(activeSection)}&saved=1`);
 }
 
 export async function refreshVendorExternalQuestionnaire(formData: FormData) {
