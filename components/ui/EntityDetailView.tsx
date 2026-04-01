@@ -10,6 +10,7 @@ import { ExternalQuestionnairePendingNotice, SubmitActionButton } from "@/compon
 import { InternalQuestionnaireDispatchCard } from "@/components/ui/InternalQuestionnaireDispatchCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { VendorExternalQuestionnaireCard } from "@/components/ui/VendorExternalQuestionnaireCard";
+import { WorkflowStatusAutoSaveSelect } from "@/components/ui/WorkflowStatusAutoSaveSelect";
 import type {
   AnalystEvaluationStatus,
   DetailTabKey,
@@ -671,20 +672,24 @@ export function EntityDetailView({
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-extrabold tracking-tight text-[var(--color-text)]">{detail.name}</h1>
                 {activeTab === "decision" ? (
-                  <select
+                  <WorkflowStatusAutoSaveSelect
                     name="workflow_status_label"
-                    form={kind === "vendor" ? "vendor-decision-form" : "partner-decision-form"}
+                    formId={kind === "vendor" ? "vendor-decision-form" : "partner-decision-form"}
                     defaultValue={kind === "vendor" ? vendorWorkflowStatusDefaultValue : partnerWorkflowStatusDefaultValue}
+                    disabled={!hasAssessment}
+                    options={[
+                      { value: "Opened", label: "Opened" },
+                      ...(kind === "vendor" ? [{ value: "Waiting vendor", label: "Waiting vendor" }] : []),
+                      ...(kind === "vendor" ? [{ value: "Received Quest.", label: "Received Quest." }] : []),
+                      { value: "Red Team", label: kind === "partner" ? "In Review" : "Red Team" },
+                      {
+                        value: "Concluido",
+                        label: isDecisionFinalized ? "Concluido" : "Concluido (Finalize first)",
+                        disabled: !isDecisionFinalized,
+                      },
+                    ]}
                     className="rounded-full border border-[var(--color-neutral-200)] bg-[var(--color-neutral-100)] px-3 py-1 text-sm font-semibold text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]/40 focus:ring-2 focus:ring-[var(--color-primary)]/10"
-                  >
-                    <option value="Opened">Opened</option>
-                    {kind === "vendor" ? <option value="Waiting vendor">Waiting vendor</option> : null}
-                    {kind === "vendor" ? <option value="Received Quest.">Received Quest.</option> : null}
-                    <option value="Red Team">{kind === "partner" ? "In Review" : "Red Team"}</option>
-                    <option value="Concluido" disabled={!isDecisionFinalized}>
-                      {isDecisionFinalized ? "Concluido" : "Concluido (Finalize first)"}
-                    </option>
-                  </select>
+                  />
                 ) : (
                   kind === "vendor" ? (
                     <span

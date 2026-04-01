@@ -1207,15 +1207,16 @@ export async function getVendorsList() {
       complianceLevel: null,
       storedClassification: row.latest_classification,
     });
-    const hasStoredClassification = Boolean(normalizeStoredClassificationLabel(row.latest_classification));
+    const workflowStatusSource = row.latest_assessment_status ?? row.status;
+    const isWaitingVendorStage =
+      mapStatus(workflowStatusSource) === "sent" || normalizeVendorWorkflowLabel(row.status_label) === "Waiting vendor";
     const waitingVendorWithoutResponse =
-      toWorkflowStatus(row.latest_assessment_status) === "sent" &&
+      isWaitingVendorStage &&
       row.latest_response_count <= 0 &&
       !row.latest_security_level &&
-      !row.latest_privacy_level &&
-      !hasStoredClassification;
+      !row.latest_privacy_level;
     const displayRiskLabel = waitingVendorWithoutResponse ? "Waiting vendor" : riskLabel;
-    const mappedClassificationRisk = classificationToUiRisk(riskLabel);
+    const mappedClassificationRisk = classificationToUiRisk(displayRiskLabel);
     const riskUi = mappedClassificationRisk
       ? riskClasses(mappedClassificationRisk)
       : {
@@ -1232,7 +1233,6 @@ export async function getVendorsList() {
         ? row.jira_form_data
         : null;
     const normalizedWorkflowStatus = normalizeVendorWorkflowLabel(row.status_label);
-    const workflowStatusSource = row.latest_assessment_status ?? row.status;
     const fallbackWorkflowStatus =
       mapStatus(workflowStatusSource) === "completed"
         ? "Concluido"

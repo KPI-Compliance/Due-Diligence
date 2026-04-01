@@ -74,6 +74,32 @@ function renderFinalRiskBadge(label: string) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{label}</span>;
 }
 
+function normalizeSectionRiskValue(label: string | null | undefined) {
+  const value = (label ?? "").trim();
+  return value.length > 0 ? value : "-";
+}
+
+function renderSectionRiskLine(
+  sectionLabel: "Privacy" | "Security",
+  label: string | null | undefined,
+  jiraStatus: string,
+) {
+  const value = normalizeSectionRiskValue(label);
+  const isConcluded = jiraStatus.trim().toLowerCase() === "concluido";
+  const highlightPending = value === "-" && !isConcluded;
+  const toneClassName =
+    highlightPending
+      ? "text-[var(--color-primary)]"
+      : "text-[var(--color-neutral-600)]";
+
+  return (
+    <p className={`text-[11px] ${toneClassName}`}>
+      <span className="font-semibold">{sectionLabel}:</span>{" "}
+      <span className={highlightPending ? "font-semibold" : "text-[var(--color-neutral-700)]"}>{value}</span>
+    </p>
+  );
+}
+
 function normalizeJiraStatusStage(label: string) {
   const normalized = label.trim().toLowerCase();
 
@@ -316,9 +342,8 @@ export default async function VendorsPage({
             <td className="px-6 py-4">
               <Link href={`/vendors/${item.id}`} className="block space-y-1">
                 {renderFinalRiskBadge(item.risk)}
-                <p className="text-[11px] text-[var(--color-neutral-600)]">
-                  Privacy: {item.privacyRisk ?? "-"} | Security: {item.securityRisk ?? "-"}
-                </p>
+                {renderSectionRiskLine("Privacy", item.privacyRisk, item.jiraStatus)}
+                {renderSectionRiskLine("Security", item.securityRisk, item.jiraStatus)}
               </Link>
             </td>
             <td className="px-6 py-4 text-sm text-[var(--color-neutral-600)]"><Link href={`/vendors/${item.id}`} className="block">{item.lastReview}</Link></td>
