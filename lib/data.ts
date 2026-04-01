@@ -181,7 +181,8 @@ function getModelOneDisplayClassification(input: {
       ? [input.securityLevel, input.privacyLevel, input.complianceLevel]
       : [input.securityLevel, input.privacyLevel];
 
-  if (requiredLevels.some((level) => !level)) {
+  const availableLevels = requiredLevels.filter(Boolean);
+  if (availableLevels.length === 0) {
     return "Pending Review";
   }
 
@@ -2148,9 +2149,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
         q.analyst_evaluation === "FULLY" ||
         q.analyst_evaluation === "NOT_EVALUATED"
           ? q.analyst_evaluation
-          : q.review_status.toLowerCase() === "needs_review"
-            ? "PARTIALLY"
-            : "FULLY";
+          : "NOT_EVALUATED";
 
       return {
         responseId: q.id,
@@ -2331,7 +2330,9 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       ? combinedScore !== null
         ? Math.round(combinedScore * 10)
         : (entity.risk_score ?? 0)
-      : (entity.risk_score ?? 0);
+      : combinedScore !== null
+        ? Math.round(combinedScore * 10)
+        : (entity.risk_score ?? 0);
 
   const riskBreakdown = breakdownRows.map((item) => ({
     label: toTitleCase(item.dimension) as "Security" | "Privacy" | "Financial" | "Operational",

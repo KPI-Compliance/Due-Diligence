@@ -11,6 +11,7 @@ import {
 } from "@/lib/jira";
 import { syncExternalQuestionnaireForEntity } from "@/lib/typeform-sync";
 import { ensureVendorQuestionnaireSelection } from "@/lib/vendor-external-questionnaire";
+import { recalculateVendorAssessmentDecisionByAssessmentId } from "@/lib/vendor-risk-scoring";
 
 const allowedAnalystEvaluations = new Set(["NOT_EVALUATED", "NA", "DOES_NOT_MEET", "PARTIALLY", "FULLY"]);
 
@@ -126,6 +127,8 @@ export async function saveVendorExternalQuestionnaireSection(formData: FormData)
   if (responseIds.length > 0 && updatedRows === 0) {
     throw new Error("No vendor questionnaire responses were updated.");
   }
+
+  await recalculateVendorAssessmentDecisionByAssessmentId(assessmentId);
 
   redirect(`/vendors/${entitySlug}?tab=${encodeURIComponent(activeTab)}&section=${encodeURIComponent(activeSection)}&saved=1`);
 }

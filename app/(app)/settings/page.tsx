@@ -37,6 +37,7 @@ import {
   upsertPlatformSettings,
 } from "@/lib/platform-settings";
 import { recalculateAllPartnerAssessmentDecisions } from "@/lib/partner-risk-scoring";
+import { recalculateAllVendorAssessmentDecisions } from "@/lib/vendor-risk-scoring";
 import { backfillExternalQuestionnaireForQueueTickets } from "@/lib/typeform-sync";
 import { getTypeformHiddenHealth } from "@/lib/typeform-hidden-health";
 
@@ -460,6 +461,7 @@ async function saveRiskScoringSettings(formData: FormData) {
 
   await upsertPlatformSettings("RISK_SCORING", payload);
   await recalculateAllPartnerAssessmentDecisions();
+  await recalculateAllVendorAssessmentDecisions();
   redirect("/settings?tab=pontuacao&saved=pontuacao");
 }
 

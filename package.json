@@ -11,6 +11,7 @@
     "test": "node --eval \"console.log('No automated tests configured yet')\"",
     "backfill:partner-typeform": "node scripts/backfill-partner-typeform-responses.mjs",
     "backfill:partner-risk-scores": "node scripts/backfill-partner-risk-scores.mjs",
+    "backfill:vendor-risk-scores": "node scripts/backfill-vendor-risk-scores.mjs",
     "backfill:vendor-jira-form-fields": "node scripts/backfill-vendor-jira-form-fields.mjs",
     "backfill:vendor-jira-reporter": "node scripts/backfill-vendor-jira-reporter.mjs"
   },

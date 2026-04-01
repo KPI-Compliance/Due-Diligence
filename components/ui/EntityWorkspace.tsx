@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { WorkspaceFilters, type WorkspaceFilterControl } from "@/components/ui/WorkspaceFilters";
 import { cn } from "@/lib/utils";
@@ -117,7 +118,15 @@ export function EntityWorkspace({
         })}
       </section>
 
-      <WorkspaceFilters filters={filters} />
+      <Suspense
+        fallback={
+          <section className="rounded-xl border border-[var(--color-neutral-200)] bg-white p-4 shadow-sm">
+            <div className="h-9 w-full rounded-lg bg-[var(--color-neutral-100)]" />
+          </section>
+        }
+      >
+        <WorkspaceFilters filters={filters} />
+      </Suspense>
 
       <section className="overflow-hidden rounded-xl border border-[var(--color-neutral-200)] bg-white shadow-sm">
         <div className="overflow-x-auto">
