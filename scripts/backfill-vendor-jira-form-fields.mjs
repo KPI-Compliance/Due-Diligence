@@ -69,7 +69,37 @@ function normalizeExtractedCompany(value) {
   const cleaned = stripped || normalized;
   if (!cleaned) return null;
   if (/^(cap|cap number)$/i.test(cleaned)) return null;
+
+  if (/company\s*\*/i.test(cleaned) || /empresa\s*\*/i.test(cleaned)) {
+    const token = cleaned
+      .replace(/^(company|empresa)\s*\*?\s*/i, "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .pop();
+    return token?.trim() || null;
+  }
+
   return cleaned.length <= 120 ? cleaned : null;
+}
+
+function normalizeVendorDisplayName(value) {
+  const normalized = normalizeWhitespace(value ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+
+  const stripped = normalized
+    .replace(
+      /^(name of vendor|nome do vendor|nome do fornecedor|vendor name|nome da empresa)\s*\*?\s*[:|-]?\s*/i,
+      "",
+    )
+    .trim();
+  const cleaned = stripped || normalized;
+  if (!cleaned) return null;
+
+  if (/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(cleaned)) {
+    return null;
+  }
+
+  return cleaned.length <= 120 ? cleaned : cleaned.slice(0, 120).trim();
 }
 
 function normalizeCompanyGroup(value) {
@@ -97,44 +127,38 @@ function normalizeExtractedCapNumber(value) {
 }
 
 function parseLabeledValueFromLines(lines, labels) {
-  const normalizedLabels = labels.map(normalizeKey);
-  const knownFieldHints = [
-    "nameofvendor",
-    "vendoremail",
-    "vtexemailresponsible",
-    "vendorlanguagepreferences",
-    "priority",
-    "capnumber",
-    "company",
-    "scope",
-    "escopo",
-    "contexto",
-  ];
+  const normalizedLabels = labels.map((label) => normalizeKey(label));
 
   const isKnownLabel = (line) => {
-    const normalized = normalizeKey(line);
+    const normalizedLine = normalizeKey(line);
     return (
       normalizedLabels.some(
-        (label) => normalized === label || normalized.includes(label) || label.includes(normalized),
-      ) || knownFieldHints.some((hint) => normalized.includes(hint))
+        (label) =>
+          normalizedLine === label ||
+          normalizedLine.startsWith(label) ||
+          normalizedLine.includes(label),
+      ) ||
+      /(nameofvendor|vendoremail|vtexemailresponsible|vendorlanguagepreferences|priority|capnumber|company|scope|escopo|contexto)/i.test(
+        normalizedLine,
+      )
     );
   };
 
   for (let index = 0; index < lines.length; index += 1) {
-    const current = lines[index];
+    const current = lines[index] ?? "";
     const normalizedCurrent = normalizeKey(current);
     const labelMatch = normalizedLabels.some(
       (label) =>
         normalizedCurrent === label ||
-        normalizedCurrent.includes(label) ||
-        label.includes(normalizedCurrent),
+        normalizedCurrent.startsWith(label) ||
+        normalizedCurrent.includes(label),
     );
 
     if (!labelMatch) continue;
 
     const collected = [];
     for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
-      const candidate = lines[cursor];
+      const candidate = lines[cursor]?.trim() ?? "";
       if (!candidate) continue;
       if (/^--\s*\d+\s+of\s+\d+\s*--$/i.test(candidate)) break;
       if (isKnownLabel(candidate)) break;
@@ -156,6 +180,9 @@ function parseLabeledValueFromLines(lines, labels) {
     "Vendor email",
     "VTEX e-mail responsible",
     "VTEX email responsible",
+    "VTEX e-mail responsável",
+    "E-mail responsável VTEX",
+    "Email responsavel VTEX",
     "Vendor Language Preferences",
     "Priority",
     "CAP NUMBER",
@@ -174,7 +201,7 @@ function parseLabeledValueFromLines(lines, labels) {
     );
     const match = flattened.match(pattern);
     if (match?.[1]) {
-      const value = match[1].trim();
+      const value = normalizeWhitespace(match[1]);
       if (value) return value;
     }
   }
@@ -183,15 +210,26 @@ function parseLabeledValueFromLines(lines, labels) {
 }
 
 function parseEmailByLabel(text, labels) {
+  const normalizedText = text.replace(/\s+/g, " ").trim();
+
   for (const label of labels) {
-    const regex = new RegExp(
+    const strict = new RegExp(
       `${escapeRegex(label)}\\s*\\*?\\s*[:|-]?\\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,})`,
       "iu",
     );
-    const match = text.match(regex);
-    if (match?.[1]) {
-      return extractEmailFromText(match[1]);
+    const strictMatch = normalizedText.match(strict);
+    if (strictMatch?.[1]) {
+      return extractEmailFromText(strictMatch[1]);
     }
+
+    // Proforma/JSM PDFs often render: Label *  "Display Name"  <user@domain.com>
+    const labelRe = new RegExp(escapeRegex(label), "iu");
+    const labelHit = labelRe.exec(normalizedText);
+    if (!labelHit) continue;
+    const afterLabel = normalizedText.slice(labelHit.index + labelHit[0].length).trim();
+    const window = afterLabel.slice(0, 520);
+    const loose = extractEmailFromText(window);
+    if (loose) return loose;
   }
 
   return null;
@@ -201,7 +239,7 @@ function parseTextByLabel(text, labels, boundaries) {
   const boundaryPattern = boundaries.map((item) => escapeRegex(item)).join("|");
   for (const label of labels) {
     const regex = new RegExp(
-      `${escapeRegex(label)}\\s*\\*?\\s*[:|-]?\\s*([\\s\\S]{1,1200}?)(?=(?:${boundaryPattern})\\s*\\*?\\s*[:|-]?|$)`,
+      `${escapeRegex(label)}\\s*\\*?\\s*[:|-]?\\s*([\\s\\S]{1,500}?)(?=(?:${boundaryPattern})\\s*\\*?\\s*[:|-]?|$)`,
       "iu",
     );
     const match = text.match(regex);
@@ -217,6 +255,7 @@ function parseTextByLabel(text, labels, boundaries) {
 function scoreExtractedFields(fields) {
   if (!fields) return 0;
   let score = 0;
+  if (fields.vendorDisplayName) score += 2;
   if (fields.vendorEmail) score += 3;
   if (fields.vtexResponsibleEmail) score += 3;
   if (fields.scope) score += 3;
@@ -281,7 +320,13 @@ async function getJiraConfig() {
   return { baseUrl, email, token };
 }
 
-async function fetchLatestVendorPdfAttachment(jira, issueKey) {
+function isVendorRequestPdfFilename(filename) {
+  const normalized = String(filename ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized.includes("vendor request") && normalized.endsWith(".pdf");
+}
+
+async function listVendorPdfAttachmentsForIssue(jira, issueKey) {
   const auth = `Basic ${Buffer.from(`${jira.email}:${jira.token}`).toString("base64")}`;
   const issueUrl = `${jira.baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=attachment`;
   const issueResponse = await fetch(issueUrl, {
@@ -293,21 +338,23 @@ async function fetchLatestVendorPdfAttachment(jira, issueKey) {
   });
 
   if (!issueResponse.ok) {
-    return null;
+    return [];
   }
 
   const payload = await issueResponse.json();
   const attachments = Array.isArray(payload?.fields?.attachment) ? payload.fields.attachment : [];
-  const pdfAttachments = attachments
+  return attachments
     .filter((item) => {
       const mimeType = String(item?.mimeType ?? "").toLowerCase();
       const filename = String(item?.filename ?? "").toLowerCase();
       return mimeType === "application/pdf" || filename.endsWith(".pdf");
     })
-    .sort((left, right) => Date.parse(String(right?.created ?? "")) - Date.parse(String(left?.created ?? "")));
-
-  const preferred = pdfAttachments.find((item) => /vendor\s*request/i.test(String(item?.filename ?? "")));
-  return preferred ?? pdfAttachments[0] ?? null;
+    .sort((left, right) => {
+      const leftPreferred = isVendorRequestPdfFilename(left?.filename) ? 1 : 0;
+      const rightPreferred = isVendorRequestPdfFilename(right?.filename) ? 1 : 0;
+      if (leftPreferred !== rightPreferred) return rightPreferred - leftPreferred;
+      return Date.parse(String(right?.created ?? "")) - Date.parse(String(left?.created ?? ""));
+    });
 }
 
 async function extractFieldsFromPdfUrl(jira, contentUrl) {
@@ -383,6 +430,9 @@ async function extractFieldsFromPdfUrl(jira, contentUrl) {
     "Vendor email",
     "VTEX e-mail responsible",
     "VTEX email responsible",
+    "VTEX e-mail responsável",
+    "E-mail responsável VTEX",
+    "Email responsavel VTEX",
     "Vendor Language Preferences",
     "Priority",
     "CAP NUMBER",
@@ -393,7 +443,13 @@ async function extractFieldsFromPdfUrl(jira, contentUrl) {
     "Contexto",
   ];
 
+  const vendorDisplayName = normalizeVendorDisplayName(
+    parseTextByLabel(rawText, ["Name of Vendor", "Nome do fornecedor", "Nome do vendor", "Vendor name"], boundaries) ??
+      parseLabeledValueFromLines(lines, ["Name of Vendor", "Nome do fornecedor", "Nome do vendor", "Vendor name"]),
+  );
+
   const parsed = {
+    vendorDisplayName,
     vendorEmail:
       parseEmailByLabel(singleLineText, [
         "Vendor e-mail address",
@@ -420,15 +476,22 @@ async function extractFieldsFromPdfUrl(jira, contentUrl) {
       parseEmailByLabel(singleLineText, [
         "VTEX e-mail responsible",
         "VTEX email responsible",
-        "Responsável VTEX",
+        "VTEX e-mail responsável",
+        "E-mail responsável VTEX",
+        "Email responsavel VTEX",
+        "E-mail Responsável VTEX",
         "Responsavel VTEX",
+        "Responsável VTEX",
         "Ponto focal VTEX",
       ]) ??
       parseLabeledValueFromLines(lines, [
         "VTEX e-mail responsible",
         "VTEX email responsible",
-        "Responsável VTEX",
+        "VTEX e-mail responsável",
+        "E-mail responsável VTEX",
+        "Email responsavel VTEX",
         "Responsavel VTEX",
+        "Responsável VTEX",
       ]),
     languagePreference:
       parseTextByLabel(rawText, ["Vendor Language Preferences", "Language Preference", "Idioma", "Language"], boundaries) ??
@@ -446,9 +509,11 @@ async function extractFieldsFromPdfUrl(jira, contentUrl) {
 
   const normalized = sanitizeVendorFormFieldValues(parsed);
 
-  if (scoreExtractedFields(normalized) === 0) return null;
+  const result = { ...normalized, vendorDisplayName: parsed.vendorDisplayName ?? null };
 
-  return normalized;
+  if (scoreExtractedFields(result) === 0) return null;
+
+  return result;
 }
 
 async function main() {
@@ -456,13 +521,18 @@ async function main() {
   const forceAll = process.argv.includes("--force-all");
   const limitArg = process.argv.find((arg) => arg.startsWith("--limit="));
   const limit = limitArg ? Math.max(1, Number.parseInt(limitArg.slice("--limit=".length), 10)) : 1000;
+  const issueArg = process.argv.find((arg) => arg.startsWith("--issue="));
+  const issueKeyFilter = issueArg ? issueArg.slice("--issue=".length).trim() : null;
+  /** When true, non-empty PDF values win over stored JSON (same idea as Jira webhook attachment path). */
+  const preferPdf = Boolean(issueKeyFilter) || process.argv.includes("--prefer-pdf");
 
   const jira = await getJiraConfig();
 
-  const entities = forceAll
+  const entities = issueKeyFilter
     ? await sql`
         SELECT
           id::text,
+          name,
           jira_issue_key,
           contact_email,
           description,
@@ -471,34 +541,57 @@ async function main() {
           jira_form_data
         FROM entities
         WHERE kind = 'VENDOR'
-          AND jira_issue_key IS NOT NULL
-        ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
-        LIMIT ${limit}
+          AND jira_issue_key = ${issueKeyFilter}
+        LIMIT 1
       `
-    : await sql`
-        SELECT
-          id::text,
-          jira_issue_key,
-          contact_email,
-          description,
-          company_group,
-          owner_user_id::text AS owner_user_id,
-          jira_form_data
-        FROM entities
-        WHERE kind = 'VENDOR'
-          AND jira_issue_key IS NOT NULL
-          AND (
-            COALESCE(NULLIF(contact_email, ''), NULLIF(jira_form_data->>'vendorEmail', '')) IS NULL
-            OR COALESCE(NULLIF(jira_form_data->>'scope', ''), '') = ''
-            OR COALESCE(NULLIF(description, ''), NULLIF(jira_form_data->>'scope', '')) IS NULL
-            OR COALESCE(NULLIF(jira_form_data->>'vtexResponsibleEmail', ''), '') = ''
-            OR lower(COALESCE(jira_form_data->>'capNumber', '')) LIKE '%company%'
-            OR lower(COALESCE(jira_form_data->>'capNumber', '')) LIKE '%empresa%'
-            OR lower(COALESCE(jira_form_data->>'priority', '')) IN ('priority', 'prioridade')
-          )
-        ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
-        LIMIT ${limit}
-      `;
+    : forceAll
+      ? await sql`
+          SELECT
+            id::text,
+            name,
+            jira_issue_key,
+            contact_email,
+            description,
+            company_group,
+            owner_user_id::text AS owner_user_id,
+            jira_form_data
+          FROM entities
+          WHERE kind = 'VENDOR'
+            AND jira_issue_key IS NOT NULL
+          ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
+          LIMIT ${limit}
+        `
+      : await sql`
+          SELECT
+            id::text,
+            name,
+            jira_issue_key,
+            contact_email,
+            description,
+            company_group,
+            owner_user_id::text AS owner_user_id,
+            jira_form_data
+          FROM entities
+          WHERE kind = 'VENDOR'
+            AND jira_issue_key IS NOT NULL
+            AND (
+              COALESCE(NULLIF(contact_email, ''), NULLIF(jira_form_data->>'vendorEmail', '')) IS NULL
+              OR COALESCE(NULLIF(jira_form_data->>'scope', ''), '') = ''
+              OR COALESCE(NULLIF(description, ''), NULLIF(jira_form_data->>'scope', '')) IS NULL
+              OR COALESCE(NULLIF(jira_form_data->>'vtexResponsibleEmail', ''), '') = ''
+              OR lower(COALESCE(jira_form_data->>'capNumber', '')) LIKE '%company%'
+              OR lower(COALESCE(jira_form_data->>'capNumber', '')) LIKE '%empresa%'
+              OR lower(COALESCE(jira_form_data->>'priority', '')) IN ('priority', 'prioridade')
+            )
+          ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
+          LIMIT ${limit}
+        `;
+
+  if (issueKeyFilter && entities.length === 0) {
+    throw new Error(
+      `[backfill-vendor-jira-form-fields] No VENDOR entity found for jira_issue_key=${issueKeyFilter}.`,
+    );
+  }
 
   let updated = 0;
   let noPdf = 0;
@@ -514,14 +607,27 @@ async function main() {
     }
 
     try {
-      const attachment = await fetchLatestVendorPdfAttachment(jira, issueKey);
-      if (!attachment?.content) {
+      const pdfAttachments = await listVendorPdfAttachmentsForIssue(jira, issueKey);
+      if (pdfAttachments.length === 0) {
         noPdf += 1;
         continue;
       }
 
-      const parsed = await extractFieldsFromPdfUrl(jira, String(attachment.content));
-      if (!parsed || scoreExtractedFields(parsed) === 0) {
+      let parsed = null;
+      let bestScore = 0;
+      for (const attachment of pdfAttachments) {
+        const contentUrl = attachment?.content;
+        if (!contentUrl) continue;
+        const candidate = await extractFieldsFromPdfUrl(jira, String(contentUrl));
+        if (!candidate) continue;
+        const score = scoreExtractedFields(candidate);
+        if (score > bestScore) {
+          bestScore = score;
+          parsed = candidate;
+        }
+      }
+
+      if (!parsed || bestScore === 0) {
         noExtract += 1;
         continue;
       }
@@ -540,41 +646,51 @@ async function main() {
         scope: jiraFormData.scope,
       });
 
+      const pick = (pdfVal, existingVal) =>
+        preferPdf ? (pdfVal || existingVal || null) : (pdfVal ?? existingVal ?? null);
+
+      const existingVendorDisplayName =
+        typeof jiraFormData.vendorDisplayName === "string" && jiraFormData.vendorDisplayName.trim()
+          ? jiraFormData.vendorDisplayName.trim()
+          : null;
+      const mergedVendorDisplayName = pick(parsed.vendorDisplayName, existingVendorDisplayName);
+
       const nextJiraFormData = {
         ...jiraFormData,
-        vendorEmail: parsed.vendorEmail ?? sanitizedExisting.vendorEmail ?? null,
-        scope: parsed.scope ?? sanitizedExisting.scope ?? null,
-        vtexResponsibleEmail:
-          parsed.vtexResponsibleEmail ?? sanitizedExisting.vtexResponsibleEmail ?? null,
-        languagePreference:
-          parsed.languagePreference ??
-          sanitizedExisting.languagePreference ??
-          null,
-        priority:
-          parsed.priority ??
-          sanitizedExisting.priority ??
-          null,
-        company: parsed.company ?? sanitizedExisting.company ?? null,
-        capNumber: parsed.capNumber ?? sanitizedExisting.capNumber ?? null,
+        vendorDisplayName: mergedVendorDisplayName ?? null,
+        vendorEmail: pick(parsed.vendorEmail, sanitizedExisting.vendorEmail),
+        scope: pick(parsed.scope, sanitizedExisting.scope),
+        vtexResponsibleEmail: pick(parsed.vtexResponsibleEmail, sanitizedExisting.vtexResponsibleEmail),
+        languagePreference: pick(parsed.languagePreference, sanitizedExisting.languagePreference),
+        priority: pick(parsed.priority, sanitizedExisting.priority),
+        company: pick(parsed.company, sanitizedExisting.company),
+        capNumber: pick(parsed.capNumber, sanitizedExisting.capNumber),
       };
 
       const currentEmail = extractEmailFromText(row.contact_email);
       const currentScope = sanitizeLabelOnlyTextValue(row.description, ["scope", "escopo", "context", "contexto"]);
       const currentResponsible = extractEmailFromText(jiraFormData.vtexResponsibleEmail);
-      const shouldUpdateEmail = parsed.vendorEmail && parsed.vendorEmail !== currentEmail;
-      const shouldUpdateScope = parsed.scope && parsed.scope !== currentScope;
-      const shouldUpdateResponsible = parsed.vtexResponsibleEmail && parsed.vtexResponsibleEmail !== currentResponsible;
+      const mergedVendorEmail = nextJiraFormData.vendorEmail;
+      const mergedScope = nextJiraFormData.scope;
+      const mergedResponsible = nextJiraFormData.vtexResponsibleEmail;
+      const shouldUpdateEmail = Boolean(mergedVendorEmail && mergedVendorEmail !== currentEmail);
+      const shouldUpdateScope = Boolean(mergedScope && mergedScope !== currentScope);
+      const shouldUpdateResponsible = Boolean(mergedResponsible && mergedResponsible !== currentResponsible);
       const shouldUpdateJiraFormData =
         JSON.stringify(nextJiraFormData) !== JSON.stringify(jiraFormData);
-      const parsedCompanyGroup = normalizeCompanyGroup(parsed.company);
+      const mergedCompanyGroup = normalizeCompanyGroup(nextJiraFormData.company);
       const storedCompanyGroup = normalizeCompanyGroup(row.company_group);
-      const shouldUpdateCompanyGroup = Boolean(parsedCompanyGroup && parsedCompanyGroup !== storedCompanyGroup);
+      const shouldUpdateCompanyGroup = Boolean(mergedCompanyGroup && mergedCompanyGroup !== storedCompanyGroup);
+      const storedEntityName = String(row.name ?? "").trim();
+      const shouldUpdateName = Boolean(
+        mergedVendorDisplayName && mergedVendorDisplayName !== storedEntityName,
+      );
       let nextOwnerUserId = row.owner_user_id ?? null;
-      if (isBlank(nextOwnerUserId) && !isBlank(parsed.vtexResponsibleEmail)) {
+      if (isBlank(nextOwnerUserId) && !isBlank(mergedResponsible)) {
         const ownerRows = await sql`
           SELECT id::text
           FROM users
-          WHERE lower(email) = lower(${parsed.vtexResponsibleEmail})
+          WHERE lower(email) = lower(${mergedResponsible})
           LIMIT 1
         `;
         nextOwnerUserId = ownerRows[0]?.id ?? null;
@@ -587,7 +703,8 @@ async function main() {
         !shouldUpdateResponsible &&
         !shouldUpdateJiraFormData &&
         !shouldUpdateOwner &&
-        !shouldUpdateCompanyGroup
+        !shouldUpdateCompanyGroup &&
+        !shouldUpdateName
       ) {
         skipped += 1;
         continue;
@@ -597,12 +714,16 @@ async function main() {
         await sql`
           UPDATE entities
           SET
+            name = CASE
+              WHEN ${shouldUpdateName}::boolean THEN ${mergedVendorDisplayName ?? null}
+              ELSE name
+            END,
             contact_email = CASE
-              WHEN ${shouldUpdateEmail}::boolean THEN ${parsed.vendorEmail ?? null}
+              WHEN ${shouldUpdateEmail}::boolean THEN ${mergedVendorEmail ?? null}
               ELSE contact_email
             END,
             description = CASE
-              WHEN ${shouldUpdateScope}::boolean THEN ${parsed.scope ?? null}
+              WHEN ${shouldUpdateScope}::boolean THEN ${mergedScope ?? null}
               ELSE description
             END,
             owner_user_id = CASE
@@ -610,7 +731,7 @@ async function main() {
               ELSE owner_user_id
             END,
             company_group = CASE
-              WHEN ${shouldUpdateCompanyGroup}::boolean THEN ${parsedCompanyGroup ?? null}::company_group
+              WHEN ${shouldUpdateCompanyGroup}::boolean THEN ${mergedCompanyGroup ?? null}::company_group
               ELSE company_group
             END,
             jira_form_data = ${JSON.stringify(nextJiraFormData)}::jsonb,
@@ -634,6 +755,8 @@ async function main() {
       {
         dryRun,
         forceAll,
+        issueKeyFilter,
+        preferPdf,
         scanned: entities.length,
         updated,
         noPdf,

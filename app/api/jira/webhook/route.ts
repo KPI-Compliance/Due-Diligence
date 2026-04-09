@@ -5,8 +5,10 @@ import {
   enrichVendorFieldsFromJiraIssue,
   enrichVendorFieldsFromJiraAttachments,
   extractEntityFromJiraIssue,
+  normalizeVendorDisplayName,
   fetchJiraIssueCreatedAt,
   isSupportedJiraWebhookEvent,
+  jiraStatusNameFromWebhookField,
   resolveKindFromJiraQueues,
   type JiraWebhookPayload,
 } from "@/lib/jira";
@@ -321,6 +323,14 @@ export async function POST(request: Request) {
           entity.jiraFormData.capNumber = issueFallback.capNumber || entity.jiraFormData.capNumber || null;
           entity.jiraFormData.scope = entity.jiraFormData.scope || issueFallback.scope || null;
 
+          if (issueFallback.intakeVendorName) {
+            entity.name = issueFallback.intakeVendorName;
+          }
+          const intakeDisplayName = normalizeVendorDisplayName(issueFallback.intakeVendorName);
+          if (intakeDisplayName) {
+            entity.jiraFormData.vendorDisplayName = intakeDisplayName;
+          }
+
           entity.contactEmail = entity.contactEmail || issueFallback.vendorEmail || null;
           entity.ownerEmail = entity.ownerEmail || issueFallback.vtexResponsibleEmail || null;
           entity.description = entity.description || issueFallback.scope || issueFallback.description || null;
@@ -361,7 +371,7 @@ export async function POST(request: Request) {
 
         if (attachmentFallback) {
           syncDebug.attachmentFallbackApplied = true;
-          // PDF attachment is the source of truth for Vendor intake fields.
+          // Vendor request PDF is the source of truth when the parser returns a value (over webhook + Jira API heuristics).
           entity.jiraFormData.vendorEmail = attachmentFallback.vendorEmail || entity.jiraFormData.vendorEmail || null;
           entity.jiraFormData.scope = attachmentFallback.scope || entity.jiraFormData.scope || null;
           entity.jiraFormData.vtexResponsibleEmail =
@@ -371,6 +381,11 @@ export async function POST(request: Request) {
           entity.jiraFormData.priority = attachmentFallback.priority || entity.jiraFormData.priority || null;
           entity.jiraFormData.company = attachmentFallback.company || entity.jiraFormData.company || null;
           entity.jiraFormData.capNumber = attachmentFallback.capNumber || entity.jiraFormData.capNumber || null;
+          entity.jiraFormData.vendorDisplayName =
+            attachmentFallback.vendorDisplayName || entity.jiraFormData.vendorDisplayName || null;
+          if (attachmentFallback.vendorDisplayName) {
+            entity.name = attachmentFallback.vendorDisplayName;
+          }
 
           entity.contactEmail = attachmentFallback.vendorEmail || entity.contactEmail || null;
           entity.ownerEmail = attachmentFallback.vtexResponsibleEmail || entity.ownerEmail || null;
@@ -439,6 +454,7 @@ export async function POST(request: Request) {
       entity.companyGroup;
     const currentSlug = existingEntity?.slug ?? null;
     const mergedJiraFormData = {
+      vendorDisplayName: prefersIncoming(existingJiraFormData.vendorDisplayName, entity.jiraFormData.vendorDisplayName),
       vendorEmail: prefersIncoming(existingJiraFormData.vendorEmail, entity.jiraFormData.vendorEmail),
       vtexResponsibleEmail: prefersIncoming(existingJiraFormData.vtexResponsibleEmail, entity.jiraFormData.vtexResponsibleEmail),
       languagePreference: prefersIncoming(existingJiraFormData.languagePreference, entity.jiraFormData.languagePreference),
@@ -454,7 +470,7 @@ export async function POST(request: Request) {
     const persistedJiraFormData = {
       ...existingJiraFormData,
       ...mergedJiraFormData,
-      jiraStatus: payload.issue?.fields?.status?.name?.trim() || null,
+      jiraStatus: jiraStatusNameFromWebhookField(payload.issue?.fields?.status) ?? null,
       jiraIssueCreatedAt,
       _syncDebug: syncDebug,
     };

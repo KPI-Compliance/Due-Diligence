@@ -12,8 +12,9 @@ type JiraIssueFields = {
   summary?: string;
   description?: JiraPrimitive | JiraAdfNode;
   labels?: string[];
-  priority?: { name?: string | null } | null;
-  status?: { name?: string | null } | null;
+  /** Native API uses `{ name }`; Jira Automation “JSON entre aspas” may send a plain string. */
+  priority?: { name?: string | null } | string | null;
+  status?: { name?: string | null } | string | null;
   issuetype?: { name?: string | null } | null;
   project?: { key?: string | null } | null;
   assignee?: { emailAddress?: string | null; displayName?: string | null } | null;
@@ -52,6 +53,7 @@ export type SyncedJiraEntityInput = {
   riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   ownerEmail: string | null;
   jiraFormData: {
+    vendorDisplayName: string | null;
     vendorEmail: string | null;
     vtexResponsibleEmail: string | null;
     languagePreference: string | null;
@@ -282,6 +284,45 @@ function valueFromTopLevelPayload(payload: JiraWebhookPayload, keys: string[]) {
   }
 
   return null;
+}
+
+/** Nested objects Jira Automation can POST alongside `issue` (custom data JSON). */
+const VENDOR_INTAKE_AUTOMATION_OBJECT_KEYS = [
+  "vendor_intake",
+  "vendorIntake",
+  "jira_vendor_intake",
+  "due_diligence_vendor_intake",
+] as const;
+
+function getVendorIntakeAutomationObject(payload: unknown): Record<string, unknown> | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const root = payload as Record<string, unknown>;
+  for (const key of VENDOR_INTAKE_AUTOMATION_OBJECT_KEYS) {
+    const block = root[key];
+    if (block && typeof block === "object" && !Array.isArray(block)) {
+      return block as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+/**
+ * Reads vendor form values from an automation block first, then top-level keys on the payload.
+ * Use in Jira Automation "Dados personalizados" e.g. `"vendor_intake": { "vendor_email_address": "{{issue.customfield_...}}" }`
+ */
+function valueFromVendorIntakeAutomation(
+  payload: JiraWebhookPayload,
+  intakeKeys: string[],
+  topLevelKeys: string[],
+): string | null {
+  const block = getVendorIntakeAutomationObject(payload);
+  if (block) {
+    for (const key of intakeKeys) {
+      const value = stringifyUnknown(block[key]);
+      if (value) return value;
+    }
+  }
+  return valueFromTopLevelPayload(payload, topLevelKeys);
 }
 
 function valueFromLabeledEntry(value: unknown, normalizedAliases: string[]): string | null {
@@ -637,13 +678,15 @@ export async function enrichVendorFieldsFromJiraIssue(input: {
         ? issuePayload.names
         : {};
     const issueDescription = normalizeWhitespace(adfToText((issueFields.description as JiraPrimitive | JiraAdfNode) ?? ""));
+    const requestFieldValues =
+      requestPayload && typeof requestPayload === "object"
+        ? (requestPayload.requestFieldValues ?? requestPayload.values ?? null)
+        : null;
+
     const source = {
       issue: issuePayload,
       request: requestPayload,
-      requestFieldValues:
-        requestPayload && typeof requestPayload === "object"
-          ? (requestPayload.requestFieldValues ?? requestPayload.values ?? null)
-          : null,
+      requestFieldValues,
     };
 
     const vendorEmail =
@@ -725,6 +768,21 @@ export async function enrichVendorFieldsFromJiraIssue(input: {
       findIssueFieldValue(issueFields, issueFieldNames, ["scope", "escopo", "context", "contexto"]) ??
       findFieldValue(issueDescription, ["scope", "escopo", "context", "contexto"]);
 
+    const intakeVendorNameRaw =
+      findValueInObject(source, [
+        "name of vendor",
+        "vendor name",
+        "nome do vendor",
+        "nome do fornecedor",
+      ]) ??
+      findIssueFieldValue(issueFields, issueFieldNames, [
+        "name of vendor",
+        "vendor name",
+        "nome do vendor",
+        "nome do fornecedor",
+      ]);
+    const intakeVendorName = intakeVendorNameRaw ? normalizeWhitespace(intakeVendorNameRaw).replace(/\s+/g, " ").trim() : null;
+
     const sanitized = sanitizeVendorFormFieldValues({
       vendorEmail: vendorEmail || null,
       vtexResponsibleEmail: vtexResponsibleEmail || null,
@@ -744,6 +802,7 @@ export async function enrichVendorFieldsFromJiraIssue(input: {
       capNumber: sanitized.capNumber,
       scope: sanitized.scope,
       description: issueDescription || null,
+      intakeVendorName: intakeVendorName || null,
     };
   } catch (error) {
     console.warn(
@@ -948,6 +1007,9 @@ function parseLabeledValueFromLines(lines: string[], labels: string[]) {
     "Vendor email",
     "VTEX e-mail responsible",
     "VTEX email responsible",
+    "VTEX e-mail responsável",
+    "E-mail responsável VTEX",
+    "Email responsavel VTEX",
     "Vendor Language Preferences",
     "Priority",
     "CAP NUMBER",
@@ -980,15 +1042,26 @@ function extractEmailFromText(value: string | null | undefined) {
 }
 
 function parseEmailByLabel(text: string, labels: string[]) {
+  const normalizedText = text.replace(/\s+/g, " ").trim();
+
   for (const label of labels) {
-    const regex = new RegExp(
+    const strict = new RegExp(
       `${escapeRegex(label)}\\s*\\*?\\s*[:|-]?\\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,})`,
       "iu",
     );
-    const match = text.match(regex);
-    if (match?.[1]) {
-      return extractEmailFromText(match[1]);
+    const strictMatch = normalizedText.match(strict);
+    if (strictMatch?.[1]) {
+      return extractEmailFromText(strictMatch[1]);
     }
+
+    // Proforma/JSM PDFs often render: Label *  "Display Name"  <user@domain.com>
+    const labelRe = new RegExp(escapeRegex(label), "iu");
+    const labelHit = labelRe.exec(normalizedText);
+    if (!labelHit) continue;
+    const afterLabel = normalizedText.slice(labelHit.index + labelHit[0].length).trim();
+    const window = afterLabel.slice(0, 520);
+    const loose = extractEmailFromText(window);
+    if (loose) return loose;
   }
 
   return null;
@@ -1106,7 +1179,28 @@ function isVendorRequestPdfFilename(filename: string | null | undefined) {
   return normalized.includes("vendor request") && normalized.endsWith(".pdf");
 }
 
+export function normalizeVendorDisplayName(value: string | null | undefined): string | null {
+  const normalized = normalizeWhitespace(value ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+
+  const stripped = normalized
+    .replace(
+      /^(name of vendor|nome do vendor|nome do fornecedor|vendor name|nome da empresa)\s*\*?\s*[:|-]?\s*/i,
+      "",
+    )
+    .trim();
+  const cleaned = stripped || normalized;
+  if (!cleaned) return null;
+
+  if (/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(cleaned)) {
+    return null;
+  }
+
+  return cleaned.length <= 120 ? cleaned : cleaned.slice(0, 120).trim();
+}
+
 type ExtractedVendorAttachmentFields = {
+  vendorDisplayName: string | null;
   vendorEmail: string | null;
   scope: string | null;
   vtexResponsibleEmail: string | null;
@@ -1137,6 +1231,9 @@ function extractVendorFieldsFromPdfText(rawText: string): ExtractedVendorAttachm
     "Vendor email",
     "VTEX e-mail responsible",
     "VTEX email responsible",
+    "VTEX e-mail responsável",
+    "E-mail responsável VTEX",
+    "Email responsavel VTEX",
     "Vendor Language Preferences",
     "Priority",
     "CAP NUMBER",
@@ -1146,6 +1243,11 @@ function extractVendorFieldsFromPdfText(rawText: string): ExtractedVendorAttachm
     "Context",
     "Contexto",
   ];
+
+  const vendorDisplayNameRaw =
+    parseTextByLabel(rawNormalizedText, ["Name of Vendor", "Nome do fornecedor", "Nome do vendor", "Vendor name"], knownBoundaries) ??
+    parseLabeledValueFromLines(lines, ["Name of Vendor", "Nome do fornecedor", "Nome do vendor", "Vendor name"]);
+  const vendorDisplayName = normalizeVendorDisplayName(vendorDisplayNameRaw);
 
   const vendorEmail = parseEmailByLabel(rawSingleLineText, [
     "Vendor e-mail address",
@@ -1172,12 +1274,19 @@ function extractVendorFieldsFromPdfText(rawText: string): ExtractedVendorAttachm
   const vtexResponsibleEmail = parseEmailByLabel(rawSingleLineText, [
     "VTEX e-mail responsible",
     "VTEX email responsible",
+    "VTEX e-mail responsável",
+    "E-mail responsável VTEX",
+    "Email responsavel VTEX",
+    "E-mail Responsável VTEX",
     "Responsavel VTEX",
     "Responsável VTEX",
     "Ponto focal VTEX",
   ]) ?? parseLabeledValueFromLines(lines, [
     "VTEX e-mail responsible",
     "VTEX email responsible",
+    "VTEX e-mail responsável",
+    "E-mail responsável VTEX",
+    "Email responsavel VTEX",
     "Responsavel VTEX",
     "Responsável VTEX",
   ]);
@@ -1209,6 +1318,7 @@ function extractVendorFieldsFromPdfText(rawText: string): ExtractedVendorAttachm
   });
 
   if (
+    vendorDisplayName ||
     normalized.vendorEmail ||
     normalized.scope ||
     normalized.vtexResponsibleEmail ||
@@ -1218,6 +1328,7 @@ function extractVendorFieldsFromPdfText(rawText: string): ExtractedVendorAttachm
     normalized.capNumber
   ) {
     return {
+      vendorDisplayName,
       vendorEmail: normalized.vendorEmail,
       scope: normalized.scope,
       vtexResponsibleEmail: normalized.vtexResponsibleEmail,
@@ -1234,6 +1345,7 @@ function extractVendorFieldsFromPdfText(rawText: string): ExtractedVendorAttachm
 function scoreExtractedVendorAttachmentFields(fields: ExtractedVendorAttachmentFields | null) {
   if (!fields) return 0;
   let score = 0;
+  if (fields.vendorDisplayName) score += 2;
   if (fields.vendorEmail) score += 3;
   if (fields.vtexResponsibleEmail) score += 3;
   if (fields.scope) score += 3;
@@ -1635,8 +1747,45 @@ function findCompanyGroupFromPayload(payload: unknown, description: string) {
   return null;
 }
 
+function statusNameForInference(status: JiraIssueFields["status"]): string {
+  if (status == null) return "";
+  if (typeof status === "string") {
+    return status.trim().toLowerCase();
+  }
+  if (typeof status === "object" && "name" in status) {
+    return String((status as { name?: unknown }).name ?? "")
+      .trim()
+      .toLowerCase();
+  }
+  return "";
+}
+
+/** Persists Jira workflow status label from webhook `issue.fields.status` (object or string). */
+export function jiraStatusNameFromWebhookField(status: JiraIssueFields["status"]): string | null {
+  if (status == null) return null;
+  if (typeof status === "string") {
+    const t = status.trim();
+    return t.length > 0 ? t : null;
+  }
+  if (typeof status === "object" && "name" in status) {
+    const n = String((status as { name?: unknown }).name ?? "").trim();
+    return n.length > 0 ? n : null;
+  }
+  return null;
+}
+
+function priorityLabelFromIssueFields(fields: JiraIssueFields): string | null {
+  const p = fields.priority;
+  if (p == null) return null;
+  if (typeof p === "string") {
+    const t = p.trim();
+    return t.length > 0 ? t : null;
+  }
+  return stringifyUnknown(p);
+}
+
 function inferStatus(fields: JiraIssueFields): "PENDING" | "IN_REVIEW" | "RESPONDED" | "COMPLETED" {
-  const status = fields.status?.name?.toLowerCase() ?? "";
+  const status = statusNameForInference(fields.status);
 
   if (/(done|complete|completed|closed|resolved|approved)/i.test(status)) {
     return "COMPLETED";
@@ -1662,7 +1811,7 @@ function formatStatusLabel(status: SyncedJiraEntityInput["status"]) {
 
 function inferRiskLevel(fields: JiraIssueFields, description: string): "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" {
   const explicit = findFieldValue(description, ["risk", "risk level", "criticidade", "prioridade de risco"])?.toLowerCase();
-  const priority = fields.priority?.name?.toLowerCase() ?? "";
+  const priority = (priorityLabelFromIssueFields(fields) ?? "").toLowerCase();
   const raw = explicit ?? priority;
 
   if (/(critical|critico|cr[ití]tico|highest|blocker|severe)/i.test(raw)) {
@@ -1699,7 +1848,20 @@ export function extractEntityFromJiraIssue(
   const issue = payload.issue;
   const fields = issue?.fields;
   const issueKey = issue?.key?.trim();
-  const summary = fields?.summary?.trim();
+
+  const intakeVendorDisplayName =
+    valueFromVendorIntakeAutomation(payload, ["name_of_vendor", "nameOfVendor"], [
+      "name-of-vendor",
+      "name_of_vendor",
+      "name of vendor",
+      "name-of-partner",
+      "name_of_partner",
+      "name of partner",
+    ]) ?? null;
+
+  const summaryFromIssue = fields?.summary?.trim() ?? "";
+  const summaryFromIntake = intakeVendorDisplayName?.trim() ?? "";
+  const summary = summaryFromIssue || summaryFromIntake;
 
   if (!issueKey || !fields || !summary) {
     return null;
@@ -1710,14 +1872,7 @@ export function extractEntityFromJiraIssue(
     normalizeEntityLabel(findValueInObject(payload, ["entity kind", "kind", "tipo de entidade", "entity_type"])) ??
     normalizeEntityLabel(summary);
   const entityName =
-    valueFromTopLevelPayload(payload, [
-      "name-of-vendor",
-      "name_of_vendor",
-      "name of vendor",
-      "name-of-partner",
-      "name_of_partner",
-      "name of partner",
-    ]) ??
+    intakeVendorDisplayName?.trim() ||
     findValueInObject(payload, [
       "name of vendor",
       "vendor name",
@@ -1728,9 +1883,21 @@ export function extractEntityFromJiraIssue(
       "nome do parceiro",
       "company name",
       "nome da empresa",
-    ]) ?? summary;
+    ]) ||
+    summaryFromIssue ||
+    summaryFromIntake;
+  const vendorDisplayNameForForm = normalizeVendorDisplayName(
+    intakeVendorDisplayName?.trim() ||
+      findValueInObject(payload, [
+        "name of vendor",
+        "vendor name",
+        "nome do vendor",
+        "nome do fornecedor",
+      ]) ||
+      null,
+  );
   const contactEmail =
-    valueFromTopLevelPayload(payload, [
+    valueFromVendorIntakeAutomation(payload, ["vendor_email_address", "vendorEmailAddress"], [
       "vendor-e-mail-address",
       "vendor_email_address",
       "vendor email address",
@@ -1754,7 +1921,7 @@ export function extractEntityFromJiraIssue(
       "email",
     ]) ?? findFieldValue(description, ["vendor e-mail address", "partner email", "contact email", "email", "e-mail"]);
   const vtexResponsibleEmail =
-    valueFromTopLevelPayload(payload, [
+    valueFromVendorIntakeAutomation(payload, ["vtex_email_responsible", "vtexEmailResponsible"], [
       "vtex-e-mail-responsible",
       "vtex_email_responsible",
       "vtex email responsible",
@@ -1764,7 +1931,7 @@ export function extractEntityFromJiraIssue(
     findValueInObject(payload, ["vtex e-mail responsible", "vtex email responsible", "responsavel vtex", "responsible email"]) ??
     findFieldValue(description, ["vtex e-mail responsible", "vtex email responsible", "responsavel vtex"]);
   const languagePreference =
-    valueFromTopLevelPayload(payload, [
+    valueFromVendorIntakeAutomation(payload, ["vendor_language_preferences", "vendorLanguagePreferences"], [
       "vendor-language-preferences",
       "vendor_language_preferences",
       "vendor language preferences",
@@ -1775,15 +1942,28 @@ export function extractEntityFromJiraIssue(
     findFieldValue(description, ["vendor language preferences", "vendor language", "idioma do vendor"]);
   const companyGroupFromForm = findCompanyGroupFromPayload(payload, description);
   const capNumber =
-    valueFromTopLevelPayload(payload, ["cap-number", "cap_number", "cap number", "cap"]) ??
+    valueFromVendorIntakeAutomation(payload, ["cap_number", "capNumber"], [
+      "cap-number",
+      "cap_number",
+      "cap number",
+      "cap",
+    ]) ??
     findValueInObject(payload, ["cap number", "cap"]) ??
     findFieldValue(description, ["cap number", "cap"]);
   const scope =
-    valueFromTopLevelPayload(payload, ["scope", "escopo", "context", "contexto"]) ??
+    valueFromVendorIntakeAutomation(payload, ["scope"], ["scope", "escopo", "context", "contexto"]) ??
     findValueInObject(payload, ["scope", "escopo", "context", "contexto"]) ??
     findFieldValue(description, ["scope", "escopo", "context", "contexto"]);
   const formPriority =
-    valueFromTopLevelPayload(payload, ["priority", "vendor-priority", "vendor_priority", "vendor priority"]) ??
+    valueFromVendorIntakeAutomation(payload, ["vendor_priority", "vendorPriority", "priority"], [
+      "vendor-priority",
+      "vendor_priority",
+      "vendor priority",
+      "prioridade-do-vendor",
+      "prioridade_vendor",
+      "prioridade-vendor",
+      "priority",
+    ]) ??
     findValueInObject(payload, ["vendor priority", "prioridade do vendor", "prioridade vendor"]) ??
     findFieldValue(description, ["vendor priority", "prioridade do vendor", "prioridade vendor"]);
   const reporterName =
@@ -1815,7 +1995,7 @@ export function extractEntityFromJiraIssue(
     (kind === "PARTNER" ? "Partner assessment" : "Vendor assessment");
   const companyGroup = companyGroupFromForm ?? inferCompanyGroup(fields, description);
   const riskPriorityLabel =
-    stringifyUnknown(fields.priority) ??
+    priorityLabelFromIssueFields(fields) ??
     findFieldValue(description, ["priority", "prioridade"]);
   const status = inferStatus(fields);
   const riskLevel = inferRiskLevel(
@@ -1866,6 +2046,7 @@ export function extractEntityFromJiraIssue(
     riskLevel,
     ownerEmail: sanitizedVendorFormData.vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
     jiraFormData: {
+      vendorDisplayName: vendorDisplayNameForForm,
       vendorEmail: sanitizedVendorFormData.vendorEmail,
       vtexResponsibleEmail: sanitizedVendorFormData.vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
       languagePreference: sanitizedVendorFormData.languagePreference,

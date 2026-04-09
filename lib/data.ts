@@ -1922,6 +1922,11 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     }
     return null;
   };
+  const vendorDisplayNameForHeader =
+    kind === "vendor"
+      ? cleanOverviewValue(jiraFormText("vendorDisplayName", "nameOfVendor", "name_of_vendor"))
+      : null;
+  const resolvedEntityName = kind === "vendor" ? (vendorDisplayNameForHeader ?? entity.name) : entity.name;
   const jiraStatus = cleanOverviewValue(
     jiraFormText("jiraStatus", "jira-status") ?? entity.status_label,
   );
@@ -1969,7 +1974,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       ? await readInternalQuestionnaireFromGoogleSheets({
           jiraTicket: entity.jira_issue_key,
           entitySlug: entity.slug,
-          entityName: entity.name,
+          entityName: resolvedEntityName,
           entityKind: "VENDOR",
         })
       : null;
@@ -2441,7 +2446,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
 
   return {
     id: entity.slug,
-    name: entity.name,
+    name: resolvedEntityName,
     jiraTicket: entity.jira_issue_key,
     jiraTicketHref,
     externalQuestionnaire: {

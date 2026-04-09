@@ -124,22 +124,24 @@ Suggested request:
   - `x-jira-webhook-secret: <YOUR_JIRA_WEBHOOK_SECRET>`
 
 Important:
-- each form field must have a stable field key in Jira Forms
-- the smart values below assume these exact field keys:
-  - `name-of-vendor`
-  - `vendor-e-mail-address`
-  - `vtex-e-mail-responsible`
-  - `vendor-language-preferences`
-  - `priority`
-  - `cap-number`
-  - `scope`
+- each form field must have a stable field key in Jira Forms **or** you send values via `{{issue.customfield_xxxxx}}` / `.label` for selects
+- prefer **`vendor-priority`** (or `vendor_intake.vendor_priority`) for the **form** priority so it is not confused with **`issue.priority`** (Jira native)
 
-Custom data example:
+**Jira Automation: “JSON inválido” no corpo da requisição**  
+O validador do Jira exige **JSON sintaticamente válido no texto do template**. Padrões como `"id": {{issue.id.asJsonString}}` falham porque, antes da substituição, `{` após `:` não é um valor JSON válido. **Solução:** coloque cada smart value **dentro de aspas duplas**, por exemplo `"{{issue.key}}"`. Campos longos (`description`, `scope`) com aspas ou quebras de linha podem quebrar o JSON após a substituição — nesse caso **omit** o campo no payload e deixe o app completar via API (`enrichVendorFieldsFromJiraIssue`).
+
+The app reads intake from, in order:
+1. nested object **`vendor_intake`** (or `vendorIntake`, `jira_vendor_intake`, `due_diligence_vendor_intake`)
+2. **top-level** keys on the same JSON as `issue`
+3. issue fields / description heuristics / PDF fallback (see app code)
+
+### Custom data example — top-level keys (Jira Forms `forms.last`)
 
 ```json
 {
   "webhookEvent": "jira:issue_updated",
   "issue_event_type_name": "issue_updated",
+  "entity_kind": "VENDOR",
   "issue": {
     "key": {{issue.key.asJsonString}},
     "self": {{issue.self.asJsonString}},
@@ -171,15 +173,91 @@ Custom data example:
   "vendor-e-mail-address": {{forms.last.vendor-e-mail-address.asJsonString}},
   "vtex-e-mail-responsible": {{forms.last.vtex-e-mail-responsible.asJsonString}},
   "vendor-language-preferences": {{forms.last.vendor-language-preferences.label.asJsonString}},
-  "priority": {{forms.last.priority.label.asJsonString}},
+  "vendor-priority": {{forms.last.priority.label.asJsonString}},
   "cap-number": {{forms.last.cap-number.asJsonString}},
+  "company": {{forms.last.company.label.asJsonString}},
   "scope": {{forms.last.scope.asJsonString}}
 }
 ```
 
-Fallback if your form fields are linked to Jira fields:
-- you may also use `{{issue.customfield_xxxxx}}` or linked system fields
-- this is useful if the form field key names are not yet standardized
+### Custom data example — `vendor_intake` + custom fields (ticket created)
+
+Use this shape when you map each value with `{{issue.customfield_…}}` (and `.label` for select lists):
+
+```json
+{
+  "webhookEvent": "jira:issue_created",
+  "entity_kind": "VENDOR",
+  "issue": {
+    "key": {{issue.key.asJsonString}},
+    "self": {{issue.self.asJsonString}},
+    "fields": {
+      "summary": {{issue.summary.asJsonString}},
+      "description": {{issue.description.asJsonString}},
+      "status": { "name": {{issue.status.name.asJsonString}} },
+      "priority": { "name": {{issue.priority.name.asJsonString}} },
+      "issuetype": { "name": {{issue.issueType.name.asJsonString}} },
+      "project": { "key": {{issue.project.key.asJsonString}} },
+      "reporter": {
+        "displayName": {{issue.reporter.displayName.asJsonString}},
+        "emailAddress": {{issue.reporter.emailAddress.asJsonString}}
+      }
+    }
+  },
+  "vendor_intake": {
+    "vendor_email_address": {{issue.customfield_XXXXX.asJsonString}},
+    "vtex_email_responsible": {{issue.customfield_XXXXX.asJsonString}},
+    "vendor_language_preferences": {{issue.customfield_XXXXX.label.asJsonString}},
+    "vendor_priority": {{issue.customfield_XXXXX.label.asJsonString}},
+    "cap_number": {{issue.customfield_XXXXX.asJsonString}},
+    "company": {{issue.customfield_XXXXX.label.asJsonString}},
+    "scope": {{issue.customfield_XXXXX.asJsonString}}
+  }
+}
+```
+
+Replace `customfield_XXXXX` with your real IDs. Optional: `name_of_vendor` inside `vendor_intake` if you want to override summary.
+
+### Custom data example — **JSON que passa no validador do Jira** (smart values entre aspas)
+
+Use quando a automação mostrar *JSON inválido*. Omitimos `description` e `assignee` para reduzir risco de aspas/ADF quebrarem o JSON; o backend ainda pode enriquecer pela API.
+
+```json
+{
+  "webhookEvent": "jira:issue_created",
+  "issue_event_type_name": "issue_created",
+  "entity-kind": "VENDOR",
+  "entity_kind": "VENDOR",
+  "issue": {
+    "id": "{{issue.id}}",
+    "key": "{{issue.key}}",
+    "self": "{{issue.self}}",
+    "fields": {
+      "summary": "{{issue.summary}}",
+      "status": { "name": "{{issue.status.name}}" },
+      "priority": { "name": "{{issue.priority.name}}" },
+      "issuetype": { "name": "{{issue.issueType.name}}" },
+      "project": { "key": "{{issue.project.key}}" },
+      "reporter": {
+        "displayName": "{{issue.reporter.displayName}}",
+        "emailAddress": "{{issue.reporter.emailAddress}}"
+      }
+    }
+  },
+  "vendor_intake": {
+    "name_of_vendor": "{{issue.customfield_10888}}",
+    "vendor_email_address": "{{issue.customfield_10703}}",
+    "vtex_email_responsible": "{{issue.customfield_12385}}",
+    "scope": "{{issue.customfield_10635}}",
+    "vendor_language_preferences": "{{forms.last['vendor-language-preferences'].label}}",
+    "vendor_priority": "{{forms.last['priority'].label}}",
+    "cap_number": "{{forms.last['cap-number']}}",
+    "company": "{{forms.last['Company'].label}}"
+  }
+}
+```
+
+Ajuste os IDs `customfield_*` e as chaves de `forms.last[...]` ao seu projeto. Para campos select no **issue** (não no form), prefira `{{issue.customfield_XXXXX.value}}` ou `.label` conforme o tipo.
 
 Validation tip:
 - first send the same payload to a temporary webhook inspector

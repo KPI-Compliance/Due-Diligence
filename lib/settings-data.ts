@@ -93,7 +93,7 @@ function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraCon
       sender_email: "",
       external_questionnaire_email_subject: "VTEX | Due Diligence Analysis",
       external_questionnaire_email_template:
-        "Olá,\n\nCompartilhamos abaixo o link do questionário externo para preenchimento:\n{{form_link}}\n\nFormulário selecionado: {{form_name}} ({{form_id}})\n\nAssim que o envio for concluído, seguiremos com a análise.\n\nObrigado.",
+        "Ol?,\n\nCompartilhamos abaixo o link do question?rio externo para preenchimento:\n{{form_link}}\n\nFormul?rio selecionado: {{form_name}} ({{form_id}})\n\nAssim que o envio for conclu?do, seguiremos com a an?lise.\n\nObrigado.",
       external_questionnaire_email_signature_html:
         "<div style=\"margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;font-family:Arial,sans-serif;color:#111827;\">\n  <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;max-width:620px;\">\n    <tr>\n      <td style=\"vertical-align:top;\">\n        <p style=\"margin:0;font-size:24px;line-height:1.2;font-weight:700;color:#111827;\">SEC GRC Integrations</p>\n        <p style=\"margin:8px 0 0 0;font-size:14px;line-height:1.5;color:#1f2937;\">Official VTEX channel for vendor Due Diligence.</p>\n        <p style=\"margin:10px 0 0 0;font-size:14px;line-height:1.5;\"><a href=\"https://www.vtex.com\" target=\"_blank\" rel=\"noreferrer\" style=\"color:#0f4fd6;text-decoration:underline;\">www.vtex.com</a></p>\n        <div style=\"margin-top:16px;padding-top:12px;border-top:1px solid #e5e7eb;\">\n          <img src=\"{{logo_data_uri}}\" alt=\"VTEX\" style=\"height:26px;width:auto;display:block;\" />\n        </div>\n      </td>\n    </tr>\n  </table>\n</div>",
     };
@@ -122,11 +122,11 @@ function fallbackConfig(provider: IntegrationProvider): TypeformConfig | JiraCon
       service_account_emails: [],
       spreadsheets: [
         {
-          name: "Mini Questionário Interno",
+          name: "Mini Question?rio Interno",
           entity_kind: "VENDOR",
           workflow: "internal_questionnaire",
           spreadsheet_url: "",
-          worksheet_names: ["Página 1"],
+          worksheet_names: ["P?gina 1"],
           impersonated_user: "",
         },
       ],
@@ -208,7 +208,7 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
               spreadsheet_url: String(row.spreadsheet_url ?? "").trim(),
               worksheet_names: Array.isArray(row.worksheet_names)
                 ? row.worksheet_names.map((item) => String(item).trim()).filter(Boolean)
-                : [String(row.worksheet_name ?? "Página 1").trim() || "Página 1"],
+                : [String(row.worksheet_name ?? "P?gina 1").trim() || "P?gina 1"],
               impersonated_user: String(row.impersonated_user ?? "").trim(),
             };
           })
@@ -220,7 +220,7 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
               entity_kind: "VENDOR",
               workflow: "internal_questionnaire",
               spreadsheet_url: String(raw.spreadsheet_url).trim(),
-              worksheet_names: [String(raw.worksheet_name ?? "Página 1").trim() || "Página 1"],
+              worksheet_names: [String(raw.worksheet_name ?? "P?gina 1").trim() || "P?gina 1"],
               impersonated_user: "",
             },
           ]
@@ -233,11 +233,11 @@ function normalizeConfig(provider: IntegrationProvider, config: unknown) {
           ? spreadsheets
           : [
               {
-                name: "Mini Questionário Interno",
+                name: "Mini Question?rio Interno",
                 entity_kind: "VENDOR",
                 workflow: "internal_questionnaire",
                 spreadsheet_url: "",
-                worksheet_names: ["Página 1"],
+                worksheet_names: ["P?gina 1"],
                 impersonated_user: "",
               },
             ],
