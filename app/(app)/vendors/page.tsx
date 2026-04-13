@@ -260,8 +260,6 @@ export default async function VendorsPage({
       <EntityWorkspace
         title="Vendors"
         description="Centralize vendors e acompanhe o intake inicial, o questionário principal e o risco final por Privacy e Security."
-        actionLabel="New Vendor"
-        secondaryActionLabel="Export"
         filters={filters}
         columns={[
           "Fornecedor",

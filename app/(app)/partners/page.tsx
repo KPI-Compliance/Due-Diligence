@@ -150,8 +150,6 @@ export default async function PartnersPage({
       <EntityWorkspace
         title="Partners"
         description="Acompanhe partners pela etapa da análise e pelo resultado final consolidado de Privacy, Security e Compliance."
-        actionLabel="New Partner"
-        secondaryActionLabel="Export"
         filters={filters}
         columns={[
           "Company",

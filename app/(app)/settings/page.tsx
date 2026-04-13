@@ -785,9 +785,7 @@ function UsersTab({
                         </label>
                         <button
                           type="submit"
-                          formAction={removeAction}
-                          name="email"
-                          value={user.email}
+                          form={`remove-user-${index}`}
                           className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-100"
                         >
                           Remover
@@ -808,6 +806,11 @@ function UsersTab({
             </button>
           </div>
         </form>
+        {userProfiles.map((user, index) => (
+          <form key={`remove-${user.email}`} id={`remove-user-${index}`} action={removeAction} hidden>
+            <input type="hidden" name="email" value={user.email} />
+          </form>
+        ))}
       </SectionCard>
     </div>
   );

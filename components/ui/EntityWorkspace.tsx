@@ -20,7 +20,7 @@ type SummaryItem = {
 type EntityWorkspaceProps = {
   title: string;
   description: string;
-  actionLabel: string;
+  actionLabel?: string;
   secondaryActionLabel?: string;
   filters: FilterControl[];
   columns: string[];
@@ -56,29 +56,33 @@ export function EntityWorkspace({
   summary,
 }: EntityWorkspaceProps) {
   const summaryGridClassName = summary.length >= 4 ? "md:grid-cols-4" : "md:grid-cols-3";
-
-  return (
-    <PageContainer
-      title={title}
-      description={description}
-      actions={
-        <div className="flex gap-2">
-          {secondaryActionLabel ? (
-            <button
-              type="button"
-              className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-4 py-2 text-sm font-medium text-[var(--color-neutral-700)] transition hover:bg-[var(--color-neutral-100)]"
-            >
-              {secondaryActionLabel}
-            </button>
-          ) : null}
+  const headerActions =
+    actionLabel || secondaryActionLabel ? (
+      <div className="flex gap-2">
+        {secondaryActionLabel ? (
+          <button
+            type="button"
+            className="rounded-lg border border-[var(--color-neutral-200)] bg-white px-4 py-2 text-sm font-medium text-[var(--color-neutral-700)] transition hover:bg-[var(--color-neutral-100)]"
+          >
+            {secondaryActionLabel}
+          </button>
+        ) : null}
+        {actionLabel ? (
           <button
             type="button"
             className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
           >
             {actionLabel}
           </button>
-        </div>
-      }
+        ) : null}
+      </div>
+    ) : undefined;
+
+  return (
+    <PageContainer
+      title={title}
+      description={description}
+      actions={headerActions}
       className="space-y-6"
     >
       <section className={cn("grid grid-cols-1 gap-4", summaryGridClassName)}>
