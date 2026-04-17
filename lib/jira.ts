@@ -1173,6 +1173,7 @@ function sanitizeVendorFormFieldValues(fields: {
   };
 }
 
+/** Only PDFs from the JSM "Vendor request" export carry the structured fields we parse. */
 function isVendorRequestPdfFilename(filename: string | null | undefined) {
   const normalized = String(filename ?? "").trim().toLowerCase();
   if (!normalized) return false;
@@ -1375,19 +1376,15 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
 
   const attachments = issue.fields?.attachment ?? [];
   const pdfAttachments = attachments
-    .filter((attachment) => {
-      const name = (attachment.filename ?? "").toLowerCase();
-      const mimeType = (attachment.mimeType ?? "").toLowerCase();
-      return mimeType === "application/pdf" || name.endsWith(".pdf");
-    })
+    .filter((attachment) => isVendorRequestPdfFilename(attachment.filename))
     .sort((a, b) => {
-      const leftPreferred = isVendorRequestPdfFilename(a.filename) ? 1 : 0;
-      const rightPreferred = isVendorRequestPdfFilename(b.filename) ? 1 : 0;
-      if (leftPreferred !== rightPreferred) return rightPreferred - leftPreferred;
       const left = Date.parse(a.created ?? "");
       const right = Date.parse(b.created ?? "");
       return right - left;
     });
+
+  let globalBestExtracted: ExtractedVendorAttachmentFields | null = null;
+  let globalBestScore = 0;
 
   for (const attachment of pdfAttachments) {
     const contentUrl = attachment.content?.trim();
@@ -1450,24 +1447,18 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
     }
 
     const uniqueRawTexts = Array.from(new Set(rawTexts.map((value) => normalizeWhitespace(value)).filter(Boolean)));
-    let bestExtracted: ExtractedVendorAttachmentFields | null = null;
-    let bestScore = 0;
 
     for (const rawText of uniqueRawTexts) {
       const extracted = extractVendorFieldsFromPdfText(rawText);
       const score = scoreExtractedVendorAttachmentFields(extracted);
-      if (score > bestScore) {
-        bestScore = score;
-        bestExtracted = extracted;
+      if (extracted && score > globalBestScore) {
+        globalBestScore = score;
+        globalBestExtracted = extracted;
       }
-    }
-
-    if (bestExtracted) {
-      return bestExtracted;
     }
   }
 
-  return null;
+  return globalBestExtracted;
 }
 
 export async function enrichVendorFieldsFromJiraAttachments(input: {

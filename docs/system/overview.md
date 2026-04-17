@@ -76,7 +76,7 @@ Due Diligence VTEX is a Next.js application for vendor and partner due diligence
 - Google Sheets
   Used as questionnaire source for internal and external data when enabled.
 - Jira
-  Used to sync and route vendor/partner operational work.
+  Used to sync and route vendor/partner operational work. Vendor intake fields from Jira follow webhook + API + PDF rules documented in [Jira vendor field sync](./jira-vendor-field-sync.md).
 - Slack
   Used for alerts and notifications.
 

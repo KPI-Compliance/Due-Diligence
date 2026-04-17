@@ -344,17 +344,8 @@ async function listVendorPdfAttachmentsForIssue(jira, issueKey) {
   const payload = await issueResponse.json();
   const attachments = Array.isArray(payload?.fields?.attachment) ? payload.fields.attachment : [];
   return attachments
-    .filter((item) => {
-      const mimeType = String(item?.mimeType ?? "").toLowerCase();
-      const filename = String(item?.filename ?? "").toLowerCase();
-      return mimeType === "application/pdf" || filename.endsWith(".pdf");
-    })
-    .sort((left, right) => {
-      const leftPreferred = isVendorRequestPdfFilename(left?.filename) ? 1 : 0;
-      const rightPreferred = isVendorRequestPdfFilename(right?.filename) ? 1 : 0;
-      if (leftPreferred !== rightPreferred) return rightPreferred - leftPreferred;
-      return Date.parse(String(right?.created ?? "")) - Date.parse(String(left?.created ?? ""));
-    });
+    .filter((item) => isVendorRequestPdfFilename(item?.filename))
+    .sort((left, right) => Date.parse(String(right?.created ?? "")) - Date.parse(String(left?.created ?? "")));
 }
 
 async function extractFieldsFromPdfUrl(jira, contentUrl) {
