@@ -116,7 +116,8 @@ export default async function HomePage({
               </div>
             ) : (
               <div className="space-y-6">
-                <Link
+                {/* Plain <a>: Next.js <Link> prefetches /api routes with ?_rsc= and follows the OAuth 302 in fetch, which hits Google's CORS wall. */}
+                <a
                   href="/api/auth/google"
                   className="flex w-full items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white py-4 text-sm font-semibold text-[var(--color-secondary)] transition-all hover:border-[var(--color-secondary)]"
                 >
@@ -130,15 +131,15 @@ export default async function HomePage({
                     <path fill="#4285F4" d="M21.1 12.2c0-.7-.1-1.3-.2-2H12v3.9h5.4c-.3 1.4-1.1 2.5-2.1 3.4l3.1 2.4c1.8-1.7 2.7-4.2 2.7-7.7Z" />
                   </svg>
                   Entrar com SSO Corporativo
-                </Link>
+                </a>
 
                 {devAuthBypassEnabled ? (
-                  <Link
+                  <a
                     href="/api/auth/dev-login"
                     className="flex w-full items-center justify-center rounded-lg bg-[var(--color-secondary)] px-4 py-4 text-sm font-semibold text-white transition hover:brightness-95"
                   >
                     Entrar com Bypass Local
-                  </Link>
+                  </a>
                 ) : null}
 
                 <div className="rounded-lg border border-dashed border-[var(--color-secondary)]/15 bg-[var(--color-secondary)]/3 px-4 py-3 text-xs leading-6 text-[var(--color-neutral-700)]">
