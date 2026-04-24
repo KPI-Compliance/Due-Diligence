@@ -527,16 +527,24 @@ const PARTNER_QUEUE_TYPEFORM_FORM_IDS_LOWER: string[] = ["pmnmaxxm", "r7y55vho",
 
 function filterPartnerQueueFormMappings(rows: PartnerFormMappingRow[]): PartnerFormMappingRow[] {
   const allow = new Set(PARTNER_QUEUE_TYPEFORM_FORM_IDS_LOWER);
-  const matched = rows.filter((row) => allow.has(row.form_id.trim().toLowerCase()));
-  if (matched.length === 0) {
-    return rows;
-  }
   const indexOf = (formId: string) => {
     const lower = formId.trim().toLowerCase();
     const i = PARTNER_QUEUE_TYPEFORM_FORM_IDS_LOWER.findIndex((id) => id === lower);
     return i === -1 ? 999 : i;
   };
-  return [...matched].sort((a, b) => indexOf(a.form_id) - indexOf(b.form_id));
+
+  const preferred = rows.filter((row) => allow.has(row.form_id.trim().toLowerCase()));
+  const rest = rows.filter((row) => !allow.has(row.form_id.trim().toLowerCase()));
+
+  // If none of the canonical four are registered, keep previous behavior (scan all partner mappings).
+  if (preferred.length === 0) {
+    return rows;
+  }
+
+  // Prefer the four official forms first (stable order), but still scan any other enabled Partner
+  // external questionnaires — otherwise tickets answered on another mapped form never match.
+  preferred.sort((a, b) => indexOf(a.form_id) - indexOf(b.form_id));
+  return [...preferred, ...rest];
 }
 
 export async function syncExternalQuestionnaireForEntity(input: {
