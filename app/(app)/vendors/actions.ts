@@ -149,12 +149,18 @@ export async function refreshVendorExternalQuestionnaire(formData: FormData) {
   }
 
   const entityRows = (await sql`
-    SELECT id::text, name, jira_issue_key
+    SELECT id::text, name, jira_issue_key, contact_email, jira_issue_created_at::text AS jira_issue_created_at
     FROM entities
     WHERE slug = ${entitySlug}
       AND kind = 'VENDOR'
     LIMIT 1
-  `) as Array<{ id: string; name: string; jira_issue_key: string | null }>;
+  `) as Array<{
+    id: string;
+    name: string;
+    jira_issue_key: string | null;
+    contact_email: string | null;
+    jira_issue_created_at: string | null;
+  }>;
 
   const entity = entityRows[0];
   if (!entity) {
@@ -176,6 +182,8 @@ export async function refreshVendorExternalQuestionnaire(formData: FormData) {
       entityName: entity.name,
       entityKind: "VENDOR",
       jiraIssueKey: entity.jira_issue_key,
+      entityContactEmail: entity.contact_email,
+      entityJiraIssueCreatedAt: entity.jira_issue_created_at,
       formId: assessmentRows[0]?.typeform_form_id ?? null,
     });
   } catch {

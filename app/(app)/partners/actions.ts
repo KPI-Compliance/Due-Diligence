@@ -10,6 +10,7 @@ import {
   updateConfiguredJiraIssueWorkflowStatus,
 } from "@/lib/jira";
 import { recalculatePartnerAssessmentDecision } from "@/lib/partner-risk-scoring";
+import { syncExternalQuestionnaireForEntity } from "@/lib/typeform-sync";
 
 const allowedTables = new Set([
   "partner_typeform_assessment_en_responses",
@@ -80,6 +81,68 @@ async function getRepresentativeResponseIdForAssessment(tableName: string, asses
     LIMIT 1
   `) as Array<{ id: string }>;
   return rows[0]?.id ?? null;
+}
+
+export async function refreshPartnerExternalQuestionnaire(formData: FormData) {
+  const sessionResult = await refreshServerActionSession("partners.refreshPartnerExternalQuestionnaire");
+  if (!sessionResult.session) {
+    redirect(`/?error=${encodeURIComponent(getSessionErrorCode(sessionResult.reason))}`);
+  }
+  const access = await resolveUserAccess(sessionResult.session.email);
+  if (!access.permissions.canWritePartners) {
+    redirect("/dashboard");
+  }
+
+  const entitySlug = String(formData.get("entity_slug") ?? "").trim();
+  if (!entitySlug) {
+    throw new Error("Invalid partner refresh payload.");
+  }
+
+  const entityRows = (await sql`
+    SELECT id::text, name, jira_issue_key, contact_email, jira_issue_created_at::text AS jira_issue_created_at
+    FROM entities
+    WHERE slug = ${entitySlug}
+      AND kind = 'PARTNER'
+    LIMIT 1
+  `) as Array<{
+    id: string;
+    name: string;
+    jira_issue_key: string | null;
+    contact_email: string | null;
+    jira_issue_created_at: string | null;
+  }>;
+
+  const entity = entityRows[0];
+  if (!entity) {
+    redirect(`/partners/${entitySlug}?tab=external_questionnaire&sync_error=not_found`);
+  }
+
+  let result: Awaited<ReturnType<typeof syncExternalQuestionnaireForEntity>>;
+  try {
+    result = await syncExternalQuestionnaireForEntity({
+      entityId: entity.id,
+      entityName: entity.name,
+      entityKind: "PARTNER",
+      jiraIssueKey: entity.jira_issue_key,
+      entityContactEmail: entity.contact_email,
+      entityJiraIssueCreatedAt: entity.jira_issue_created_at,
+      // Scan every enabled Partner + external_questionnaire row in typeform_forms (Settings).
+      // Do not pass assessment.typeform_form_id — that narrowed the API scan to one form and missed others (e.g. PTBR vs V2).
+      formId: null,
+    });
+  } catch {
+    redirect(`/partners/${entitySlug}?tab=external_questionnaire&sync_error=1`);
+  }
+
+  if (result.status === "no_match") {
+    redirect(`/partners/${entitySlug}?tab=external_questionnaire&sync_empty=1`);
+  }
+
+  if (result.status !== "updated" && result.status !== "already_linked") {
+    redirect(`/partners/${entitySlug}?tab=external_questionnaire&sync_error=1`);
+  }
+
+  redirect(`/partners/${entitySlug}?tab=external_questionnaire&sync_forced=1`);
 }
 
 export async function savePartnerAssessmentDecision(formData: FormData) {

@@ -68,8 +68,30 @@ const ticketQuestionCandidates = [
   "ticket jira",
   "qual e o id do ticket do jira?",
   "qual é o id do ticket do jira?",
+  "qual e o numero do ticket",
+  "qual é o número do ticket",
+  "numero do ticket",
+  "número do ticket",
+  "chave jira",
+  "issue key",
   "ticket",
 ];
+
+/** Typeform may nest answers under `group.answers` in the Responses API. */
+export function flattenResponseAnswersArray(answers: TypeformAnswer[] | undefined): TypeformAnswer[] {
+  if (!answers?.length) return [];
+
+  const out: TypeformAnswer[] = [];
+  for (const answer of answers) {
+    const nested = (answer as TypeformAnswer & { group?: { answers?: TypeformAnswer[] } }).group?.answers;
+    if (Array.isArray(nested) && nested.length > 0) {
+      out.push(...flattenResponseAnswersArray(nested));
+      continue;
+    }
+    out.push(answer);
+  }
+  return out;
+}
 
 function safeEqual(a: string, b: string) {
   const aBuf = Buffer.from(a);
@@ -94,7 +116,7 @@ export function verifyTypeformSignature(rawBody: string, signatureHeader: string
   return candidates.some((candidate) => safeEqual(signatureHeader, candidate));
 }
 
-function answerToText(answer: TypeformAnswer): string {
+export function answerToText(answer: TypeformAnswer): string {
   if (typeof answer.text === "string") return answer.text;
   if (typeof answer.email === "string") return answer.email;
   if (typeof answer.number === "number") return answer.number.toString();
@@ -217,6 +239,94 @@ function findAnswerByQuestionCandidates(answers: TypeformAnswer[] | undefined, c
       const value = answerToText(answer).trim();
       if (value) return value;
     }
+  }
+
+  return null;
+}
+
+/** Normalized titles for strict match (Partner sync); order not used — equality only. */
+const officialPartnerCompanyNameQuestionTitlesNormalized = new Set(
+  [
+    "Qual é o nome da empresa?",
+    "Qual e o nome da empresa?",
+    "Qual é o nome da empresa",
+    "Qual e o nome da empresa",
+    "Hi! What is the Company Name?",
+    "Hi what is the company name?",
+    "What is the company name?",
+    "What's the company name?",
+    "Whats the company name?",
+    "What is the name of the company?",
+    "Nome da empresa",
+  ].map((s) => normalizeComparable(s)),
+);
+
+/**
+ * Partner external sync: read company name only from the official "Qual é o nome da empresa?"
+ * (and strict aliases), avoiding random `answers` order and broad `includes()` false positives.
+ */
+export function extractOfficialPartnerCompanyNameAnswer(answers: TypeformAnswer[] | undefined): string | null {
+  const flat = flattenResponseAnswersArray(answers);
+  if (!flat.length) return null;
+
+  const matches = flat.filter((answer) => {
+    const titleNorm = normalizeComparable(answer.field?.title);
+    if (titleNorm && officialPartnerCompanyNameQuestionTitlesNormalized.has(titleNorm)) return true;
+    return false;
+  });
+
+  const sortKey = (a: TypeformAnswer) => `${normalizeComparable(a.field?.id ?? "")}\0${normalizeComparable(a.field?.ref ?? "")}`;
+  matches.sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+
+  for (const answer of matches) {
+    const value = answerToText(answer).trim();
+    if (value) return value;
+  }
+
+  return null;
+}
+
+/**
+ * Resolves the official partner company-name answer using question titles, then by field `id`/`ref`
+ * from the form definition when the Responses API omits `field.title` on answers.
+ */
+export function extractOfficialPartnerCompanyNameAnswerWithForm(
+  answers: TypeformAnswer[] | undefined,
+  formFields: TypeformFieldDefinition[],
+): string | null {
+  if (!answers?.length) return null;
+
+  const withDefinitions = applyTypeformFieldDefinitions(flattenResponseAnswersArray(answers), formFields);
+  const fromProcessedTitles = extractOfficialPartnerCompanyNameAnswer(withDefinitions);
+  if (fromProcessedTitles) return fromProcessedTitles;
+
+  const flat = flattenResponseAnswersArray(answers);
+  const fromRawTitles = extractOfficialPartnerCompanyNameAnswer(flat);
+  if (fromRawTitles) return fromRawTitles;
+
+  const defs = flattenTypeformFieldDefinitions(formFields);
+  const matchingKeys = new Set<string>();
+  for (const field of defs) {
+    const titleNorm = normalizeComparable(field.title);
+    if (!titleNorm || !officialPartnerCompanyNameQuestionTitlesNormalized.has(titleNorm)) continue;
+    if (field.id) matchingKeys.add(`id:${field.id}`);
+    if (field.ref) matchingKeys.add(`ref:${field.ref}`);
+  }
+  if (matchingKeys.size === 0) return null;
+
+  const byKey = flat.filter((answer) => {
+    const id = answer.field?.id;
+    const ref = answer.field?.ref;
+    return (id && matchingKeys.has(`id:${id}`)) || (ref && matchingKeys.has(`ref:${ref}`));
+  });
+  byKey.sort((a, b) => {
+    const ka = `${a.field?.id ?? ""}\0${a.field?.ref ?? ""}`;
+    const kb = `${b.field?.id ?? ""}\0${b.field?.ref ?? ""}`;
+    return ka.localeCompare(kb);
+  });
+  for (const answer of byKey) {
+    const value = answerToText(answer).trim();
+    if (value) return value;
   }
 
   return null;

@@ -1,5 +1,9 @@
 import Link from "next/link";
-import { savePartnerAssessmentDecision, savePartnerExternalQuestionnaireSection } from "@/app/(app)/partners/actions";
+import {
+  refreshPartnerExternalQuestionnaire,
+  savePartnerAssessmentDecision,
+  savePartnerExternalQuestionnaireSection,
+} from "@/app/(app)/partners/actions";
 import {
   refreshVendorExternalQuestionnaire,
   saveVendorAssessmentDecision,
@@ -1148,21 +1152,23 @@ export function EntityDetailView({
           />
 
           <div className="space-y-6">
-            {kind === "vendor" ? (
+            {kind === "vendor" || kind === "partner" ? (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-primary)]/10 bg-white p-4 shadow-sm">
                 <div>
                   <p className="text-sm font-semibold text-[var(--color-text)]">Sincronização manual</p>
                   <p className="text-xs text-[var(--color-neutral-600)]">
-                    Use este botão para forçar uma nova busca da resposta do Typeform usando os dados do envio registrado.
+                    {kind === "partner"
+                      ? "Consulta o Typeform em todos os formulários Partner ativos em Configurações → Typeform (entidade Partner, fluxo Questionário externo), usando nome do parceiro e contexto do ticket para localizar a resposta e preencher esta aba."
+                      : "Use este botão para forçar uma nova busca da resposta do Typeform usando os dados do envio registrado."}
                   </p>
                 </div>
-                <form action={refreshVendorExternalQuestionnaire}>
+                <form action={kind === "vendor" ? refreshVendorExternalQuestionnaire : refreshPartnerExternalQuestionnaire}>
                   <input type="hidden" name="entity_slug" value={detail.id} />
                   <button
                     type="submit"
                     className="rounded-lg border border-[var(--color-primary)]/20 bg-[var(--color-primary)]/5 px-4 py-2.5 text-sm font-semibold text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/10"
                   >
-                    Atualizar resposta externa
+                    {kind === "partner" ? "Buscar questionário no Typeform" : "Atualizar resposta externa"}
                   </button>
                 </form>
               </div>

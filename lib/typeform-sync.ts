@@ -7,7 +7,10 @@ import { getVendorQuestionnaireSignals } from "@/lib/vendor-questionnaire-dispat
 import {
   applyTypeformFieldDefinitions,
   extractCompanyNameFromTypeformAnswers,
+  extractOfficialPartnerCompanyNameAnswerWithForm,
   extractRespondentEmailFromTypeformAnswers,
+  extractTicketFromTypeformAnswers,
+  flattenResponseAnswersArray,
   normalizeTypeformAnswers,
   sortTypeformAnswersByFieldDefinitions,
   type TypeformAnswer,
@@ -18,6 +21,8 @@ type TypeformResponseItem = {
   token?: string;
   submitted_at?: string;
   answers?: TypeformAnswer[];
+  /** Flattened API answers before definition merge (for company field when title is missing on response). */
+  syncRawAnswers?: TypeformAnswer[];
   hidden?: Record<string, string | number | boolean | null | undefined>;
 };
 
@@ -46,6 +51,61 @@ async function dedupeAssessmentQuestionResponses(assessmentId: string) {
 type TypeformResponsesApiResponse = {
   items?: TypeformResponseItem[];
 };
+
+/** Typeform allows up to 1000 responses per request; we paginate with `before` for larger forms. */
+const TYPEFORM_RESPONSES_PAGE_SIZE = 1000;
+const TYPEFORM_RESPONSES_MAX_PAGES = 80;
+
+function normalizeJiraIssueKeyForMatch(value: string | null | undefined) {
+  return (value ?? "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+async function fetchAllTypeformFormResponseItems(
+  formId: string,
+  token: string,
+): Promise<{ ok: boolean; items: TypeformResponseItem[]; httpStatus?: number; truncated: boolean }> {
+  const items: TypeformResponseItem[] = [];
+  let before: string | undefined;
+
+  for (let page = 0; page < TYPEFORM_RESPONSES_MAX_PAGES; page++) {
+    const url = new URL(`https://api.typeform.com/forms/${encodeURIComponent(formId)}/responses`);
+    url.searchParams.set("page_size", String(TYPEFORM_RESPONSES_PAGE_SIZE));
+    if (before) {
+      url.searchParams.set("before", before);
+    }
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return { ok: false, items, httpStatus: response.status, truncated: page > 0 };
+    }
+
+    const payload = (await response.json()) as TypeformResponsesApiResponse;
+    const batch = payload.items ?? [];
+    if (batch.length === 0) {
+      return { ok: true, items, truncated: false };
+    }
+
+    items.push(...batch);
+
+    if (batch.length < TYPEFORM_RESPONSES_PAGE_SIZE) {
+      return { ok: true, items, truncated: false };
+    }
+
+    const lastToken = batch[batch.length - 1]?.token;
+    if (!lastToken || lastToken === before) {
+      return { ok: true, items, truncated: false };
+    }
+    before = lastToken;
+  }
+
+  return { ok: true, items, truncated: true };
+}
 
 type TypeformFormDefinitionResponse = {
   fields?: TypeformFieldDefinition[];
@@ -233,6 +293,19 @@ function compareResponseDistance(candidate: TypeformResponseItem, referenceTimes
 
 const MATCH_WINDOW_BEFORE_MS = 3 * 24 * 60 * 60 * 1000;
 const MATCH_WINDOW_AFTER_MS = 120 * 24 * 60 * 60 * 1000;
+
+/** Partner company-name disambiguation vs ticket / entity timeline (Response time ~ submitted_at). */
+const PARTNER_RESPONSE_MATCH_WINDOW_BEFORE_MS = 90 * 24 * 60 * 60 * 1000;
+const PARTNER_RESPONSE_MATCH_WINDOW_AFTER_MS = 548 * 24 * 60 * 60 * 1000;
+
+function isResponseWithinPartnerTimeWindow(submittedAt: string | undefined, referenceMs: number) {
+  const submittedMs = toTimestamp(submittedAt);
+  if (Number.isNaN(submittedMs) || Number.isNaN(referenceMs)) return true;
+  return (
+    submittedMs >= referenceMs - PARTNER_RESPONSE_MATCH_WINDOW_BEFORE_MS &&
+    submittedMs <= referenceMs + PARTNER_RESPONSE_MATCH_WINDOW_AFTER_MS
+  );
+}
 
 function isWithinMatchWindow(submittedAtTimestamp: number, referenceTimestamp: number) {
   return (
@@ -449,14 +522,35 @@ async function getExternalFormMappings(kind: "VENDOR" | "PARTNER", formId?: stri
   `) as PartnerFormMappingRow[];
 }
 
+/** Partner queue: only these Typeform form IDs (case-insensitive vs DB). Order = scan priority. */
+const PARTNER_QUEUE_TYPEFORM_FORM_IDS_LOWER: string[] = ["pmnmaxxm", "r7y55vho", "i8n27yf6", "fcql4ffv"];
+
+function filterPartnerQueueFormMappings(rows: PartnerFormMappingRow[]): PartnerFormMappingRow[] {
+  const allow = new Set(PARTNER_QUEUE_TYPEFORM_FORM_IDS_LOWER);
+  const matched = rows.filter((row) => allow.has(row.form_id.trim().toLowerCase()));
+  if (matched.length === 0) {
+    return rows;
+  }
+  const indexOf = (formId: string) => {
+    const lower = formId.trim().toLowerCase();
+    const i = PARTNER_QUEUE_TYPEFORM_FORM_IDS_LOWER.findIndex((id) => id === lower);
+    return i === -1 ? 999 : i;
+  };
+  return [...matched].sort((a, b) => indexOf(a.form_id) - indexOf(b.form_id));
+}
+
 export async function syncExternalQuestionnaireForEntity(input: {
   entityId: string;
   entityName: string;
   entityKind: "VENDOR" | "PARTNER";
   jiraIssueKey?: string | null;
   formId?: string | null;
+  /** When set (e.g. from entities.contact_email), match Typeform respondent email for partners/vendors. */
+  entityContactEmail?: string | null;
+  /** When set (e.g. entities.jira_issue_created_at), disambiguate Partner matches by Typeform submitted_at. */
+  entityJiraIssueCreatedAt?: string | null;
 }): Promise<ExternalQuestionnaireSyncResult> {
-  const { entityId, entityName, entityKind, jiraIssueKey, formId } = input;
+  const { entityId, entityName, entityKind, jiraIssueKey, formId, entityContactEmail, entityJiraIssueCreatedAt } = input;
   await logTypeformSyncDiagnostic({
     source: "entity_sync",
     entityId,
@@ -489,7 +583,10 @@ export async function syncExternalQuestionnaireForEntity(input: {
     };
   }
 
-  const formMappings = await getExternalFormMappings(entityKind, formId);
+  let formMappings = await getExternalFormMappings(entityKind, formId);
+  if (entityKind === "PARTNER" && !formId) {
+    formMappings = filterPartnerQueueFormMappings(formMappings);
+  }
 
   if (formMappings.length === 0) {
     await logTypeformSyncDiagnostic({
@@ -511,19 +608,19 @@ export async function syncExternalQuestionnaireForEntity(input: {
   }
 
   let latestAssessment = (await sql`
-    SELECT id::text, typeform_response_token
+    SELECT id::text, typeform_response_token, created_at::text AS created_at
     FROM assessments
     WHERE entity_id = ${entityId}::uuid
     ORDER BY created_at DESC
     LIMIT 1
-  `) as Array<{ id: string; typeform_response_token: string | null }>;
+  `) as Array<{ id: string; typeform_response_token: string | null; created_at: string | null }>;
 
   if (latestAssessment.length === 0) {
     latestAssessment = (await sql`
       INSERT INTO assessments (entity_id, title, status)
       VALUES (${entityId}::uuid, ${`External Questionnaire - ${entityName}`}, 'PENDING')
-      RETURNING id::text, typeform_response_token
-    `) as Array<{ id: string; typeform_response_token: string | null }>;
+      RETURNING id::text, typeform_response_token, created_at::text AS created_at
+    `) as Array<{ id: string; typeform_response_token: string | null; created_at: string | null }>;
   }
 
   const assessment = latestAssessment[0];
@@ -535,15 +632,39 @@ export async function syncExternalQuestionnaireForEntity(input: {
     };
   }
 
-  const targetName = normalizeComparable(entityName);
-  const targetNameLoose = normalizeLooseLookup(entityName);
-  const targetNameStrict = normalizeStrictEntityKey(entityName);
+  const entityNameTrimmed = entityName.trim();
+  const targetName = normalizeComparable(entityNameTrimmed);
+  const targetNameLoose = normalizeLooseLookup(entityNameTrimmed);
+  const targetNameStrict = normalizeStrictEntityKey(entityNameTrimmed);
   const jiraCreatedAt = await getJiraCreatedAt(jiraIssueKey);
   const jiraCreatedTimestamp = toTimestamp(jiraCreatedAt);
+  const entityJiraRowTimestamp = toTimestamp(entityJiraIssueCreatedAt ?? null);
+  const assessmentCreatedTimestamp = toTimestamp(assessment.created_at ?? null);
+
+  let referenceTimestamp = Number.NaN;
+  let referenceSource: "none" | "jira_api" | "entity_row" | "assessment" = "none";
+  if (!Number.isNaN(jiraCreatedTimestamp)) {
+    referenceTimestamp = jiraCreatedTimestamp;
+    referenceSource = "jira_api";
+  } else if (!Number.isNaN(entityJiraRowTimestamp)) {
+    referenceTimestamp = entityJiraRowTimestamp;
+    referenceSource = "entity_row";
+  } else if (!Number.isNaN(assessmentCreatedTimestamp)) {
+    referenceTimestamp = assessmentCreatedTimestamp;
+    referenceSource = "assessment";
+  }
+
   const emptyVendorSignals = { recipientEmails: [] as string[], sentTimestamps: [] as number[], dispatchIds: [] as string[] };
   let matchedResponse: (TypeformResponseItem & { form_id: string; form_name: string }) | null = null;
+  let lastPartnerMatchScan: {
+    form_id: string;
+    official_title_pool: number;
+    in_time_window: number;
+    used_time_window_filter: boolean;
+  } | null = null;
 
   for (const form of formMappings) {
+    lastPartnerMatchScan = null;
     const formScopedVendorSignals =
       entityKind === "VENDOR"
         ? await getVendorQuestionnaireSignals({
@@ -554,15 +675,12 @@ export async function syncExternalQuestionnaireForEntity(input: {
         : emptyVendorSignals;
 
     const formFields = await getTypeformFormFields(form.form_id, token);
-    const response = await fetch(`https://api.typeform.com/forms/${form.form_id}/responses?page_size=100`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      cache: "no-store",
-    });
+    const fetchResult = await fetchAllTypeformFormResponseItems(form.form_id, token);
 
-    if (!response.ok) {
-      console.warn(`Typeform responses fetch failed for form ${form.form_id}: ${response.status}`);
+    if (!fetchResult.ok) {
+      console.warn(
+        `Typeform responses fetch failed for form ${form.form_id}: ${fetchResult.httpStatus ?? "unknown"}`,
+      );
       await logTypeformSyncDiagnostic({
         source: "entity_sync",
         entityId,
@@ -574,12 +692,12 @@ export async function syncExternalQuestionnaireForEntity(input: {
         stage: "responses_fetch",
         status: "error",
         message: "Typeform responses fetch failed.",
-        payload: { http_status: response.status },
+        payload: { http_status: fetchResult.httpStatus },
       });
       continue;
     }
 
-    const payload = (await response.json()) as TypeformResponsesApiResponse;
+    const payload: TypeformResponsesApiResponse = { items: fetchResult.items };
     await logTypeformSyncDiagnostic({
       source: "entity_sync",
       entityId,
@@ -591,7 +709,14 @@ export async function syncExternalQuestionnaireForEntity(input: {
       stage: "responses_scan",
       status: "started",
       message: "Scanning Typeform responses for entity name match.",
-      payload: { response_count: payload.items?.length ?? 0 },
+      payload: {
+        response_count: fetchResult.items.length,
+        truncated: fetchResult.truncated,
+        pages_max: TYPEFORM_RESPONSES_MAX_PAGES,
+        page_size: TYPEFORM_RESPONSES_PAGE_SIZE,
+        reference_source: referenceSource,
+        reference_timestamp_configured: !Number.isNaN(referenceTimestamp),
+      },
     });
     const configuredHiddenField = normalizeComparableToken(form.hidden_assessment_field ?? "assessment_id");
     const hiddenFieldCandidates = [configuredHiddenField, "assessment_id"].filter(Boolean);
@@ -600,7 +725,11 @@ export async function syncExternalQuestionnaireForEntity(input: {
     const normalizedItems =
       payload.items?.map((item) => ({
         ...item,
-        answers: sortTypeformAnswersByFieldDefinitions(applyTypeformFieldDefinitions(item.answers, formFields), formFields),
+        syncRawAnswers: flattenResponseAnswersArray(item.answers),
+        answers: sortTypeformAnswersByFieldDefinitions(
+          applyTypeformFieldDefinitions(flattenResponseAnswersArray(item.answers), formFields),
+          formFields,
+        ),
       })) ?? [];
 
     const byHiddenAssessment = normalizedItems
@@ -612,6 +741,21 @@ export async function syncExternalQuestionnaireForEntity(input: {
         });
       })
       .sort((a, b) => Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? ""))[0] ?? null;
+
+    const byHiddenJiraKey =
+      jiraIssueKey?.trim()
+        ? normalizedItems
+            .filter((item) => {
+              if (!item.hidden || typeof item.hidden !== "object") return false;
+              const target = normalizeJiraIssueKeyForMatch(jiraIssueKey);
+              return Object.values(item.hidden).some((raw) => {
+                const h = normalizeJiraIssueKeyForMatch(String(raw ?? ""));
+                if (!h || !target) return false;
+                return h === target || h.includes(target) || target.includes(h);
+              });
+            })
+            .sort((a, b) => Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? ""))[0] ?? null
+        : null;
 
     const byHiddenDispatch =
       entityKind === "VENDOR" && formScopedVendorSignals.dispatchIds.length > 0
@@ -626,41 +770,6 @@ export async function syncExternalQuestionnaireForEntity(input: {
             })
             .sort((a, b) => Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? ""))[0] ?? null
         : null;
-
-    const byCompanyName =
-      normalizedItems
-        .filter((item) => {
-          const companyNameRaw = extractCompanyNameFromTypeformAnswers(item.answers) ?? undefined;
-          const companyName = normalizeComparable(companyNameRaw);
-          const companyNameLoose = normalizeLooseLookup(companyNameRaw);
-          const companyNameStrict = normalizeStrictEntityKey(companyNameRaw);
-          if (!companyName && !companyNameLoose && !companyNameStrict) return false;
-          return (
-            companyName === targetName ||
-            companyName.includes(targetName) ||
-            targetName.includes(companyName) ||
-            companyNameLoose === targetNameLoose ||
-            companyNameLoose.includes(targetNameLoose) ||
-            targetNameLoose.includes(companyNameLoose) ||
-            companyNameStrict === targetNameStrict ||
-            companyNameStrict.includes(targetNameStrict) ||
-            targetNameStrict.includes(companyNameStrict)
-          );
-        })
-        .sort((a, b) => {
-          if (!Number.isNaN(jiraCreatedTimestamp)) {
-            return compareResponseDistance(a, jiraCreatedTimestamp) - compareResponseDistance(b, jiraCreatedTimestamp);
-          }
-
-          if (formScopedVendorSignals.sentTimestamps.length > 0) {
-            return (
-              distanceToClosestReference(a, formScopedVendorSignals.sentTimestamps) -
-              distanceToClosestReference(b, formScopedVendorSignals.sentTimestamps)
-            );
-          }
-
-          return Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? "");
-        })[0] ?? null;
 
     const byRecipientAndPeriod =
       entityKind === "VENDOR" && formScopedVendorSignals.recipientEmails.length > 0
@@ -690,16 +799,145 @@ export async function syncExternalQuestionnaireForEntity(input: {
             })[0] ?? null
         : null;
 
-    const candidate = byHiddenAssessment ?? byHiddenDispatch ?? byRecipientAndPeriod ?? byCompanyName;
+    const contactTarget = (entityContactEmail ?? "").trim();
+    const byEntityContactEmail =
+      contactTarget.includes("@")
+        ? normalizedItems
+            .filter((item) => {
+              const respondent = normalizeComparableToken(extractRespondentEmailFromTypeformAnswers(item.answers));
+              const normalizedContact = normalizeComparableToken(contactTarget);
+              return Boolean(respondent) && Boolean(normalizedContact) && respondent === normalizedContact;
+            })
+            .sort((a, b) => {
+              if (!Number.isNaN(referenceTimestamp)) {
+                return compareResponseDistance(a, referenceTimestamp) - compareResponseDistance(b, referenceTimestamp);
+              }
+              return Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? "");
+            })[0] ?? null
+        : null;
+
+    const partnerOfficialNameMatchesEntity = (item: TypeformResponseItem) => {
+      const companyNameRaw =
+        extractOfficialPartnerCompanyNameAnswerWithForm(item.answers, formFields) ??
+        extractOfficialPartnerCompanyNameAnswerWithForm(item.syncRawAnswers, formFields) ??
+        undefined;
+      if (!companyNameRaw) return false;
+      const companyName = normalizeComparable(companyNameRaw);
+      const companyNameLoose = normalizeLooseLookup(companyNameRaw);
+      const companyNameStrict = normalizeStrictEntityKey(companyNameRaw);
+      if (!companyName && !companyNameLoose && !companyNameStrict) return false;
+      return (
+        companyName === targetName ||
+        companyName.includes(targetName) ||
+        targetName.includes(companyName) ||
+        companyNameLoose === targetNameLoose ||
+        companyNameLoose.includes(targetNameLoose) ||
+        targetNameLoose.includes(companyNameLoose) ||
+        companyNameStrict === targetNameStrict ||
+        companyNameStrict.includes(targetNameStrict) ||
+        targetNameStrict.includes(companyNameStrict)
+      );
+    };
+
+    const byPartnerOfficialCompanyQuestion =
+      entityKind === "PARTNER"
+        ? (() => {
+            const pool = normalizedItems.filter(partnerOfficialNameMatchesEntity);
+            const hasRef = !Number.isNaN(referenceTimestamp);
+            const inWindow = hasRef
+              ? pool.filter((item) => isResponseWithinPartnerTimeWindow(item.submitted_at, referenceTimestamp))
+              : pool;
+            const usedTimeWindowFilter = hasRef && inWindow.length > 0 && inWindow.length < pool.length;
+            const ranked = hasRef && inWindow.length > 0 ? inWindow : pool;
+            lastPartnerMatchScan = {
+              form_id: form.form_id,
+              official_title_pool: pool.length,
+              in_time_window: inWindow.length,
+              used_time_window_filter: usedTimeWindowFilter,
+            };
+            return ranked
+              .sort((a, b) => {
+                if (!Number.isNaN(referenceTimestamp)) {
+                  return compareResponseDistance(a, referenceTimestamp) - compareResponseDistance(b, referenceTimestamp);
+                }
+                return Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? "");
+              })[0] ?? null;
+          })()
+        : null;
+
+    const byJiraTicket =
+      jiraIssueKey?.trim()
+        ? normalizedItems
+            .filter((item) => {
+              const ticketRaw = extractTicketFromTypeformAnswers(item.answers);
+              if (!ticketRaw?.trim()) return false;
+              const t = normalizeJiraIssueKeyForMatch(ticketRaw);
+              const target = normalizeJiraIssueKeyForMatch(jiraIssueKey);
+              if (!t || !target) return false;
+              if (t === target) return true;
+              return t.includes(target) || target.includes(t);
+            })
+            .sort((a, b) => {
+              if (!Number.isNaN(referenceTimestamp)) {
+                return compareResponseDistance(a, referenceTimestamp) - compareResponseDistance(b, referenceTimestamp);
+              }
+              return Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? "");
+            })[0] ?? null
+        : null;
+
+    const byCompanyName =
+      normalizedItems
+        .filter((item) => {
+          const companyNameRaw = extractCompanyNameFromTypeformAnswers(item.answers) ?? undefined;
+          const companyName = normalizeComparable(companyNameRaw);
+          const companyNameLoose = normalizeLooseLookup(companyNameRaw);
+          const companyNameStrict = normalizeStrictEntityKey(companyNameRaw);
+          if (!companyName && !companyNameLoose && !companyNameStrict) return false;
+          return (
+            companyName === targetName ||
+            companyName.includes(targetName) ||
+            targetName.includes(companyName) ||
+            companyNameLoose === targetNameLoose ||
+            companyNameLoose.includes(targetNameLoose) ||
+            targetNameLoose.includes(companyNameLoose) ||
+            companyNameStrict === targetNameStrict ||
+            companyNameStrict.includes(targetNameStrict) ||
+            targetNameStrict.includes(companyNameStrict)
+          );
+        })
+        .sort((a, b) => {
+          if (!Number.isNaN(referenceTimestamp)) {
+            return compareResponseDistance(a, referenceTimestamp) - compareResponseDistance(b, referenceTimestamp);
+          }
+
+          if (formScopedVendorSignals.sentTimestamps.length > 0) {
+            return (
+              distanceToClosestReference(a, formScopedVendorSignals.sentTimestamps) -
+              distanceToClosestReference(b, formScopedVendorSignals.sentTimestamps)
+            );
+          }
+
+          return Date.parse(b.submitted_at ?? "") - Date.parse(a.submitted_at ?? "");
+        })[0] ?? null;
+
+    const candidate =
+      byHiddenAssessment ??
+      byHiddenJiraKey ??
+      byHiddenDispatch ??
+      byRecipientAndPeriod ??
+      byEntityContactEmail ??
+      byPartnerOfficialCompanyQuestion ??
+      byJiraTicket ??
+      byCompanyName;
 
     if (!candidate) continue;
 
     if (
       !matchedResponse ||
-      (!Number.isNaN(jiraCreatedTimestamp) &&
-        compareResponseDistance(candidate, jiraCreatedTimestamp) <
-          compareResponseDistance(matchedResponse, jiraCreatedTimestamp)) ||
-      (Number.isNaN(jiraCreatedTimestamp) &&
+      (!Number.isNaN(referenceTimestamp) &&
+        compareResponseDistance(candidate, referenceTimestamp) <
+          compareResponseDistance(matchedResponse, referenceTimestamp)) ||
+      (Number.isNaN(referenceTimestamp) &&
         Date.parse(candidate.submitted_at ?? "") > Date.parse(matchedResponse.submitted_at ?? ""))
     ) {
       matchedResponse = {
@@ -753,6 +991,9 @@ export async function syncExternalQuestionnaireForEntity(input: {
         current_token: assessment.typeform_response_token,
         existing_answer_count: existingAssessmentQuestionRows.length,
         has_opaque_question_text: hasOpaqueQuestionText,
+        reference_source: referenceSource,
+        reference_timestamp_configured: !Number.isNaN(referenceTimestamp),
+        last_partner_scan: lastPartnerMatchScan,
       },
     });
     return {
@@ -783,7 +1024,7 @@ export async function syncExternalQuestionnaireForEntity(input: {
   }
 
   const matchedForm = formMappings.find((form) => form.form_id === matchedResponse.form_id) ?? null;
-  const answers = normalizeTypeformAnswers(matchedResponse.answers);
+  const answers = normalizeTypeformAnswers(flattenResponseAnswersArray(matchedResponse.answers));
   const questionMappings = await getQuestionMappings(matchedForm?.id);
   const sections =
     questionMappings.length > 0
@@ -869,6 +1110,8 @@ export async function syncExternalQuestionnaireForEntity(input: {
       response_token: matchedResponse.token,
       answers_saved: answers.length,
       submitted_at: matchedResponse.submitted_at ?? null,
+      reference_source: referenceSource,
+      reference_timestamp_configured: !Number.isNaN(referenceTimestamp),
     },
   });
 
@@ -902,12 +1145,18 @@ export async function backfillExternalQuestionnaireForQueueTickets(input: {
   });
 
   const entities = (await sql`
-    SELECT id::text, name, jira_issue_key
+    SELECT id::text, name, jira_issue_key, contact_email, jira_issue_created_at::text AS jira_issue_created_at
     FROM entities
     WHERE kind = ${input.entityKind}::entity_kind
       AND jira_issue_key IS NOT NULL
     ORDER BY jira_synced_at DESC NULLS LAST, updated_at DESC
-  `) as Array<{ id: string; name: string; jira_issue_key: string | null }>;
+  `) as Array<{
+    id: string;
+    name: string;
+    jira_issue_key: string | null;
+    contact_email: string | null;
+    jira_issue_created_at: string | null;
+  }>;
 
   await logTypeformSyncDiagnostic({
     source: "queue_backfill",
@@ -926,6 +1175,8 @@ export async function backfillExternalQuestionnaireForQueueTickets(input: {
         entityName: entity.name,
         entityKind: input.entityKind,
         jiraIssueKey: entity.jira_issue_key,
+        entityContactEmail: entity.contact_email,
+        entityJiraIssueCreatedAt: entity.jira_issue_created_at,
         formId: input.formId,
       });
     } catch (error) {

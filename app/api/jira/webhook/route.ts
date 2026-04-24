@@ -549,11 +549,17 @@ export async function POST(request: Request) {
     `;
 
     const syncedEntityRows = (await sql`
-      SELECT id::text, name, kind::text
+      SELECT id::text, name, kind::text, contact_email, jira_issue_created_at::text AS jira_issue_created_at
       FROM entities
       WHERE jira_issue_key = ${entity.issueKey}
       LIMIT 1
-    `) as Array<{ id: string; name: string; kind: "VENDOR" | "PARTNER" }>;
+    `) as Array<{
+      id: string;
+      name: string;
+      kind: "VENDOR" | "PARTNER";
+      contact_email: string | null;
+      jira_issue_created_at: string | null;
+    }>;
 
     const syncedEntity = syncedEntityRows[0];
     if (syncedEntity) {
@@ -582,6 +588,8 @@ export async function POST(request: Request) {
           entityName: syncedEntity.name,
           entityKind: syncedEntity.kind,
           jiraIssueKey: entity.issueKey,
+          entityContactEmail: syncedEntity.contact_email,
+          entityJiraIssueCreatedAt: syncedEntity.jira_issue_created_at,
         });
       } catch (error) {
         console.warn(
