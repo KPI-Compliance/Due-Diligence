@@ -134,6 +134,10 @@ export async function refreshPartnerExternalQuestionnaire(formData: FormData) {
     redirect(`/partners/${entitySlug}?tab=external_questionnaire&sync_error=1`);
   }
 
+  if (result.status === "typeform_forbidden") {
+    redirect(`/partners/${entitySlug}?tab=external_questionnaire&sync_error=typeform_403`);
+  }
+
   if (result.status === "no_match") {
     redirect(`/partners/${entitySlug}?tab=external_questionnaire&sync_empty=1`);
   }

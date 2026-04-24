@@ -1183,9 +1183,33 @@ export function EntityDetailView({
                 Sincronização executada, mas nenhuma resposta correspondente foi encontrada no Typeform para este envio.
               </div>
             ) : null}
-            {syncErrorStatus ? (
+            {syncErrorStatus === "typeform_403" ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+                <p className="font-semibold">Typeform recusou o acesso às respostas (HTTP 403)</p>
+                <p className="mt-2 text-xs font-normal leading-relaxed">
+                  O token configurado na integração Typeform não tem permissão para ler{" "}
+                  <code className="rounded bg-red-100 px-1 py-0.5">{"GET /forms/{id}/responses"}</code>. Gere um
+                  novo personal access token na mesma conta Typeform que possui estes formulários, com escopos que
+                  incluam leitura de formulários e respostas, e atualize em Configurações → Integrações (ou a variável{" "}
+                  <code className="rounded bg-red-100 px-1 py-0.5">TYPEFORM_API_TOKEN</code> no ambiente, se for o que
+                  o deploy usa). Documentação:{" "}
+                  <a
+                    className="font-semibold underline"
+                    href="https://www.typeform.com/developers/get-started/personal-access-token/"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Typeform — personal access token
+                  </a>
+                  .
+                </p>
+              </div>
+            ) : null}
+            {syncErrorStatus && syncErrorStatus !== "typeform_403" ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
-                Não foi possível concluir a sincronização manual agora. Tente novamente em alguns instantes.
+                {syncErrorStatus === "not_found"
+                  ? "Registro não encontrado para esta sincronização."
+                  : "Não foi possível concluir a sincronização manual agora. Tente novamente em alguns instantes."}
               </div>
             ) : null}
             <div className="space-y-6">

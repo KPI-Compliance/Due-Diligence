@@ -190,6 +190,10 @@ export async function refreshVendorExternalQuestionnaire(formData: FormData) {
     redirect(`/vendors/${entitySlug}?tab=external_questionnaire&sync_error=1`);
   }
 
+  if (result.status === "typeform_forbidden") {
+    redirect(`/vendors/${entitySlug}?tab=external_questionnaire&sync_error=typeform_403`);
+  }
+
   if (result.status === "no_match") {
     redirect(`/vendors/${entitySlug}?tab=external_questionnaire&sync_empty=1`);
   }

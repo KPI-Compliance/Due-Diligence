@@ -60,10 +60,30 @@ function normalizeJiraIssueKeyForMatch(value: string | null | undefined) {
   return (value ?? "").trim().toUpperCase().replace(/\s+/g, "");
 }
 
+type TypeformApiErrorBody = { code?: string; description?: string };
+
+async function readTypeformErrorBody(response: Response): Promise<TypeformApiErrorBody> {
+  try {
+    const data = (await response.json()) as TypeformApiErrorBody;
+    return {
+      code: typeof data.code === "string" ? data.code : undefined,
+      description: typeof data.description === "string" ? data.description : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 async function fetchAllTypeformFormResponseItems(
   formId: string,
   token: string,
-): Promise<{ ok: boolean; items: TypeformResponseItem[]; httpStatus?: number; truncated: boolean }> {
+): Promise<{
+  ok: boolean;
+  items: TypeformResponseItem[];
+  httpStatus?: number;
+  truncated: boolean;
+  typeformError?: TypeformApiErrorBody;
+}> {
   const items: TypeformResponseItem[] = [];
   let before: string | undefined;
 
@@ -82,7 +102,8 @@ async function fetchAllTypeformFormResponseItems(
     });
 
     if (!response.ok) {
-      return { ok: false, items, httpStatus: response.status, truncated: page > 0 };
+      const typeformError = await readTypeformErrorBody(response);
+      return { ok: false, items, httpStatus: response.status, truncated: page > 0, typeformError };
     }
 
     const payload = (await response.json()) as TypeformResponsesApiResponse;
@@ -137,7 +158,9 @@ export type ExternalQuestionnaireSyncResultStatus =
   | "already_linked"
   | "no_match"
   | "missing_credentials"
-  | "no_form_mapping";
+  | "no_form_mapping"
+  /** Typeform GET .../responses returned 403 for every mapped form (token scopes / wrong account). */
+  | "typeform_forbidden";
 
 export type ExternalQuestionnaireSyncResult = {
   status: ExternalQuestionnaireSyncResultStatus;
@@ -663,6 +686,8 @@ export async function syncExternalQuestionnaireForEntity(input: {
   }
 
   const emptyVendorSignals = { recipientEmails: [] as string[], sentTimestamps: [] as number[], dispatchIds: [] as string[] };
+  let anySuccessfulResponsesFetch = false;
+  const responsesFetchFailureStatuses: number[] = [];
   let matchedResponse: (TypeformResponseItem & { form_id: string; form_name: string }) | null = null;
   let lastPartnerMatchScan: {
     form_id: string;
@@ -686,6 +711,9 @@ export async function syncExternalQuestionnaireForEntity(input: {
     const fetchResult = await fetchAllTypeformFormResponseItems(form.form_id, token);
 
     if (!fetchResult.ok) {
+      if (typeof fetchResult.httpStatus === "number") {
+        responsesFetchFailureStatuses.push(fetchResult.httpStatus);
+      }
       console.warn(
         `Typeform responses fetch failed for form ${form.form_id}: ${fetchResult.httpStatus ?? "unknown"}`,
       );
@@ -700,10 +728,16 @@ export async function syncExternalQuestionnaireForEntity(input: {
         stage: "responses_fetch",
         status: "error",
         message: "Typeform responses fetch failed.",
-        payload: { http_status: fetchResult.httpStatus },
+        payload: {
+          http_status: fetchResult.httpStatus,
+          typeform_code: fetchResult.typeformError?.code ?? null,
+          typeform_description: fetchResult.typeformError?.description ?? null,
+        },
       });
       continue;
     }
+
+    anySuccessfulResponsesFetch = true;
 
     const payload: TypeformResponsesApiResponse = { items: fetchResult.items };
     await logTypeformSyncDiagnostic({
@@ -981,6 +1015,38 @@ export async function syncExternalQuestionnaireForEntity(input: {
     (!hasExistingAssessmentAnswers || hasOpaqueQuestionText);
 
   if (!matchedResponse?.token || (tokenAlreadyLinked && !needsRehydration)) {
+    const missingMatch = !matchedResponse?.token;
+    const everyResponsesFetchWas403 =
+      missingMatch &&
+      !anySuccessfulResponsesFetch &&
+      responsesFetchFailureStatuses.length > 0 &&
+      responsesFetchFailureStatuses.every((code) => code === 403);
+
+    if (everyResponsesFetchWas403) {
+      await logTypeformSyncDiagnostic({
+        source: "entity_sync",
+        entityId,
+        entityName,
+        entityKind,
+        jiraIssueKey,
+        assessmentId: assessment.id,
+        formId: null,
+        stage: "typeform_authorization",
+        status: "error",
+        message:
+          "All Typeform GET .../responses calls returned 403. The API token cannot read responses for these forms (missing scopes, wrong account, or revoked token).",
+        payload: {
+          http_statuses: responsesFetchFailureStatuses,
+          reference_source: referenceSource,
+        },
+      });
+      return {
+        status: "typeform_forbidden",
+        assessmentId: assessment.id,
+        responseToken: null,
+      };
+    }
+
     await logTypeformSyncDiagnostic({
       source: "entity_sync",
       entityId,
