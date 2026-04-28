@@ -359,6 +359,62 @@ function normalizeStrictEntityKey(value: string | null | undefined) {
   return normalizeComparable(value).replace(/[^a-z0-9]+/g, "");
 }
 
+/**
+ * Vendor Typeform answers must not be linked to a Jira issue created *after* the response was
+ * submitted (same contact email reused across tests/tickets caused false matches).
+ * Small slack before `created` handles minor clock skew.
+ */
+const VENDOR_TYPEFORM_SUBMIT_BEFORE_ISSUE_SLACK_MS = 24 * 60 * 60 * 1000;
+
+function vendorResponseSubmittedOnOrAfterIssueCreated(
+  submittedAt: string | undefined,
+  referenceTimestamp: number,
+): boolean {
+  if (Number.isNaN(referenceTimestamp)) return true;
+  const submittedMs = toTimestamp(submittedAt);
+  if (Number.isNaN(submittedMs)) return false;
+  return submittedMs >= referenceTimestamp - VENDOR_TYPEFORM_SUBMIT_BEFORE_ISSUE_SLACK_MS;
+}
+
+/** Same fuzzy match logic as the `byCompanyName` branch (company / vendor name in answers). */
+function vendorTypeformCompanyAnswerMatchesEntityName(
+  companyNameRaw: string | null | undefined,
+  targetName: string,
+  targetNameLoose: string,
+  targetNameStrict: string,
+): boolean {
+  const companyName = normalizeComparable(companyNameRaw ?? "");
+  const companyNameLoose = normalizeLooseLookup(companyNameRaw ?? "");
+  const companyNameStrict = normalizeStrictEntityKey(companyNameRaw ?? "");
+  if (!companyName && !companyNameLoose && !companyNameStrict) return false;
+  return (
+    companyName === targetName ||
+    companyName.includes(targetName) ||
+    targetName.includes(companyName) ||
+    companyNameLoose === targetNameLoose ||
+    companyNameLoose.includes(targetNameLoose) ||
+    targetNameLoose.includes(companyNameLoose) ||
+    companyNameStrict === targetNameStrict ||
+    companyNameStrict.includes(targetNameStrict) ||
+    targetNameStrict.includes(companyNameStrict)
+  );
+}
+
+/**
+ * When the form exposes a company/vendor-style name, it must match the entity name.
+ * If no such field is detected, we rely on the submission date vs Jira issue `created` gate only.
+ */
+function vendorTypeformCompanyMatchesEntityIfPresent(
+  item: TypeformResponseItem,
+  targetName: string,
+  targetNameLoose: string,
+  targetNameStrict: string,
+): boolean {
+  const raw = extractCompanyNameFromTypeformAnswers(item.answers) ?? undefined;
+  if (!raw?.trim()) return true;
+  return vendorTypeformCompanyAnswerMatchesEntityName(raw, targetName, targetNameLoose, targetNameStrict);
+}
+
 async function getTypeformFormFields(formId: string, token: string) {
   const response = await fetch(`https://api.typeform.com/forms/${formId}`, {
     headers: {
@@ -821,6 +877,17 @@ export async function syncExternalQuestionnaireForEntity(input: {
               if (!respondentEmail || !respondentEmail.includes("@")) return false;
               if (!formScopedVendorSignals.recipientEmails.includes(respondentEmail)) return false;
 
+              if (!Number.isNaN(referenceTimestamp)) {
+                if (!vendorResponseSubmittedOnOrAfterIssueCreated(item.submitted_at, referenceTimestamp)) {
+                  return false;
+                }
+                if (
+                  !vendorTypeformCompanyMatchesEntityIfPresent(item, targetName, targetNameLoose, targetNameStrict)
+                ) {
+                  return false;
+                }
+              }
+
               if (formScopedVendorSignals.sentTimestamps.length === 0) return true;
 
               const submittedTimestamp = toTimestamp(item.submitted_at);
@@ -848,7 +915,20 @@ export async function syncExternalQuestionnaireForEntity(input: {
             .filter((item) => {
               const respondent = normalizeComparableToken(extractRespondentEmailFromTypeformAnswers(item.answers));
               const normalizedContact = normalizeComparableToken(contactTarget);
-              return Boolean(respondent) && Boolean(normalizedContact) && respondent === normalizedContact;
+              if (!respondent || !normalizedContact || respondent !== normalizedContact) return false;
+
+              if (entityKind === "VENDOR") {
+                if (!Number.isNaN(referenceTimestamp)) {
+                  if (!vendorResponseSubmittedOnOrAfterIssueCreated(item.submitted_at, referenceTimestamp)) {
+                    return false;
+                  }
+                }
+                if (!vendorTypeformCompanyMatchesEntityIfPresent(item, targetName, targetNameLoose, targetNameStrict)) {
+                  return false;
+                }
+              }
+
+              return true;
             })
             .sort((a, b) => {
               if (!Number.isNaN(referenceTimestamp)) {
@@ -930,6 +1010,11 @@ export async function syncExternalQuestionnaireForEntity(input: {
     const byCompanyName =
       normalizedItems
         .filter((item) => {
+          if (entityKind === "VENDOR" && !Number.isNaN(referenceTimestamp)) {
+            if (!vendorResponseSubmittedOnOrAfterIssueCreated(item.submitted_at, referenceTimestamp)) {
+              return false;
+            }
+          }
           const companyNameRaw = extractCompanyNameFromTypeformAnswers(item.answers) ?? undefined;
           const companyName = normalizeComparable(companyNameRaw);
           const companyNameLoose = normalizeLooseLookup(companyNameRaw);

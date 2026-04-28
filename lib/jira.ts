@@ -2008,9 +2008,13 @@ export function extractEntityFromJiraIssue(
   const category = capNumber ? `CAP ${capNumber}` : languagePreference;
   const initialWorkflowLabel =
     kind === "VENDOR" && status === "PENDING" ? "Opened" : formatStatusLabel(status);
+  // Do not map Jira "assignee" to vendor intake "VTEX e-mail responsible" — the assignee is
+  // often whoever triaged the ticket, not the answer from the Vendor request form; filling
+  // vtex from assignee overwrites the real form email in the DB/UI when the custom field
+  // is empty. Owner routing may still use assignee below.
   const sanitizedVendorFormData = sanitizeVendorFormFieldValues({
     vendorEmail: contactEmail,
-    vtexResponsibleEmail: vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
+    vtexResponsibleEmail: vtexResponsibleEmail ?? null,
     languagePreference,
     priority: formPriority,
     company: companyGroupFromForm ? companyGroupFromForm : null,
@@ -2039,7 +2043,7 @@ export function extractEntityFromJiraIssue(
     jiraFormData: {
       vendorDisplayName: vendorDisplayNameForForm,
       vendorEmail: sanitizedVendorFormData.vendorEmail,
-      vtexResponsibleEmail: sanitizedVendorFormData.vtexResponsibleEmail ?? fields.assignee?.emailAddress?.trim() ?? null,
+      vtexResponsibleEmail: sanitizedVendorFormData.vtexResponsibleEmail,
       languagePreference: sanitizedVendorFormData.languagePreference,
       priority: sanitizedVendorFormData.priority,
       company: sanitizedVendorFormData.company,
