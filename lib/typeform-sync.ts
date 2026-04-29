@@ -909,8 +909,15 @@ export async function syncExternalQuestionnaireForEntity(input: {
         : null;
 
     const contactTarget = (entityContactEmail ?? "").trim();
+    // Partners: never match on entity `contact_email` vs Typeform "Email" — that field is the *partner*
+    // respondent (e.g. guilherme@mercadolivre.com), while `contact_email` on the entity is often the
+    // Jira reporter / VTEX focal and would steal an unrelated test response (same internal email).
+    // Partner identity is the Jira summary / entity name vs official company-name question (e.g.
+    // "Hi! What is the Company Name?") — see `byPartnerOfficialCompanyQuestion` below.
     const byEntityContactEmail =
-      contactTarget.includes("@")
+      entityKind === "PARTNER"
+        ? null
+        : contactTarget.includes("@")
         ? normalizedItems
             .filter((item) => {
               const respondent = normalizeComparableToken(extractRespondentEmailFromTypeformAnswers(item.answers));
@@ -964,7 +971,13 @@ export async function syncExternalQuestionnaireForEntity(input: {
     const byPartnerOfficialCompanyQuestion =
       entityKind === "PARTNER"
         ? (() => {
-            const pool = normalizedItems.filter(partnerOfficialNameMatchesEntity);
+            const pool = normalizedItems.filter((item) => {
+              if (!partnerOfficialNameMatchesEntity(item)) return false;
+              if (!Number.isNaN(referenceTimestamp)) {
+                return vendorResponseSubmittedOnOrAfterIssueCreated(item.submitted_at, referenceTimestamp);
+              }
+              return true;
+            });
             const hasRef = !Number.isNaN(referenceTimestamp);
             const inWindow = hasRef
               ? pool.filter((item) => isResponseWithinPartnerTimeWindow(item.submitted_at, referenceTimestamp))
@@ -1010,7 +1023,10 @@ export async function syncExternalQuestionnaireForEntity(input: {
     const byCompanyName =
       normalizedItems
         .filter((item) => {
-          if (entityKind === "VENDOR" && !Number.isNaN(referenceTimestamp)) {
+          if (
+            (entityKind === "VENDOR" || entityKind === "PARTNER") &&
+            !Number.isNaN(referenceTimestamp)
+          ) {
             if (!vendorResponseSubmittedOnOrAfterIssueCreated(item.submitted_at, referenceTimestamp)) {
               return false;
             }

@@ -46,8 +46,6 @@ const SESSION_COOKIE = "dd_session";
 const OAUTH_STATE_COOKIE = "dd_oauth_state";
 const SESSION_DURATION_SECONDS = 60 * 60 * 8;
 const STATE_DURATION_SECONDS = 60 * 10;
-const LOCAL_DEV_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
-
 function base64UrlEncode(value: string) {
   return Buffer.from(value, "utf8").toString("base64url");
 }
@@ -213,15 +211,6 @@ export function getPreferredHostedDomain() {
   return firstDomain;
 }
 
-export function isTrustedLocalhostOrigin(origin: string) {
-  try {
-    const url = new URL(origin);
-    return LOCAL_DEV_HOSTS.has(url.hostname);
-  } catch {
-    return false;
-  }
-}
-
 export async function createOauthState() {
   const state = randomUUID();
   const cookieStore = await cookies();
@@ -309,8 +298,4 @@ export function getSessionErrorCode(reason: SessionFailureReason | null) {
     return "session_invalid";
   }
   return "session_missing";
-}
-
-export function isDevAuthBypassEnabled() {
-  return process.env.NODE_ENV !== "production" && sanitizeEnvValue(process.env.DEV_AUTH_BYPASS) === "true";
 }

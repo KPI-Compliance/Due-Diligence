@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { getAuthenticatedSession, isDevAuthBypassEnabled } from "@/lib/auth";
+import { getAuthenticatedSession } from "@/lib/auth";
 
 const loginErrorMessages: Record<string, string> = {
   google_access_denied: "O acesso com Google foi cancelado antes da conclusão do login.",
@@ -13,7 +13,6 @@ const loginErrorMessages: Record<string, string> = {
   session_expired: "Sua sessão expirou. Entre novamente para continuar.",
   session_invalid: "Sua sessão ficou inválida neste ambiente. Entre novamente para continuar.",
   session_missing: "Sua sessão não foi encontrada. Entre novamente para continuar.",
-  dev_login_disabled: "O bypass de login local está desativado neste ambiente.",
 };
 
 export default async function HomePage({
@@ -23,7 +22,6 @@ export default async function HomePage({
 }) {
   const params = searchParams ? await searchParams : undefined;
   const session = await getAuthenticatedSession();
-  const devAuthBypassEnabled = isDevAuthBypassEnabled();
   const errorCode = params?.error ?? "";
   const errorMessage = loginErrorMessages[errorCode];
 
@@ -133,18 +131,11 @@ export default async function HomePage({
                   Entrar com SSO Corporativo
                 </a>
 
-                {devAuthBypassEnabled ? (
-                  <a
-                    href="/api/auth/dev-login"
-                    className="flex w-full items-center justify-center rounded-lg bg-[var(--color-secondary)] px-4 py-4 text-sm font-semibold text-white transition hover:brightness-95"
-                  >
-                    Entrar com Bypass Local
-                  </a>
-                ) : null}
-
                 <div className="rounded-lg border border-dashed border-[var(--color-secondary)]/15 bg-[var(--color-secondary)]/3 px-4 py-3 text-xs leading-6 text-[var(--color-neutral-700)]">
-                  O acesso agora usa autenticação Google OAuth. Se ocorrer erro de redirecionamento, confira se a URL do callback autorizada no Google
-                  corresponde ao ambiente atual.
+                  Em desenvolvimento local, use o mesmo login Google: configure <code className="rounded bg-white/80 px-1">NEXT_PUBLIC_APP_URL</code>,{" "}
+                  <code className="rounded bg-white/80 px-1">GOOGLE_OAUTH_REDIRECT_URI</code> e o callback{" "}
+                  <code className="rounded bg-white/80 px-1">http://localhost:3000/api/auth/callback/google</code> no Google Cloud. Remova{" "}
+                  <code className="rounded bg-white/80 px-1">DEV_AUTH_BYPASS</code> do ambiente se ainda existir.
                 </div>
               </div>
             )}
