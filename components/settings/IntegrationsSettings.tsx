@@ -281,6 +281,12 @@ export function IntegrationsSettings({
             <p className="text-xs text-[var(--color-neutral-600)]">
               Dispatch sem vínculo: {hiddenHealthSummary?.forms_with_recent_dispatch_but_no_hidden_linkage ?? 0}
             </p>
+            <p className="text-xs text-[var(--color-neutral-500)]">
+              O diagnóstico abre num novo separador: mantenha a sessão iniciada (perfil com acesso a Configurações) ou use{" "}
+              <code className="rounded bg-[var(--color-neutral-100)] px-1">Authorization: Bearer</code> com{" "}
+              <code className="rounded bg-[var(--color-neutral-100)] px-1">CRON_SECRET</code> /{" "}
+              <code className="rounded bg-[var(--color-neutral-100)] px-1">INTERNAL_TOOL_SECRET</code>.
+            </p>
             <Link
               href="/api/health/typeform-hidden?entity_kind=VENDOR"
               target="_blank"

@@ -132,10 +132,12 @@ export default async function HomePage({
                 </a>
 
                 <div className="rounded-lg border border-dashed border-[var(--color-secondary)]/15 bg-[var(--color-secondary)]/3 px-4 py-3 text-xs leading-6 text-[var(--color-neutral-700)]">
-                  Em desenvolvimento local, use o mesmo login Google: configure <code className="rounded bg-white/80 px-1">NEXT_PUBLIC_APP_URL</code>,{" "}
-                  <code className="rounded bg-white/80 px-1">GOOGLE_OAUTH_REDIRECT_URI</code> e o callback{" "}
-                  <code className="rounded bg-white/80 px-1">http://localhost:3000/api/auth/callback/google</code> no Google Cloud. Remova{" "}
-                  <code className="rounded bg-white/80 px-1">DEV_AUTH_BYPASS</code> do ambiente se ainda existir.
+                  Em desenvolvimento local, use o login Google: configure <code className="rounded bg-white/80 px-1">NEXT_PUBLIC_APP_URL</code>,{" "}
+                  <code className="rounded bg-white/80 px-1">GOOGLE_OAUTH_REDIRECT_URI</code>,{" "}
+                  <code className="rounded bg-white/80 px-1">DD_AUTH_SECRET</code>,{" "}
+                  <code className="rounded bg-white/80 px-1">ALLOWED_GOOGLE_DOMAINS</code> ou{" "}
+                  <code className="rounded bg-white/80 px-1">ALLOWED_GOOGLE_EMAILS</code>, e o callback{" "}
+                  <code className="rounded bg-white/80 px-1">http://localhost:3000/api/auth/callback/google</code> no Google Cloud.
                 </div>
               </div>
             )}

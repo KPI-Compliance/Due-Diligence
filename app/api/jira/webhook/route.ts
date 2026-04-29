@@ -221,8 +221,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, message: "Jira integration disabled. Event ignored." });
     }
 
-    const configuredSecret = process.env.JIRA_WEBHOOK_SECRET;
-    if (configuredSecret && !secretMatches(request.headers.get("x-jira-webhook-secret"), configuredSecret)) {
+    const configuredSecret = process.env.JIRA_WEBHOOK_SECRET?.trim();
+    if (process.env.NODE_ENV === "production") {
+      if (!configuredSecret) {
+        return NextResponse.json(
+          { ok: false, message: "Jira webhook is not configured (JIRA_WEBHOOK_SECRET required in production)." },
+          { status: 503 },
+        );
+      }
+      if (!secretMatches(request.headers.get("x-jira-webhook-secret"), configuredSecret)) {
+        return NextResponse.json({ ok: false, message: "Invalid Jira webhook secret." }, { status: 401 });
+      }
+    } else if (configuredSecret && !secretMatches(request.headers.get("x-jira-webhook-secret"), configuredSecret)) {
       return NextResponse.json({ ok: false, message: "Invalid Jira webhook secret." }, { status: 401 });
     }
 

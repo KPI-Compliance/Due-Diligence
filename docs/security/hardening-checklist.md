@@ -16,12 +16,23 @@
 
 ## Bypass e ambientes
 
-- Manter `DEV_AUTH_BYPASS` apenas em maquina local.
-- Bloquear a rota de bypass em qualquer preview, homologacao ou ambiente compartilhado.
-- Revisar `.env.*` antes de deploy para evitar vazamento de flags de desenvolvimento.
+- O bypass local (`DEV_AUTH_BYPASS` / `dev-login`) foi removido; usar apenas Google OAuth em todos os ambientes.
+- Revisar `.env.*` antes de deploy para evitar vazamento de flags ou paths locais.
+
+## Webhooks e tarefas agendadas
+
+- Em producao: `JIRA_WEBHOOK_SECRET` obrigatorio no webhook Jira; header `x-jira-webhook-secret` alinhado.
+- Typeform: modo assinado em producao; `TYPEFORM_WEBHOOK_SECRET` configurado; nao usar `webhook_mode: unsigned` em producao.
+- Cron `typeform-response-integrity`: apenas `Authorization: Bearer` com `CRON_SECRET` ou `INTERNAL_TOOL_SECRET` (sem segredo na query).
+
+## Health e diagnostico
+
+- Rotas `/api/health/*`: acesso com Bearer (mesmo segredo do cron) ou sessao com `canManageSettings`.
+- Probes e CI devem enviar o header Bearer; nao depender de GET anonimo.
 
 ## Rotas e APIs
 
+- Enviar questionario externo: sempre validar `entitySlug` + assessment pertencente ao vendor; URL do questionario apenas Typeform HTTPS com form id (ver `lib/questionnaire-url.ts`).
 - Revisar rotas `app/api/*` para checar autorizacao antes de qualquer operacao sensivel.
 - Trocar GET state-changing por POST quando houver efeito colateral real.
 - Adicionar protecao anti-CSRF para rotas que alterem estado.

@@ -6,11 +6,10 @@ Route:
 - `/`
 
 Purpose:
-- authenticate the user with Google SSO in production or a dev bypass locally.
+- authenticate the user with Google SSO (allowlisted domains/emails).
 
 Visible features:
 - Google login button
-- local bypass button when `DEV_AUTH_BYPASS=true`
 - active session card when already authenticated
 
 ## Dashboard

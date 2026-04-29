@@ -1,143 +1,111 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Due Diligence Platform
 
-## Getting Started
+Next.js app for vendor and partner due diligence: intake, questionnaires, risk scoring, and integrations (Jira, Typeform, Google, Slack).
 
-First, run the development server:
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). Copy `.env.example` to `.env.local` and fill values for your environment.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Google SSO and session
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Google SSO Login
-
-The login page uses Google OAuth. In production, prefer environment variables. For local fallback, the app can still read:
-
-- `client_secret_1026620199601-b7sj26vpj8aap7h8pavjg5239hpslajc.apps.googleusercontent.com.json`
-
-Environment variables:
+Configure OAuth and session signing (session always uses `DD_AUTH_SECRET`; it is required when the auth code path runs):
 
 ```bash
-NEXT_PUBLIC_APP_URL="https://your-app-domain.vercel.app"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
 GOOGLE_CLIENT_ID="your_google_client_id.apps.googleusercontent.com"
 GOOGLE_CLIENT_SECRET="your_google_client_secret"
-GOOGLE_OAUTH_REDIRECT_URI="https://your-app-domain.vercel.app/api/auth/callback/google"
+GOOGLE_OAUTH_REDIRECT_URI="http://localhost:3000/api/auth/callback/google"
 DD_AUTH_SECRET="replace_with_a_long_random_secret"
+ALLOWED_GOOGLE_DOMAINS="your-company.com"
+ALLOWED_GOOGLE_EMAILS=""
 ```
 
-Notes:
+Optional: `RBAC_ADMIN_EMAILS` for bootstrap admins (see `lib/access-control.ts`). In Vercel, prefer env vars over a local `client_secret_*.json` file (still supported as fallback if env is omitted).
 
-- In Vercel, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` should be configured as environment variables instead of relying on the local JSON file.
-- `GOOGLE_OAUTH_REDIRECT_URI` must exactly match one of the authorized redirect URIs in Google Cloud.
-- `DD_AUTH_SECRET` is recommended so the app session cookie does not rely on the OAuth client secret fallback.
-- For local development, authorize the exact local callback URL you intend to use.
-- The protected app shell now relies on the server-side session cookie created after the Google callback.
+## Webhooks and integration secrets
 
-## Google Sheets Integration (Questionnaire Answers)
+### Jira (`POST /api/jira/webhook`)
 
-You can use Google Sheets as the questionnaire source (instead of direct Typeform webhook processing).
+- In **production**, `JIRA_WEBHOOK_SECRET` is **required**. If it is missing, the route returns **503** and events are not processed.
+- Jira automation must send the same value in the **`x-jira-webhook-secret`** header.
+- In non-production, the secret is optional; when set, requests must still match.
 
-1. Publish your worksheet as CSV.
-2. Configure environment variables in `.env.local`:
+### Typeform (`POST /api/typeform/webhook`)
 
-```bash
-GOOGLE_SHEETS_ENABLED=true
-GOOGLE_SHEETS_CSV_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=0"
-GOOGLE_SHEETS_INTERNAL_CSV_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=0"
-GOOGLE_SHEETS_STRICT_MATCH=true
-```
+- Use **`TYPEFORM_WEBHOOK_SECRET`** and Typeform’s signed webhook payload.
+- In **production**, **`webhook_mode: unsigned`** in integration settings is **rejected** (403). Unsigned mode is only for controlled non-production use.
+- Request bodies larger than **2 MiB** are rejected with **413**.
 
-3. Ensure your sheet has at least these columns:
-- `assessment_id` (recommended)
-- `question_text`
-- `answer_text`
+## Cron (Typeform response integrity)
 
-The integration also supports Typeform exported CSV in "wide format" (one row per response, many question columns), in both Portuguese and English headers.
+`vercel.json` schedules:
 
-Optional:
-- `domain`
-- `review_status` (`compliant` or `needs_review`)
-- `evidence_url`
-- `entity_slug` / `entity_name`
+- `GET` or `POST` **`/api/cron/typeform-response-integrity`**
 
-When rows match the current entity/assessment, answers are shown in the detail page (`Security Review` tab).
+Authorization:
 
-`GOOGLE_SHEETS_STRICT_MATCH=true` (default) avoids ambiguous imports and only accepts deterministic matches.
+- Send **`Authorization: Bearer <CRON_SECRET>`** (or the same value in **`INTERNAL_TOOL_SECRET`** if you use that instead of `CRON_SECRET` for this check).
+- **Query-string secrets are not supported** (they leak via logs and `Referer`).
 
-Health check endpoint:
+On [Vercel](https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs), define **`CRON_SECRET`** in the project; Vercel adds the `Authorization` header automatically to cron invocations.
+
+## Health and diagnostic APIs
+
+These routes respond only if **either**:
+
+1. **`Authorization: Bearer`** matches `INTERNAL_TOOL_SECRET` or `CRON_SECRET`, or  
+2. The caller has a valid **session** and **`canManageSettings`** (so “open in new tab” from Settings works for admins).
+
+Endpoints:
+
+- `GET /api/health/db`
 - `GET /api/health/google-sheets`
+- `GET /api/health/typeform-responses`
+- `GET /api/health/typeform-hidden`
 
-## Internal Questionnaire Sheet
+Monitoring probes must use the **Bearer** header, not anonymous `GET`.
 
-The `Internal Questionnaire` tab on vendor details supports a Google Sheets layout with one row per vendor. The configured sheet should include columns like:
+## Vendor external questionnaire (`POST /api/vendors/external-questionnaire/send`)
 
-- `VENDOR`
-- `TICKET`
-- `Solicitado por`
-- `Status Mini Questionário`
+- **`entitySlug`** is required. **`assessmentId`** is optional but, if sent, must belong to that vendor (prevents cross-vendor IDOR).
+- **`questionnaireBaseUrl`** must be **HTTPS** on a **Typeform** host (`*.typeform.com`) and must **include the selected form id** in the path or query (anti-phishing).
 
-All remaining columns in the row are interpreted as question/answer pairs for the internal questionnaire.
+## Typeform file proxy (`GET /api/typeform/file`)
 
-Optional environment variables for explicit column mapping:
+Requires a logged-in user. For standard API file URLs under `/forms/{formId}/responses/{responseId}/...`, the app checks that **`assessments`** has a matching **`typeform_form_id`** and **`typeform_response_token`**.
 
-```bash
-GOOGLE_SHEETS_INTERNAL_COLUMN_VENDOR="VENDOR"
-GOOGLE_SHEETS_INTERNAL_COLUMN_TICKET="TICKET"
-GOOGLE_SHEETS_INTERNAL_COLUMN_REQUESTER="Solicitado por"
-GOOGLE_SHEETS_INTERNAL_COLUMN_STATUS="Status Mini Questionário"
-```
+## Google Sheets (questionnaire source)
 
-## Internal Questionnaire Dispatch (Slack + Google Forms)
+See `.env.example` for `GOOGLE_SHEETS_*` variables. When enabled, answers can be merged into assessments as documented in `database/README.md`.
 
-The vendor detail page (`Internal Questionnaire` tab) can send the internal triage form to the VTEX focal point via Slack.
+## Internal questionnaire (Slack + Google Forms)
 
-Required environment variables:
+See `.env.example` for `SLACK_BOT_TOKEN`, `INTERNAL_QUESTIONNAIRE_FORM_URL`, and optional form parameter names.
 
-```bash
-SLACK_BOT_TOKEN="xoxb-..."
-INTERNAL_QUESTIONNAIRE_FORM_URL="https://docs.google.com/forms/d/e/<FORM_ID>/viewform"
-```
+## Scripts
 
-Optional query parameter mapping (for Google Forms prefill):
+- `npm run lint` — ESLint  
+- `npm run typecheck` — TypeScript  
+- `npm run build` / `npm run start` — production build  
 
-```bash
-INTERNAL_QUESTIONNAIRE_FORM_PARAM_TICKET="entry.123456789"
-INTERNAL_QUESTIONNAIRE_FORM_PARAM_VENDOR="entry.987654321"
-INTERNAL_QUESTIONNAIRE_FORM_PARAM_ENTITY_SLUG="entry.111111111"
-INTERNAL_QUESTIONNAIRE_FORM_PARAM_FOCAL_EMAIL="entry.222222222"
-```
+Backfill scripts are listed in `package.json` under `scripts`.
 
-Optional template mode (if you prefer explicit placeholders instead of param mapping):
+## Documentation
 
-```bash
-INTERNAL_QUESTIONNAIRE_FORM_URL_TEMPLATE="https://docs.google.com/forms/d/e/<FORM_ID>/viewform?usp=pp_url&entry.123={{ticket}}&entry.456={{vendor}}&entry.789={{focal_email}}"
-```
+- `AGENTS.md` — agent roles for this repo  
+- `docs/system/overview.md` — routes and flows  
+- `database/README.md` — schema and data notes  
+- `docs/security/hardening-checklist.md` — security checklist  
 
-New API endpoint:
-- `POST /api/vendors/internal-questionnaire/send`
+## Deploy (Vercel)
 
-## Learn More
+Set all production secrets in the Vercel dashboard (never commit `.env.local`). After deploy, confirm:
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. `JIRA_WEBHOOK_SECRET` and Jira header match.  
+2. `CRON_SECRET` is set if crons are enabled.  
+3. `TYPEFORM_WEBHOOK_SECRET` and Typeform signing mode are **signed** in production.

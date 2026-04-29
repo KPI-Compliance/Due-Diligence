@@ -1,19 +1,9 @@
 import { NextResponse } from "next/server";
+import { isInternalToolRequestAuthorized } from "@/lib/internal-tool-auth";
 import { autoRepairTypeformResponseIntegrity } from "@/lib/typeform-response-integrity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function isAuthorized(request: Request) {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) return false;
-
-  const authHeader = request.headers.get("authorization") ?? "";
-  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
-  const querySecret = new URL(request.url).searchParams.get("secret")?.trim() ?? "";
-
-  return bearer === secret || querySecret === secret;
-}
 
 function parsePositiveInt(value: string | null, fallback: number) {
   if (!value) return fallback;
@@ -22,7 +12,7 @@ function parsePositiveInt(value: string | null, fallback: number) {
 }
 
 async function runRepair(request: Request) {
-  if (!isAuthorized(request)) {
+  if (!isInternalToolRequestAuthorized(request)) {
     return NextResponse.json({ ok: false, message: "Unauthorized." }, { status: 401 });
   }
 

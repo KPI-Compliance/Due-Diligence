@@ -3,9 +3,6 @@ import { join } from "node:path";
 import { google } from "googleapis";
 import { getIntegrationSettings, type TypeformConfig } from "@/lib/settings-data";
 
-const LOCAL_GOOGLE_WORKSPACE_SERVICE_ACCOUNT_FILE =
-  "/Users/jeff.brito/Library/CloudStorage/GoogleDrive-jeff.brito@vtex.com/Meu Drive/2026/Due Diligence System/jeffproject-489921-ea63feaab5ed.json";
-
 type GoogleServiceAccount = {
   client_email?: string;
   private_key?: string;
@@ -46,19 +43,15 @@ async function getGoogleServiceAccountCredentials(): Promise<GoogleServiceAccoun
     };
   }
 
-  const filePath =
-    process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_FILE?.trim() || LOCAL_GOOGLE_WORKSPACE_SERVICE_ACCOUNT_FILE;
-  try {
-    const rawFile = await readFile(filePath, "utf8");
-    return normalizeServiceAccount(JSON.parse(rawFile) as GoogleServiceAccount);
-  } catch (error) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        "Credenciais Google Workspace ausentes no deploy. Configure GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON, GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 ou GOOGLE_WORKSPACE_CLIENT_EMAIL/GOOGLE_WORKSPACE_PRIVATE_KEY.",
-      );
-    }
-    throw error;
+  const filePath = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_FILE?.trim();
+  if (!filePath) {
+    throw new Error(
+      "Credenciais Google Workspace não configuradas. Defina GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON, GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64, GOOGLE_WORKSPACE_CLIENT_EMAIL/GOOGLE_WORKSPACE_PRIVATE_KEY ou GOOGLE_WORKSPACE_SERVICE_ACCOUNT_FILE.",
+    );
   }
+
+  const rawFile = await readFile(filePath, "utf8");
+  return normalizeServiceAccount(JSON.parse(rawFile) as GoogleServiceAccount);
 }
 
 async function getTypeformSenderEmail() {

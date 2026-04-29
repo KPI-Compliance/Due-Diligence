@@ -138,9 +138,23 @@ async function dedupeAssessmentQuestionResponses(assessmentId: string) {
   `;
 }
 
+const TYPEFORM_WEBHOOK_MAX_BYTES = 2 * 1024 * 1024;
+
 export async function POST(request: Request) {
   try {
+    const contentLength = request.headers.get("content-length");
+    if (contentLength) {
+      const parsedLength = Number.parseInt(contentLength, 10);
+      if (Number.isFinite(parsedLength) && parsedLength > TYPEFORM_WEBHOOK_MAX_BYTES) {
+        return NextResponse.json({ ok: false, message: "Payload too large." }, { status: 413 });
+      }
+    }
+
     const rawBody = await request.text();
+    if (rawBody.length > TYPEFORM_WEBHOOK_MAX_BYTES) {
+      return NextResponse.json({ ok: false, message: "Payload too large." }, { status: 413 });
+    }
+
     const payload = JSON.parse(rawBody) as TypeformWebhookPayload;
 
     if (payload.event_type !== "form_response") {
@@ -180,8 +194,16 @@ export async function POST(request: Request) {
     }
 
     const webhookMode = typeformSetting.config?.webhook_mode ?? "signed";
-    if (webhookMode === "signed") {
-      const secret = process.env.TYPEFORM_WEBHOOK_SECRET;
+    if (process.env.NODE_ENV === "production" && webhookMode !== "signed") {
+      return NextResponse.json(
+        { ok: false, message: "Unsigned Typeform webhooks are not allowed in production." },
+        { status: 403 },
+      );
+    }
+
+    const mustVerifySignature = webhookMode === "signed" || process.env.NODE_ENV === "production";
+    if (mustVerifySignature) {
+      const secret = process.env.TYPEFORM_WEBHOOK_SECRET?.trim();
       if (!secret) {
         return NextResponse.json({ ok: false, message: "TYPEFORM_WEBHOOK_SECRET is not configured." }, { status: 500 });
       }

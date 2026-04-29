@@ -14,6 +14,9 @@ export type TypeformResponseIntegrityItem = {
   typeformResponseToken: string | null;
 };
 
+/** Public health payloads must not expose Typeform response tokens. */
+export type TypeformResponseIntegrityHealthItem = Omit<TypeformResponseIntegrityItem, "typeformResponseToken">;
+
 function parseEntityKind(value: string | null | undefined): "VENDOR" | "PARTNER" | "ALL" {
   const normalized = String(value ?? "ALL").trim().toUpperCase();
   if (normalized === "VENDOR" || normalized === "PARTNER" || normalized === "ALL") {
@@ -119,13 +122,19 @@ export async function getTypeformResponseIntegrityHealth(input?: {
   const respondedWithoutAnswers = issues.filter((item) => item.responseCount === 0).length;
   const respondedWithOpaqueQuestions = issues.filter((item) => item.opaqueQuestionCount > 0).length;
 
+  const items: TypeformResponseIntegrityHealthItem[] = issues.map((item) => {
+    const { typeformResponseToken: _token, ...rest } = item;
+    void _token;
+    return rest;
+  });
+
   return {
     ok: issues.length === 0,
     checkedAt: new Date().toISOString(),
     totalIssues: issues.length,
     respondedWithoutAnswers,
     respondedWithOpaqueQuestions,
-    items: issues,
+    items,
   };
 }
 

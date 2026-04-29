@@ -7,7 +7,7 @@ Due Diligence VTEX is a Next.js application for vendor and partner due diligence
 ## Main Areas
 
 - `Login`
-  Google SSO for production and a local bypass for development only.
+  Google SSO only (no local auth bypass in the codebase).
 - `Dashboard`
   High-level risk and activity overview. In the current codebase, this screen is mostly static sample data.
 - `Vendors`
@@ -19,7 +19,7 @@ Due Diligence VTEX is a Next.js application for vendor and partner due diligence
 
 ## Core Flows
 
-1. A user authenticates through Google SSO or local dev bypass.
+1. A user authenticates through Google SSO (allowlist via `ALLOWED_GOOGLE_DOMAINS` / `ALLOWED_GOOGLE_EMAILS`).
 2. Vendors and partners are loaded from the database through `lib/data.ts`.
 3. Detail pages aggregate entity metadata, focal point data, questionnaire responses, and decision data.
 4. Typeform and Google Sheets provide questionnaire data.
@@ -52,20 +52,24 @@ Due Diligence VTEX is a Next.js application for vendor and partner due diligence
   Handles Google OAuth callback and creates session cookie.
 - `/api/auth/logout`
   Clears the session.
-- `/api/auth/dev-login`
-  Development-only bypass login.
 - `/api/typeform/webhook`
-  Receives Typeform webhooks.
+  Receives Typeform webhooks (signed; unsigned mode blocked in production).
 - `/api/typeform/file`
-  Proxies Typeform file downloads.
+  Proxies Typeform file downloads (requires session; validates form/response against `assessments` when the URL shape allows it).
 - `/api/jira/webhook`
-  Receives Jira payloads and syncs entities.
+  Receives Jira payloads and syncs entities (`JIRA_WEBHOOK_SECRET` required in production).
 - `/api/vendors/external-questionnaire/send`
-  Sends vendor external questionnaire.
+  Sends vendor external questionnaire (authenticated; requires `entitySlug`; questionnaire URL must be Typeform HTTPS with form id).
+- `/api/cron/typeform-response-integrity`
+  Scheduled repair for Typeform response integrity (`Authorization: Bearer` + `CRON_SECRET` or `INTERNAL_TOOL_SECRET`).
 - `/api/health/db`
-  Database health check.
+  Database health (Bearer secret or admin session with settings access).
 - `/api/health/google-sheets`
-  Google Sheets health check.
+  Google Sheets health (same auth as other health routes).
+- `/api/health/typeform-responses`
+  Typeform response integrity summary (same auth; response items omit response tokens).
+- `/api/health/typeform-hidden`
+  Typeform hidden-field diagnostics (same auth).
 
 ## Integrations
 

@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       ? payload.recipients.map((item) => String(item).trim()).filter(Boolean)
       : [];
 
-    if ((!assessmentId && !entitySlug) || !selectedFormId || !questionnaireBaseUrl || recipients.length === 0) {
+    if (!entitySlug || !selectedFormId || !questionnaireBaseUrl || recipients.length === 0) {
       return NextResponse.json({ ok: false, message: "Invalid send payload." }, { status: 400 });
     }
 

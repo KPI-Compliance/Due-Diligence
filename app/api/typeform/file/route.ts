@@ -1,3 +1,5 @@
+import { getAuthenticatedSessionResult } from "@/lib/auth";
+import { sql } from "@/lib/db";
 import { getTypeformApiCredentials } from "@/lib/typeform-admin";
 
 export const runtime = "nodejs";
@@ -16,12 +18,48 @@ function isAllowedTypeformFileUrl(value: string) {
   }
 }
 
+function extractFormAndResponseFromTypeformFileUrl(value: string): { formId: string; responseToken: string } | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.hostname !== "api.typeform.com") {
+      return null;
+    }
+    const match = url.pathname.match(/^\/forms\/([^/]+)\/responses\/([^/]+)\//i);
+    if (!match) {
+      return null;
+    }
+    return { formId: match[1], responseToken: match[2] };
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
+  const sessionResult = await getAuthenticatedSessionResult();
+  if (!sessionResult.session) {
+    return new Response("Unauthorized.", { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const fileUrl = searchParams.get("url")?.trim();
 
   if (!fileUrl || !isAllowedTypeformFileUrl(fileUrl)) {
     return new Response("Invalid Typeform file URL.", { status: 400 });
+  }
+
+  const parsed = extractFormAndResponseFromTypeformFileUrl(fileUrl);
+  if (parsed) {
+    const rows = (await sql`
+      SELECT 1 AS ok
+      FROM assessments
+      WHERE typeform_form_id = ${parsed.formId}
+        AND typeform_response_token = ${parsed.responseToken}
+      LIMIT 1
+    `) as Array<{ ok: number }>;
+
+    if (rows.length === 0) {
+      return new Response("Forbidden.", { status: 403 });
+    }
   }
 
   const { token } = await getTypeformApiCredentials();

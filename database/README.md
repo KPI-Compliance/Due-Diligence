@@ -356,5 +356,5 @@ Matching priority used by the app:
 2. fallback to `entity_slug` or `entity_name`
 3. fallback to exact company-name question column (Typeform export wide PT/EN)
 
-Health endpoint:
+Health endpoint (requires `Authorization: Bearer` with `CRON_SECRET` or `INTERNAL_TOOL_SECRET`, or a logged-in user with settings management access):
 - `GET /api/health/google-sheets`

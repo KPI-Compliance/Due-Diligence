@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { dbHealthCheck } from "@/lib/db";
+import { isHealthDiagnosticRequestAuthorized } from "@/lib/internal-tool-auth";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!(await isHealthDiagnosticRequestAuthorized(request))) {
+    return NextResponse.json({ ok: false, message: "Unauthorized." }, { status: 401 });
+  }
+
   try {
     const ok = await dbHealthCheck();
 

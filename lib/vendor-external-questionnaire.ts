@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "@/lib/db";
 import { sendExternalQuestionnaireEmail } from "@/lib/email";
+import { assertAllowedVendorQuestionnaireBaseUrl } from "@/lib/questionnaire-url";
 import { recordVendorQuestionnaireDispatch } from "@/lib/vendor-questionnaire-dispatch";
 
 function normalizeEmail(value: string | null | undefined) {
@@ -13,14 +14,9 @@ function isValidEmail(value: string | null | undefined) {
 }
 
 async function resolveVendorAssessmentId(input: { assessmentId?: string | null; entitySlug?: string | null }) {
-  const directAssessmentId = (input.assessmentId ?? "").trim();
-  if (directAssessmentId) {
-    return directAssessmentId;
-  }
-
   const entitySlug = (input.entitySlug ?? "").trim();
   if (!entitySlug) {
-    throw new Error("Assessment não encontrado para este vendor.");
+    throw new Error("Vendor slug é obrigatório.");
   }
 
   const entityRows = (await sql`
@@ -34,6 +30,23 @@ async function resolveVendorAssessmentId(input: { assessmentId?: string | null; 
   const entity = entityRows[0];
   if (!entity) {
     throw new Error("Vendor não encontrado.");
+  }
+
+  const directAssessmentId = (input.assessmentId ?? "").trim();
+  if (directAssessmentId) {
+    const matchRows = (await sql`
+      SELECT id::text
+      FROM assessments
+      WHERE id = ${directAssessmentId}::uuid
+        AND entity_id = ${entity.id}::uuid
+      LIMIT 1
+    `) as Array<{ id: string }>;
+
+    if (!matchRows[0]?.id) {
+      throw new Error("Assessment não pertence a este vendor.");
+    }
+
+    return directAssessmentId;
   }
 
   const latestAssessmentRows = (await sql`
@@ -109,6 +122,11 @@ export async function recordVendorExternalQuestionnaireSend(input: {
   questionnaireBaseUrl: string;
   questionnaireEntryBaseUrl?: string | null;
 }) {
+  const safeQuestionnaireBaseUrl = assertAllowedVendorQuestionnaireBaseUrl(
+    input.questionnaireBaseUrl,
+    input.selectedFormId,
+  );
+
   const dispatchedAt = new Date().toISOString();
   const dispatchId = randomUUID();
   const { assessmentId, form: selectedForm } = await ensureVendorQuestionnaireSelection({
@@ -123,7 +141,9 @@ export async function recordVendorExternalQuestionnaireSend(input: {
   if (input.hiddenAssessmentField && input.hiddenAssessmentField.trim().length > 0) {
     directTypeformParams.set(input.hiddenAssessmentField, assessmentId);
   }
-  const directTypeformUrl = `${input.questionnaireBaseUrl}?${directTypeformParams.toString()}`;
+  const baseForParams = safeQuestionnaireBaseUrl;
+  const joinChar = baseForParams.includes("?") ? "&" : "?";
+  const directTypeformUrl = `${baseForParams}${joinChar}${directTypeformParams.toString()}`;
   const questionnaireUrl =
     input.questionnaireEntryBaseUrl && input.questionnaireEntryBaseUrl.trim().length > 0
       ? `${input.questionnaireEntryBaseUrl.replace(/\/$/, "")}/q/${dispatchId}`

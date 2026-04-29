@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTypeformHiddenHealth } from "@/lib/typeform-hidden-health";
+import { isHealthDiagnosticRequestAuthorized } from "@/lib/internal-tool-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,10 @@ function parsePositiveInt(value: string | null, fallback: number) {
 
 export async function GET(request: Request) {
   try {
+    if (!(await isHealthDiagnosticRequestAuthorized(request))) {
+      return NextResponse.json({ ok: false, message: "Unauthorized." }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const days = parsePositiveInt(searchParams.get("days"), 30);
     const pageSize = parsePositiveInt(searchParams.get("page_size"), 200);

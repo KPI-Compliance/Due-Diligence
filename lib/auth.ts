@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { cookies } from "next/headers";
@@ -107,6 +107,15 @@ function sign(value: string) {
   return createHmac("sha256", getSessionSecret()).update(value).digest("base64url");
 }
 
+function timingSafeEqualBase64Url(a: string, b: string) {
+  const aBuf = Buffer.from(a, "utf8");
+  const bBuf = Buffer.from(b, "utf8");
+  if (aBuf.length !== bBuf.length) {
+    return false;
+  }
+  return timingSafeEqual(aBuf, bBuf);
+}
+
 function createSessionToken(payload: SessionPayload) {
   const now = Math.floor(Date.now() / 1000);
   const enrichedPayload: SessionPayload = {
@@ -140,7 +149,7 @@ function readSessionToken(token: string | undefined): SessionReadResult {
     return { session: null, reason: "invalid_signature" };
   }
 
-  if (expectedSignature !== signature) {
+  if (!timingSafeEqualBase64Url(signature, expectedSignature)) {
     return { session: null, reason: "invalid_signature" };
   }
 
