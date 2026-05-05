@@ -881,11 +881,11 @@ export async function syncExternalQuestionnaireForEntity(input: {
                 if (!vendorResponseSubmittedOnOrAfterIssueCreated(item.submitted_at, referenceTimestamp)) {
                   return false;
                 }
-                if (
-                  !vendorTypeformCompanyMatchesEntityIfPresent(item, targetName, targetNameLoose, targetNameStrict)
-                ) {
-                  return false;
-                }
+                // Note: company name check intentionally omitted here.
+                // A dispatch-record email match is already a strong signal (we explicitly sent
+                // the form to this address). Requiring the company name to also match the entity
+                // name blocks valid responses where the vendor answered with a trade name or
+                // abbreviated name instead of the legal/registered name stored in the system.
               }
 
               if (formScopedVendorSignals.sentTimestamps.length === 0) return true;
@@ -930,7 +930,18 @@ export async function syncExternalQuestionnaireForEntity(input: {
                     return false;
                   }
                 }
-                if (!vendorTypeformCompanyMatchesEntityIfPresent(item, targetName, targetNameLoose, targetNameStrict)) {
+                // Company name check is a soft guard here: only block when a company name IS
+                // present in the answers AND it clearly belongs to a different entity.
+                // contact_email matching is already specific enough when the respondent email
+                // equals the vendor's registered contact (e.g. the same person who received the
+                // form link). Vendors often answer with a trade name instead of the legal entity
+                // name stored in the system.
+                if (
+                  !vendorTypeformCompanyMatchesEntityIfPresent(item, targetName, targetNameLoose, targetNameStrict) &&
+                  // Only hard-block when the vendor signals are empty (no dispatch record);
+                  // if we have dispatch signals, the email match is already a strong enough anchor.
+                  formScopedVendorSignals.recipientEmails.length === 0
+                ) {
                   return false;
                 }
               }
