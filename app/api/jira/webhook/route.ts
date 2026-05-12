@@ -14,6 +14,7 @@ import {
 } from "@/lib/jira";
 import type { JiraConfig } from "@/lib/settings-data";
 import { syncExternalQuestionnaireForEntity } from "@/lib/typeform-sync";
+import { sanitizeEmail, truncateText } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
@@ -464,18 +465,18 @@ export async function POST(request: Request) {
       entity.companyGroup;
     const currentSlug = existingEntity?.slug ?? null;
     const mergedJiraFormData = {
-      vendorDisplayName: prefersIncoming(existingJiraFormData.vendorDisplayName, entity.jiraFormData.vendorDisplayName),
-      vendorEmail: prefersIncoming(existingJiraFormData.vendorEmail, entity.jiraFormData.vendorEmail),
-      vtexResponsibleEmail: prefersIncoming(existingJiraFormData.vtexResponsibleEmail, entity.jiraFormData.vtexResponsibleEmail),
-      languagePreference: prefersIncoming(existingJiraFormData.languagePreference, entity.jiraFormData.languagePreference),
-      priority: prefersIncoming(existingJiraFormData.priority, entity.jiraFormData.priority),
-      company: prefersIncoming(existingJiraFormData.company, entity.jiraFormData.company),
-      capNumber: prefersIncoming(existingJiraFormData.capNumber, entity.jiraFormData.capNumber),
-      scope: prefersIncoming(existingJiraFormData.scope, entity.jiraFormData.scope),
-      reporterName: prefersIncoming(existingJiraFormData.reporterName, entity.jiraFormData.reporterName),
-      reporterEmail: prefersIncoming(existingJiraFormData.reporterEmail, entity.jiraFormData.reporterEmail),
+      vendorDisplayName: truncateText(prefersIncoming(existingJiraFormData.vendorDisplayName, entity.jiraFormData.vendorDisplayName), 255),
+      vendorEmail: sanitizeEmail(prefersIncoming(existingJiraFormData.vendorEmail, entity.jiraFormData.vendorEmail)),
+      vtexResponsibleEmail: sanitizeEmail(prefersIncoming(existingJiraFormData.vtexResponsibleEmail, entity.jiraFormData.vtexResponsibleEmail)),
+      languagePreference: truncateText(prefersIncoming(existingJiraFormData.languagePreference, entity.jiraFormData.languagePreference), 64),
+      priority: truncateText(prefersIncoming(existingJiraFormData.priority, entity.jiraFormData.priority), 64),
+      company: truncateText(prefersIncoming(existingJiraFormData.company, entity.jiraFormData.company), 255),
+      capNumber: truncateText(prefersIncoming(existingJiraFormData.capNumber, entity.jiraFormData.capNumber), 64),
+      scope: truncateText(prefersIncoming(existingJiraFormData.scope, entity.jiraFormData.scope), 1024),
+      reporterName: truncateText(prefersIncoming(existingJiraFormData.reporterName, entity.jiraFormData.reporterName), 255),
+      reporterEmail: sanitizeEmail(prefersIncoming(existingJiraFormData.reporterEmail, entity.jiraFormData.reporterEmail)),
     };
-    entity.contactEmail = prefersExisting(existingEntity?.contact_email, entity.contactEmail);
+    entity.contactEmail = sanitizeEmail(prefersExisting(existingEntity?.contact_email, entity.contactEmail));
     entity.description = prefersExisting(existingEntity?.description, entity.description);
     const persistedJiraFormData = {
       ...existingJiraFormData,

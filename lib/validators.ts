@@ -30,3 +30,25 @@ export function isValidSlug(value: string): boolean {
 export function isValidTypeformFormId(value: string): boolean {
   return value.length >= 3 && value.length <= 64 && /^[a-zA-Z0-9_-]+$/.test(value);
 }
+
+/**
+ * Returns a trimmed, valid email address or null.
+ * Accepts unknown input (useful when sanitizing values from JSONB/external payloads).
+ */
+export function sanitizeEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return isValidEmail(trimmed) ? trimmed : null;
+}
+
+/**
+ * Returns a trimmed string capped at maxLength, or null if the input is empty.
+ * Accepts unknown input (useful when sanitizing values from JSONB/external payloads).
+ */
+export function truncateText(value: unknown, maxLength: number): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.length > maxLength ? trimmed.slice(0, maxLength) : trimmed;
+}

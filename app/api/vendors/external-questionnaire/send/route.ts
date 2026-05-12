@@ -4,6 +4,7 @@ import { getAuthenticatedSessionResult, getSessionErrorCode } from "@/lib/auth";
 import { sendVendorInternalQuestionnaire } from "@/lib/internal-questionnaire-dispatch";
 import { recordVendorExternalQuestionnaireSend } from "@/lib/vendor-external-questionnaire";
 import { isValidEmail, isValidSlug, isValidUuid, isValidTypeformFormId } from "@/lib/validators";
+import { isSameOrigin } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,10 @@ export async function POST(request: Request) {
         { ok: false, message: "Not authenticated.", error: getSessionErrorCode(sessionResult.reason) },
         { status: 401 },
       );
+    }
+
+    if (!isSameOrigin(request)) {
+      return NextResponse.json({ ok: false, message: "Cross-origin request rejected." }, { status: 403 });
     }
 
     const access = await resolveUserAccess(sessionResult.session.email);

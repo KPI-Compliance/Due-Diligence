@@ -10,6 +10,8 @@
 
 ## Medium Term
 
+- **M1 — Quebrar `syncExternalQuestionnaireForEntity` (`lib/typeform-sync.ts`):** função com 350+ linhas acumula busca de entidade, resolução de questões, normalização de campos, upsert e disparo de Slack num único bloco. Deve ser dividida em etapas menores (fetch, normalize, persist, notify) após a cobertura de testes de integração atingir os webhooks Typeform. Pré-requisito: testes de integração para o webhook (`app/api/typeform/webhook/route.ts`).
+- **M4 — Quebrar `enrichVendorFieldsFromJiraIssue` (`lib/jira.ts`):** função com 170+ linhas mistura parsing de campos Jira, fallback de PDF, sanitização e merge de entidade. Deve ser extraída em helpers isolados (parseJiraFields, extractPdfFields, mergeEntityData) após cobertura de testes unitários da lógica de parsing. Pré-requisito: testes unitários para `lib/jira.ts`.
 - Quebrar `lib/data.ts` em blocos menores por dominio, como vendors, partners, assessments e detail mapping.
 - Extrair regras de transformacao e classificacao de `components/ui/EntityDetailView.tsx` para helpers e componentes por tab.
 - Separar `app/(app)/settings/page.tsx` em actions, forms e validacoes menores para deixar a pagina mais legivel e testavel.

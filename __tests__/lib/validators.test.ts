@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { isValidEmail, isValidUuid, isValidSlug, isValidTypeformFormId } from "@/lib/validators";
+import {
+  isValidEmail,
+  isValidUuid,
+  isValidSlug,
+  isValidTypeformFormId,
+  sanitizeEmail,
+  truncateText,
+} from "@/lib/validators";
 
 describe("isValidEmail", () => {
   it("accepts standard corporate emails", () => {
@@ -128,5 +135,63 @@ describe("isValidTypeformFormId", () => {
 
   it("rejects empty string", () => {
     expect(isValidTypeformFormId("")).toBe(false);
+  });
+});
+
+describe("sanitizeEmail", () => {
+  it("returns trimmed valid email", () => {
+    expect(sanitizeEmail("  user@vtex.com  ")).toBe("user@vtex.com");
+    expect(sanitizeEmail("vendor@company.com.br")).toBe("vendor@company.com.br");
+  });
+
+  it("returns null for invalid email strings", () => {
+    expect(sanitizeEmail("notanemail")).toBeNull();
+    expect(sanitizeEmail("user@")).toBeNull();
+    expect(sanitizeEmail("@domain.com")).toBeNull();
+    expect(sanitizeEmail("user @domain.com")).toBeNull();
+  });
+
+  it("returns null for empty string", () => {
+    expect(sanitizeEmail("")).toBeNull();
+    expect(sanitizeEmail("   ")).toBeNull();
+  });
+
+  it("returns null for non-string values (JSONB safety)", () => {
+    expect(sanitizeEmail(null)).toBeNull();
+    expect(sanitizeEmail(undefined)).toBeNull();
+    expect(sanitizeEmail(42)).toBeNull();
+    expect(sanitizeEmail({})).toBeNull();
+    expect(sanitizeEmail([])).toBeNull();
+    expect(sanitizeEmail(true)).toBeNull();
+  });
+});
+
+describe("truncateText", () => {
+  it("returns the string unchanged when within limit", () => {
+    expect(truncateText("hello", 10)).toBe("hello");
+    expect(truncateText("hello", 5)).toBe("hello");
+  });
+
+  it("truncates strings exceeding maxLength", () => {
+    expect(truncateText("hello world", 5)).toBe("hello");
+    expect(truncateText("abcdef", 3)).toBe("abc");
+  });
+
+  it("trims leading and trailing whitespace before checking length", () => {
+    expect(truncateText("  hi  ", 10)).toBe("hi");
+    expect(truncateText("  hi  ", 1)).toBe("h");
+  });
+
+  it("returns null for empty or whitespace-only strings", () => {
+    expect(truncateText("", 10)).toBeNull();
+    expect(truncateText("   ", 10)).toBeNull();
+  });
+
+  it("returns null for non-string values (JSONB safety)", () => {
+    expect(truncateText(null, 10)).toBeNull();
+    expect(truncateText(undefined, 10)).toBeNull();
+    expect(truncateText(42, 10)).toBeNull();
+    expect(truncateText({}, 10)).toBeNull();
+    expect(truncateText([], 10)).toBeNull();
   });
 });
