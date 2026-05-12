@@ -1,111 +1,125 @@
 # Due Diligence Platform
 
-Next.js app for vendor and partner due diligence: intake, questionnaires, risk scoring, and integrations (Jira, Typeform, Google, Slack).
+Vendor and partner due diligence platform for VTEX and Weni — intake, questionnaires, risk scoring, and operational integrations in one workspace.
 
-## Getting started
+---
+
+## Quick start
 
 ```bash
 npm install
+cp .env.example .env.local   # fill in your values
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Copy `.env.example` to `.env.local` and fill values for your environment.
+Open [http://localhost:3000](http://localhost:3000). Login requires a Google account in the configured allowlist.
 
-## Google SSO and session
-
-Configure OAuth and session signing (session always uses `DD_AUTH_SECRET`; it is required when the auth code path runs):
-
-```bash
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
-GOOGLE_CLIENT_ID="your_google_client_id.apps.googleusercontent.com"
-GOOGLE_CLIENT_SECRET="your_google_client_secret"
-GOOGLE_OAUTH_REDIRECT_URI="http://localhost:3000/api/auth/callback/google"
-DD_AUTH_SECRET="replace_with_a_long_random_secret"
-ALLOWED_GOOGLE_DOMAINS="your-company.com"
-ALLOWED_GOOGLE_EMAILS=""
-```
-
-Optional: `RBAC_ADMIN_EMAILS` for bootstrap admins (see `lib/access-control.ts`). In Vercel, prefer env vars over a local `client_secret_*.json` file (still supported as fallback if env is omitted).
-
-## Webhooks and integration secrets
-
-### Jira (`POST /api/jira/webhook`)
-
-- In **production**, `JIRA_WEBHOOK_SECRET` is **required**. If it is missing, the route returns **503** and events are not processed.
-- Jira automation must send the same value in the **`x-jira-webhook-secret`** header.
-- In non-production, the secret is optional; when set, requests must still match.
-
-### Typeform (`POST /api/typeform/webhook`)
-
-- Use **`TYPEFORM_WEBHOOK_SECRET`** and Typeform’s signed webhook payload.
-- In **production**, **`webhook_mode: unsigned`** in integration settings is **rejected** (403). Unsigned mode is only for controlled non-production use.
-- Request bodies larger than **2 MiB** are rejected with **413**.
-
-## Cron (Typeform response integrity)
-
-`vercel.json` schedules:
-
-- `GET` or `POST` **`/api/cron/typeform-response-integrity`**
-
-Authorization:
-
-- Send **`Authorization: Bearer <CRON_SECRET>`** (or the same value in **`INTERNAL_TOOL_SECRET`** if you use that instead of `CRON_SECRET` for this check).
-- **Query-string secrets are not supported** (they leak via logs and `Referer`).
-
-On [Vercel](https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs), define **`CRON_SECRET`** in the project; Vercel adds the `Authorization` header automatically to cron invocations.
-
-## Health and diagnostic APIs
-
-These routes respond only if **either**:
-
-1. **`Authorization: Bearer`** matches `INTERNAL_TOOL_SECRET` or `CRON_SECRET`, or  
-2. The caller has a valid **session** and **`canManageSettings`** (so “open in new tab” from Settings works for admins).
-
-Endpoints:
-
-- `GET /api/health/db`
-- `GET /api/health/google-sheets`
-- `GET /api/health/typeform-responses`
-- `GET /api/health/typeform-hidden`
-
-Monitoring probes must use the **Bearer** header, not anonymous `GET`.
-
-## Vendor external questionnaire (`POST /api/vendors/external-questionnaire/send`)
-
-- **`entitySlug`** is required. **`assessmentId`** is optional but, if sent, must belong to that vendor (prevents cross-vendor IDOR).
-- **`questionnaireBaseUrl`** must be **HTTPS** on a **Typeform** host (`*.typeform.com`) and must **include the selected form id** in the path or query (anti-phishing).
-
-## Typeform file proxy (`GET /api/typeform/file`)
-
-Requires a logged-in user. For standard API file URLs under `/forms/{formId}/responses/{responseId}/...`, the app checks that **`assessments`** has a matching **`typeform_form_id`** and **`typeform_response_token`**.
-
-## Google Sheets (questionnaire source)
-
-See `.env.example` for `GOOGLE_SHEETS_*` variables. When enabled, answers can be merged into assessments as documented in `database/README.md`.
-
-## Internal questionnaire (Slack + Google Forms)
-
-See `.env.example` for `SLACK_BOT_TOKEN`, `INTERNAL_QUESTIONNAIRE_FORM_URL`, and optional form parameter names.
-
-## Scripts
-
-- `npm run lint` — ESLint  
-- `npm run typecheck` — TypeScript  
-- `npm run build` / `npm run start` — production build  
-
-Backfill scripts are listed in `package.json` under `scripts`.
+---
 
 ## Documentation
 
-- `AGENTS.md` — agent roles for this repo  
-- `docs/system/overview.md` — routes and flows  
-- `database/README.md` — schema and data notes  
-- `docs/security/hardening-checklist.md` — security checklist  
+### Start here
 
-## Deploy (Vercel)
+| Document | Description |
+|---|---|
+| [CLAUDE.md](./CLAUDE.md) | AI agent context: project overview, invariants, operating rules |
+| [docs/spec/platform-spec.md](./docs/spec/platform-spec.md) | Full product specification: workflows, risk model, security architecture |
+| [CHANGELOG.md](./CHANGELOG.md) | History of notable changes |
 
-Set all production secrets in the Vercel dashboard (never commit `.env.local`). After deploy, confirm:
+### Integrations
 
-1. `JIRA_WEBHOOK_SECRET` and Jira header match.  
-2. `CRON_SECRET` is set if crons are enabled.  
-3. `TYPEFORM_WEBHOOK_SECRET` and Typeform signing mode are **signed** in production.
+| Integration | Document |
+|---|---|
+| Typeform | [docs/integrations/typeform.md](./docs/integrations/typeform.md) |
+| Jira | [docs/integrations/jira.md](./docs/integrations/jira.md) |
+| Slack | [docs/integrations/slack.md](./docs/integrations/slack.md) |
+| Google OAuth + Gmail | [docs/integrations/google-oauth.md](./docs/integrations/google-oauth.md) |
+| Google Sheets | [docs/integrations/google-sheets.md](./docs/integrations/google-sheets.md) |
+
+### Runbooks
+
+| Runbook | Description |
+|---|---|
+| [docs/runbooks/deploy.md](./docs/runbooks/deploy.md) | Safe deploy procedure, rollback, post-deploy verification |
+| [docs/runbooks/database-migration.md](./docs/runbooks/database-migration.md) | How to write and apply SQL migrations |
+| [docs/runbooks/incident-response.md](./docs/runbooks/incident-response.md) | Step-by-step incident remediation for common failure scenarios |
+
+### Architecture decisions
+
+| ADR | Decision |
+|---|---|
+| [docs/adr/001-nextjs-app-router.md](./docs/adr/001-nextjs-app-router.md) | Why Next.js with App Router |
+| [docs/adr/002-neon-postgres.md](./docs/adr/002-neon-postgres.md) | Why Neon PostgreSQL |
+
+### System reference
+
+| Document | Description |
+|---|---|
+| [docs/system/overview.md](./docs/system/overview.md) | Routes, flows, data sources |
+| [docs/system/database.md](./docs/system/database.md) | Schema and table reference |
+| [docs/system/jira-vendor-field-sync.md](./docs/system/jira-vendor-field-sync.md) | Jira field parsing rules (PDF + REST layers) |
+| [docs/system/screens.md](./docs/system/screens.md) | UI screen inventory |
+| [database/README.md](./database/README.md) | Migration list and database setup guide |
+
+### Agents and engineering
+
+| Document | Description |
+|---|---|
+| [AGENTS.md](./AGENTS.md) | Agent coordination: roles, rules, output format |
+| [docs/agents/](./docs/agents/) | Per-agent instruction files |
+| [docs/engineering/backlog.md](./docs/engineering/backlog.md) | Prioritized engineering backlog |
+| [docs/security/hardening-checklist.md](./docs/security/hardening-checklist.md) | Security hardening checklist |
+
+---
+
+## Environment variables
+
+Copy `.env.example` to `.env.local`. The critical ones:
+
+```bash
+DATABASE_URL="postgresql://..."           # Neon pooled connection
+DD_AUTH_SECRET="..."                      # Session signing secret (always required)
+GOOGLE_CLIENT_ID="..."                    # Google OAuth
+GOOGLE_CLIENT_SECRET="..."               # Google OAuth
+GOOGLE_OAUTH_REDIRECT_URI="http://localhost:3000/api/auth/callback/google"
+ALLOWED_GOOGLE_DOMAINS="vtex.com"        # Login allowlist
+JIRA_WEBHOOK_SECRET="..."                # Required in production
+TYPEFORM_WEBHOOK_SECRET="..."            # Required in production
+CRON_SECRET="..."                         # Bearer token for cron + health routes
+```
+
+See [.env.example](./.env.example) for the full list with descriptions.
+
+---
+
+## Key commands
+
+```bash
+npm run dev          # Development server
+npm run build        # Production build
+npm run typecheck    # TypeScript validation
+npm run lint         # ESLint
+
+# Backfill scripts
+npm run backfill:vendor-jira-form-fields
+npm run backfill:vendor-risk-scores
+npm run backfill:partner-risk-scores
+npm run backfill:partner-typeform
+```
+
+---
+
+## Deployment
+
+Deployed on Vercel. Push to `main` triggers an automatic production deploy.
+
+Before deploying: run `npm run typecheck && npm run build`. After deploying: verify health endpoints and webhook connectivity. Full procedure: [docs/runbooks/deploy.md](./docs/runbooks/deploy.md).
+
+---
+
+## Security
+
+- Webhook secrets (`JIRA_WEBHOOK_SECRET`, `TYPEFORM_WEBHOOK_SECRET`) are **required in production**.
+- Cron and health endpoints require `Authorization: Bearer <CRON_SECRET>`.
+- No dev auth bypass exists in any environment — login is always via Google OAuth.
+- Full security checklist: [docs/security/hardening-checklist.md](./docs/security/hardening-checklist.md).
