@@ -27,7 +27,7 @@ type MappingRow = {
 
 const scoredSections: VendorSection[] = ["PRIVACY", "SECURITY"];
 
-function toDecisionLevel(score: number | null, settings: RiskScoringProfile): DecisionLevel | null {
+export function toDecisionLevel(score: number | null, settings: RiskScoringProfile): DecisionLevel | null {
   if (score === null || Number.isNaN(score)) return null;
   if (score <= settings.low_max) return "LOW";
   if (score <= settings.medium_max) return "MEDIUM";
@@ -48,7 +48,7 @@ function decisionLevelSeverity(level: DecisionLevel | null) {
   return 0;
 }
 
-function normalizeEvaluation(input: string | null, reviewStatus: string | null): AnalystEvaluation {
+export function normalizeEvaluation(input: string | null, reviewStatus: string | null): AnalystEvaluation {
   const normalized = (input ?? "").trim().toUpperCase();
   if (
     normalized === "NOT_EVALUATED" ||
@@ -68,7 +68,7 @@ function normalizeEvaluation(input: string | null, reviewStatus: string | null):
   return "NOT_EVALUATED";
 }
 
-function inferVendorSection(question: string, domain: string): VendorSection | null {
+export function inferVendorSection(question: string, domain: string): VendorSection | null {
   const normalizedQuestion = normalizeLooseLookup(question);
   const normalizedDomain = normalizeLooseLookup(domain);
 
@@ -114,7 +114,7 @@ function inferVendorSection(question: string, domain: string): VendorSection | n
   return null;
 }
 
-function getClassification(input: {
+export function getClassification(input: {
   combinedScore: number | null;
   settings: RiskScoringProfile;
   sectionLevels: Array<DecisionLevel | null>;
@@ -136,7 +136,7 @@ function getClassification(input: {
   return "Pending Review";
 }
 
-function getSectionNote(section: VendorSection, answeredCount: number, totalWeight: number, score: number | null) {
+export function getSectionNote(section: VendorSection, answeredCount: number, totalWeight: number, score: number | null) {
   if (score === null || answeredCount === 0 || totalWeight <= 0) {
     return `No scored ${section.toLowerCase()} answers yet.`;
   }

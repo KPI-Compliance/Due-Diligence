@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --eval \"console.log('No automated tests configured yet')\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "backfill:partner-typeform": "node scripts/backfill-partner-typeform-responses.mjs",
     "backfill:partner-risk-scores": "node scripts/backfill-partner-risk-scores.mjs",
     "backfill:vendor-risk-scores": "node scripts/backfill-vendor-risk-scores.mjs",
@@ -28,9 +30,11 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.6",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.6"
   }
 }

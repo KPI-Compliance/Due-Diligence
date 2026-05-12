@@ -58,7 +58,7 @@ function normalizeLookup(value: string | null | undefined) {
     .toLowerCase();
 }
 
-function toDecisionLevel(
+export function toDecisionLevel(
   score: number | null,
   settings: RiskScoringProfile,
 ): DecisionLevel | null {
@@ -85,7 +85,7 @@ function decisionLevelSeverity(level: DecisionLevel | null) {
   return 0;
 }
 
-function getModelOneClassification(input: {
+export function getModelOneClassification(input: {
   combinedScore: number | null;
   settings: RiskScoringProfile;
   requiredSectionLevels: Array<DecisionLevel | null>;
@@ -108,7 +108,7 @@ function getModelOneClassification(input: {
   return "Pending Review";
 }
 
-function getSectionNote(section: ScoredSection, answeredCount: number, totalWeight: number, score: number | null) {
+export function getSectionNote(section: ScoredSection, answeredCount: number, totalWeight: number, score: number | null) {
   if (score === null || answeredCount === 0 || totalWeight <= 0) {
     return `No scored ${section.toLowerCase()} answers yet.`;
   }
