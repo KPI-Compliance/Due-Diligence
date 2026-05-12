@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveUserAccess } from "@/lib/access-control";
 import { getAuthenticatedSessionResult, getSessionErrorCode } from "@/lib/auth";
 import { sendVendorInternalQuestionnaire } from "@/lib/internal-questionnaire-dispatch";
+import { isValidEmail, isValidSlug } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,14 @@ export async function POST(request: Request) {
 
     if (!entitySlug) {
       return NextResponse.json({ ok: false, message: "Invalid internal questionnaire payload." }, { status: 400 });
+    }
+
+    if (!isValidSlug(entitySlug)) {
+      return NextResponse.json({ ok: false, message: "Invalid entity slug." }, { status: 400 });
+    }
+
+    if (focalEmail && !isValidEmail(focalEmail)) {
+      return NextResponse.json({ ok: false, message: "Invalid focal email address." }, { status: 400 });
     }
 
     const result = await sendVendorInternalQuestionnaire({

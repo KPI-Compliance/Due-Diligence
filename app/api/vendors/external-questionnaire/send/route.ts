@@ -3,8 +3,11 @@ import { resolveUserAccess } from "@/lib/access-control";
 import { getAuthenticatedSessionResult, getSessionErrorCode } from "@/lib/auth";
 import { sendVendorInternalQuestionnaire } from "@/lib/internal-questionnaire-dispatch";
 import { recordVendorExternalQuestionnaireSend } from "@/lib/vendor-external-questionnaire";
+import { isValidEmail, isValidSlug, isValidUuid, isValidTypeformFormId } from "@/lib/validators";
 
 export const runtime = "nodejs";
+
+const MAX_RECIPIENTS = 20;
 
 export async function POST(request: Request) {
   try {
@@ -41,6 +44,33 @@ export async function POST(request: Request) {
 
     if (!entitySlug || !selectedFormId || !questionnaireBaseUrl || recipients.length === 0) {
       return NextResponse.json({ ok: false, message: "Invalid send payload." }, { status: 400 });
+    }
+
+    if (!isValidSlug(entitySlug)) {
+      return NextResponse.json({ ok: false, message: "Invalid entity slug." }, { status: 400 });
+    }
+
+    if (!isValidTypeformFormId(selectedFormId)) {
+      return NextResponse.json({ ok: false, message: "Invalid form ID." }, { status: 400 });
+    }
+
+    if (assessmentId && !isValidUuid(assessmentId)) {
+      return NextResponse.json({ ok: false, message: "Invalid assessment ID." }, { status: 400 });
+    }
+
+    if (recipients.length > MAX_RECIPIENTS) {
+      return NextResponse.json(
+        { ok: false, message: `Too many recipients (max ${MAX_RECIPIENTS}).` },
+        { status: 400 },
+      );
+    }
+
+    const invalidEmails = recipients.filter((email) => !isValidEmail(email));
+    if (invalidEmails.length > 0) {
+      return NextResponse.json(
+        { ok: false, message: "One or more recipient email addresses are invalid." },
+        { status: 400 },
+      );
     }
 
     const result = await recordVendorExternalQuestionnaireSend({
