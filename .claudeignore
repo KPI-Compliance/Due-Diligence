@@ -1,0 +1,25 @@
+# Dependencies — never useful to read
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Package lock — too large, not actionable
+package-lock.json
+
+# Static assets — binary or irrelevant to code tasks
+public/
+
+# Google OAuth client secret file — sensitive, should never be read
+client_secret_*.json
+
+# SQL migration seed data — noisy, read only when explicitly working on migrations
+database/002_seed_mock_data.sql
+
+# Docs that are large reference files — read only on request
+docs/spec/platform-spec.md
