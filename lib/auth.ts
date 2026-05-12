@@ -227,7 +227,7 @@ export async function createOauthState() {
   cookieStore.set(OAUTH_STATE_COOKIE, state, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV !== "development",
     path: "/",
     maxAge: STATE_DURATION_SECONDS,
   });
@@ -249,7 +249,7 @@ export async function setAuthenticatedSession(payload: SessionPayload) {
   cookieStore.set(SESSION_COOKIE, createSessionToken(payload), {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV !== "development",
     path: "/",
     maxAge: SESSION_DURATION_SECONDS,
   });

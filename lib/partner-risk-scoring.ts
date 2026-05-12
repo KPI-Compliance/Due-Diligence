@@ -1,6 +1,12 @@
 import { sql } from "@/lib/db";
 import { getPlatformSettings, normalizeRiskScoringSettings, type RiskScoringProfile } from "@/lib/platform-settings";
 
+// PG error 42703 = "column does not exist" — thrown when schema predates migration 013
+// that added the *_score columns. Retry without those columns to stay backwards-compatible.
+function isColumnMissingError(error: unknown): boolean {
+  return (error as { code?: string })?.code === "42703";
+}
+
 type PartnerResponseTableName =
   | "partner_typeform_assessment_en_responses"
   | "partner_typeform_assessment_ptbr_responses"
@@ -508,8 +514,7 @@ async function recalculatePartnerAssessmentDecisionByAssessmentId(
         updated_at = now()
     `;
   } catch (error) {
-    const code = (error as { code?: string })?.code;
-    if (code !== "42703") {
+    if (!isColumnMissingError(error)) {
       throw error;
     }
 

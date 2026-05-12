@@ -250,20 +250,20 @@ function stringifyUnknown(value: unknown): string | null {
       if (adfText) return adfText;
     }
 
-    if ("value" in value) {
-      return stringifyUnknown((value as { value?: unknown }).value);
+    if ("value" in typedValue) {
+      return stringifyUnknown(typedValue.value);
     }
 
-    if ("name" in value) {
-      return stringifyUnknown((value as { name?: unknown }).name);
+    if ("name" in typedValue) {
+      return stringifyUnknown(typedValue.name);
     }
 
-    if ("label" in value) {
-      return stringifyUnknown((value as { label?: unknown }).label);
+    if ("label" in typedValue) {
+      return stringifyUnknown(typedValue.label);
     }
 
-    if ("text" in value) {
-      return stringifyUnknown((value as { text?: unknown }).text);
+    if ("text" in typedValue) {
+      return stringifyUnknown(typedValue.text);
     }
 
     const objectValues = Object.values(typedValue)
@@ -1386,27 +1386,48 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
   let globalBestExtracted: ExtractedVendorAttachmentFields | null = null;
   let globalBestScore = 0;
 
+  const PDF_FETCH_TIMEOUT_MS = 30_000;
+  const PDF_MAX_PAGES = 20;
+
   for (const attachment of pdfAttachments) {
     const contentUrl = attachment.content?.trim();
     if (!contentUrl) continue;
 
-    let response = await fetch(contentUrl, {
-      headers: {
-        Authorization: buildJiraBasicAuthHeader(input.email, input.token),
-        Accept: "*/*",
-      },
-      cache: "no-store",
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PDF_FETCH_TIMEOUT_MS);
 
-    if (!response.ok && attachment.id) {
-      const fallbackUrl = `${input.baseUrl.replace(/\/$/, "")}/rest/api/3/attachment/content/${encodeURIComponent(attachment.id)}`;
-      response = await fetch(fallbackUrl, {
+    let response: Response;
+    try {
+      response = await fetch(contentUrl, {
         headers: {
           Authorization: buildJiraBasicAuthHeader(input.email, input.token),
           Accept: "*/*",
         },
         cache: "no-store",
+        signal: controller.signal,
       });
+
+      if (!response.ok && attachment.id) {
+        const fallbackUrl = `${input.baseUrl.replace(/\/$/, "")}/rest/api/3/attachment/content/${encodeURIComponent(attachment.id)}`;
+        response = await fetch(fallbackUrl, {
+          headers: {
+            Authorization: buildJiraBasicAuthHeader(input.email, input.token),
+            Accept: "*/*",
+          },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+      }
+    } catch (fetchError) {
+      clearTimeout(timer);
+      console.warn("[jira] pdf fetch failed", {
+        issueKey: input.issueKey,
+        attachmentId: attachment.id,
+        message: fetchError instanceof Error ? fetchError.message : String(fetchError),
+      });
+      continue;
+    } finally {
+      clearTimeout(timer);
     }
 
     if (!response.ok) continue;
@@ -1423,7 +1444,8 @@ async function extractVendorFieldsFromAttachmentPdf(input: {
       });
       const pdfDocument = await loadingTask.promise;
       const pageTexts: string[] = [];
-      for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      const pageCount = Math.min(pdfDocument.numPages, PDF_MAX_PAGES);
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
         const page = await pdfDocument.getPage(pageNumber);
         const content = await page.getTextContent();
         const pageText = content.items

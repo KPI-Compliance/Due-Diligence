@@ -277,7 +277,10 @@ async function getJiraCreatedAt(issueKey: string | null | undefined) {
       issueKey,
     });
   } catch (error) {
-    console.warn(`Jira issue created_at fetch failed for ${issueKey}: ${(error as Error).message}`);
+    console.warn("[typeform-sync] getJiraCreatedAt failed", {
+      issueKey,
+      message: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }
@@ -1107,7 +1110,7 @@ export async function syncExternalQuestionnaireForEntity(input: {
     FROM assessment_question_responses
     WHERE assessment_id = ${assessment.id}::uuid
     ORDER BY created_at ASC
-    LIMIT 300
+    LIMIT 300 -- sample size to detect opaque (UUID-as-text) question rows from old schema
   `) as Array<{ question_text: string | null }>;
   const hasExistingAssessmentAnswers = existingAssessmentQuestionRows.length > 0;
   const hasOpaqueQuestionText = existingAssessmentQuestionRows.some((row) => {
@@ -1241,7 +1244,12 @@ export async function syncExternalQuestionnaireForEntity(input: {
     await deletePartnerFormRows(partnerFormTable, assessment.id);
   }
 
-  for (const [index, answer] of answers.entries()) {
+  if (answers.length > 0) {
+    const assessmentIds = answers.map(() => assessment.id);
+    const domains = answers.map((a) => a.domain);
+    const questionTexts = answers.map((a) => a.question);
+    const answerTexts = answers.map((a) => a.value);
+
     await sql`
       INSERT INTO assessment_question_responses (
         assessment_id,
@@ -1250,16 +1258,17 @@ export async function syncExternalQuestionnaireForEntity(input: {
         answer_text,
         review_status
       )
-      VALUES (
-        ${assessment.id}::uuid,
-        ${answer.domain},
-        ${answer.question},
-        ${answer.value},
+      SELECT
+        unnest(${assessmentIds}::uuid[]),
+        unnest(${domains}::text[]),
+        unnest(${questionTexts}::text[]),
+        unnest(${answerTexts}::text[]),
         'NEEDS_REVIEW'
-      )
     `;
+  }
 
-    if (partnerFormTable) {
+  if (partnerFormTable) {
+    for (const [index, answer] of answers.entries()) {
       await insertPartnerFormRow({
         tableName: partnerFormTable,
         entityId,

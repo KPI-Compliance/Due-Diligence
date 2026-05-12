@@ -2,6 +2,12 @@ import { sql } from "@/lib/db";
 import { normalizeLooseLookup } from "@/lib/normalization";
 import { getPlatformSettings, normalizeRiskScoringSettings, type RiskScoringProfile } from "@/lib/platform-settings";
 
+// PG error 42703 = "column does not exist" — thrown when schema predates migration 013
+// that added the *_score columns. Retry without those columns to stay backwards-compatible.
+function isColumnMissingError(error: unknown): boolean {
+  return (error as { code?: string })?.code === "42703";
+}
+
 type VendorSection = "PRIVACY" | "SECURITY";
 type AnalystEvaluation = "NOT_EVALUATED" | "NA" | "DOES_NOT_MEET" | "PARTIALLY" | "FULLY";
 type DecisionLevel = "LOW" | "MEDIUM" | "HIGH";
@@ -313,8 +319,7 @@ export async function recalculateVendorAssessmentDecisionByAssessmentId(assessme
         updated_at = now()
     `;
   } catch (error) {
-    const code = (error as { code?: string })?.code;
-    if (code !== "42703") {
+    if (!isColumnMissingError(error)) {
       throw error;
     }
 

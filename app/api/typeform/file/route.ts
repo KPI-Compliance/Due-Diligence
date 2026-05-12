@@ -49,15 +49,31 @@ export async function GET(request: Request) {
 
   const parsed = extractFormAndResponseFromTypeformFileUrl(fileUrl);
   if (parsed) {
+    // Validate ownership: the authenticated user's RBAC group must have access to the entity
+    // this assessment belongs to. Prevents cross-entity file access (IDOR).
+    const { resolveUserAccess } = await import("@/lib/access-control");
+    const access = await resolveUserAccess(sessionResult.session.email);
+
     const rows = (await sql`
-      SELECT 1 AS ok
-      FROM assessments
-      WHERE typeform_form_id = ${parsed.formId}
-        AND typeform_response_token = ${parsed.responseToken}
+      SELECT e.kind::text AS entity_kind
+      FROM assessments a
+      INNER JOIN entities e ON e.id = a.entity_id
+      WHERE a.typeform_form_id = ${parsed.formId}
+        AND a.typeform_response_token = ${parsed.responseToken}
       LIMIT 1
-    `) as Array<{ ok: number }>;
+    `) as Array<{ entity_kind: string }>;
 
     if (rows.length === 0) {
+      return new Response("Forbidden.", { status: 403 });
+    }
+
+    const kind = rows[0].entity_kind;
+    const canAccess =
+      access.permissions.canManageSettings ||
+      (kind === "VENDOR" && access.permissions.canWriteVendors) ||
+      (kind === "PARTNER" && access.permissions.canWritePartners);
+
+    if (!canAccess) {
       return new Response("Forbidden.", { status: 403 });
     }
   }

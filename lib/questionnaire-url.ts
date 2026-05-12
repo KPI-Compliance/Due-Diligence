@@ -20,8 +20,8 @@ export function assertAllowedVendorQuestionnaireBaseUrl(urlString: string, selec
   }
 
   const host = u.hostname.toLowerCase();
-  const isTypeformHost = host === "form.typeform.com" || host.endsWith(".typeform.com");
-  if (!isTypeformHost) {
+  const allowedTypeformHosts = new Set(["form.typeform.com", "admin.typeform.com"]);
+  if (!allowedTypeformHosts.has(host)) {
     throw new Error("questionnaireBaseUrl deve ser um domínio Typeform (ex.: form.typeform.com).");
   }
 

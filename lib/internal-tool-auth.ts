@@ -20,7 +20,9 @@ export function getInternalToolSecret() {
 export function isInternalToolRequestAuthorized(request: Request): boolean {
   const secret = getInternalToolSecret();
   if (!secret) {
-    return process.env.NODE_ENV !== "production";
+    // No secret configured — deny all non-local environments to prevent information disclosure.
+    // In local development (NODE_ENV === "development") allow through only if no secret is set.
+    return process.env.NODE_ENV === "development";
   }
 
   const authHeader = request.headers.get("authorization") ?? "";

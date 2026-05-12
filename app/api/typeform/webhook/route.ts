@@ -335,6 +335,8 @@ export async function POST(request: Request) {
           SELECT e.id::text, e.kind::text AS entity_kind, e.name, e.jira_issue_key, e.contact_email
           FROM entities e
           WHERE ${formMapping.entity_kind ?? null}::text IS NULL OR e.kind = ${formMapping.entity_kind ?? null}::entity_kind
+          ORDER BY e.updated_at DESC
+          LIMIT 2000
         `) as Array<{
           id: string;
           entity_kind: "VENDOR" | "PARTNER";
@@ -544,7 +546,12 @@ export async function POST(request: Request) {
 
     await sql`DELETE FROM assessment_question_responses WHERE assessment_id = ${assessmentId}::uuid`;
 
-    for (const answer of answers) {
+    if (answers.length > 0) {
+      const assessmentIds = answers.map(() => assessmentId);
+      const domains = answers.map((a) => a.domain);
+      const questionTexts = answers.map((a) => a.question);
+      const answerTexts = answers.map((a) => a.value);
+
       await sql`
         INSERT INTO assessment_question_responses (
           assessment_id,
@@ -553,13 +560,12 @@ export async function POST(request: Request) {
           answer_text,
           review_status
         )
-        VALUES (
-          ${assessmentId}::uuid,
-          ${answer.domain},
-          ${answer.question},
-          ${answer.value},
+        SELECT
+          unnest(${assessmentIds}::uuid[]),
+          unnest(${domains}::text[]),
+          unnest(${questionTexts}::text[]),
+          unnest(${answerTexts}::text[]),
           'NEEDS_REVIEW'
-        )
       `;
     }
 

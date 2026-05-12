@@ -50,8 +50,9 @@ function permissionsForGroup(group: AccessGroup): AccessPermissions {
   const isFullAccess = FULL_ACCESS_GROUPS.has(group);
   return {
     canManageSettings: isFullAccess,
-    canWritePartners: isFullAccess || group === "COMPLIANCE" || group === "PRIVACY",
-    canWriteVendors: isFullAccess || group === "PRIVACY",
+    // COMPLIANCE and PRIVACY are read-only — only ADMIN and TECGRC may write entities.
+    canWritePartners: isFullAccess,
+    canWriteVendors: isFullAccess,
   };
 }
 
