@@ -22,6 +22,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `docs/runbooks/incident-response.md` — P1/P2/P3 incident scenarios with step-by-step remediation
 - `docs/adr/001-nextjs-app-router.md` — ADR for Next.js App Router adoption
 - `docs/adr/002-neon-postgres.md` — ADR for Neon PostgreSQL adoption
+- **CI pipeline** (`.github/workflows/ci.yml`) — lint, typecheck, unit tests, and build jobs on every push and PR
+- **Vitest test suite** — 81 unit tests across 5 files covering URL validation, normalization, risk scoring, Jira webhook parsing, and audit service
+- **Audit log** (`database/020_audit_logs.sql`, `lib/audit.ts`) — immutable `audit_logs` table with 8 instrumented auth events (login success/failure variants, logout); compliant with LGPD Art. 10 and ISO 27001:2022 A.8.15
+- Dashboard stat cards and recent activity rows now navigate to entity detail pages and list views; dead pagination replaced with "Ver todos" link
+
+### Security
+- `lib/internal-tool-auth.ts` — permissive fallback restricted to `NODE_ENV === "development"` only
+- `app/api/typeform/file/route.ts` — RBAC ownership check added (IDOR fix)
+- `lib/auth.ts` — session cookie `Secure` flag set for all non-development environments
+- `next.config.ts` — security headers added: CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`
+- `lib/access-control.ts` — COMPLIANCE and PRIVACY groups corrected to read-only (write permissions were incorrectly granted)
+- `lib/questionnaire-url.ts` — Typeform host allowlist hardened to explicit set instead of suffix match
+- `.claudeignore` — OAuth credential file excluded from AI context
+
+### Performance
+- `lib/typeform-sync.ts` — N+1 insert loop replaced with single `unnest()` batch INSERT (80 round trips → 1)
+- `app/api/typeform/webhook/route.ts` — same batch insert pattern; entity scan bounded with `LIMIT 2000`
+- `lib/jira.ts` — PDF fetch wrapped with `AbortController` 30s timeout; page extraction capped at 20 pages; type assertion corrected
+
+### Fixed
+- `lib/typeform-sync.ts` — structured logging in `getJiraCreatedAt`; `LIMIT 300` documented with explanatory comment
+- `lib/vendor-risk-scoring.ts`, `lib/partner-risk-scoring.ts` — `isColumnMissingError()` helper extracted from inline `42703` code check
 
 ---
 
