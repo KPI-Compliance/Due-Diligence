@@ -1644,6 +1644,7 @@ export async function getDashboardData() {
               ? "low"
               : mapStatus(row.entity_status);
 
+    const section = row.kind.toLowerCase() === "partner" ? "partners" : "vendors";
     return {
       id: row.slug,
       company: row.name,
@@ -1651,6 +1652,7 @@ export async function getDashboardData() {
       status,
       owner: row.owner,
       updatedAt: formatDateNumeric(row.updated_at),
+      href: `/${section}/${row.slug}`,
     };
   });
 

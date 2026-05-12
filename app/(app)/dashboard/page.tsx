@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { StatCard } from "@/components/ui/StatCard";
@@ -16,11 +17,21 @@ export default async function DashboardPage() {
       className="space-y-8"
     >
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-5">
-        <StatCard label="Total Vendors" value={dashboard.stats.totalVendors.toString()} trend="Dados reais" trendDirection="neutral" />
-        <StatCard label="Total Partners" value={dashboard.stats.totalPartners.toString()} trend="Dados reais" trendDirection="neutral" />
-        <StatCard label="Pending Quests" value={dashboard.stats.pendingQuestionnaires.toString()} trend="Assessments pendentes ou enviados" trendDirection="neutral" />
-        <StatCard label="Reviews in Analysis" value={dashboard.stats.reviewsInAnalysis.toString()} trend="Assessments em revisão" trendDirection="neutral" />
-        <StatCard label="High Risk Entities" value={dashboard.stats.highRiskEntities.toString()} trend="Risco alto ou crítico" trendDirection="neutral" highlighted />
+        <Link href="/vendors" className="group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]">
+          <StatCard label="Total Vendors" value={dashboard.stats.totalVendors.toString()} trend="Ver lista completa" trendDirection="neutral" className="group-hover:shadow-md transition-shadow" />
+        </Link>
+        <Link href="/partners" className="group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]">
+          <StatCard label="Total Partners" value={dashboard.stats.totalPartners.toString()} trend="Ver lista completa" trendDirection="neutral" className="group-hover:shadow-md transition-shadow" />
+        </Link>
+        <Link href="/assessments" className="group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]">
+          <StatCard label="Pending Quests" value={dashboard.stats.pendingQuestionnaires.toString()} trend="Assessments pendentes ou enviados" trendDirection="neutral" className="group-hover:shadow-md transition-shadow" />
+        </Link>
+        <Link href="/reviews" className="group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]">
+          <StatCard label="Reviews in Analysis" value={dashboard.stats.reviewsInAnalysis.toString()} trend="Assessments em revisão" trendDirection="neutral" className="group-hover:shadow-md transition-shadow" />
+        </Link>
+        <Link href="/assessments" className="group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]">
+          <StatCard label="High Risk Entities" value={dashboard.stats.highRiskEntities.toString()} trend="Risco alto ou crítico" trendDirection="down" highlighted className="group-hover:shadow-md transition-shadow" />
+        </Link>
       </section>
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -59,15 +70,6 @@ export default async function DashboardPage() {
       </section>
 
       <SectionCard title="Recent Activity" description="Últimas atualizações e mudanças de status dos casos.">
-        <div className="mb-4 flex items-center justify-end">
-          <button
-            type="button"
-            className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
-          >
-            Add Entity
-          </button>
-        </div>
-
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] border-collapse text-left text-sm">
             <thead>
@@ -88,7 +90,12 @@ export default async function DashboardPage() {
                       <div className="flex h-8 w-8 items-center justify-center rounded bg-[var(--color-neutral-100)] text-xs font-bold text-[var(--color-neutral-600)]">
                         {activity.company[0]}
                       </div>
-                      <span className="font-semibold text-[var(--color-text)]">{activity.company}</span>
+                      <Link
+                        href={activity.href}
+                        className="font-semibold text-[var(--color-text)] hover:text-[var(--color-primary)] transition-colors"
+                      >
+                        {activity.company}
+                      </Link>
                     </div>
                   </td>
                   <td className="px-4 py-4 text-[var(--color-neutral-700)]">{activity.type}</td>
@@ -98,17 +105,17 @@ export default async function DashboardPage() {
                   <td className="px-4 py-4 text-[var(--color-neutral-700)]">{activity.owner}</td>
                   <td className="px-4 py-4 text-[var(--color-neutral-700)]">{activity.updatedAt}</td>
                   <td className="px-4 py-4 text-right">
-                    <button
-                      type="button"
-                      className="rounded-md p-1 text-[var(--color-secondary)] transition hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)]"
-                      aria-label={`Ações de ${activity.company}`}
+                    <Link
+                      href={activity.href}
+                      className="inline-flex rounded-md p-1 text-[var(--color-secondary)] transition hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)]"
+                      aria-label={`Abrir detalhes de ${activity.company}`}
                     >
                       <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
                         <circle cx="12" cy="5" r="1.8" />
                         <circle cx="12" cy="12" r="1.8" />
                         <circle cx="12" cy="19" r="1.8" />
                       </svg>
-                    </button>
+                    </Link>
                   </td>
                 </tr>
               ))}
@@ -117,22 +124,15 @@ export default async function DashboardPage() {
         </div>
 
         <div className="mt-4 flex items-center justify-between border-t border-[var(--color-neutral-100)] pt-4">
-          <p className="text-sm text-[var(--color-neutral-600)]">Mostrando {dashboard.recentActivity.length} entidades atualizadas mais recentemente</p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled
-              className="rounded bg-[var(--color-neutral-100)] px-3 py-1 text-sm font-bold text-[var(--color-neutral-600)] disabled:opacity-60"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              className="rounded bg-[var(--color-neutral-100)] px-3 py-1 text-sm font-bold text-[var(--color-neutral-700)] transition hover:bg-[var(--color-neutral-200)]"
-            >
-              Next
-            </button>
-          </div>
+          <p className="text-sm text-[var(--color-neutral-600)]">
+            Mostrando {dashboard.recentActivity.length} entidades atualizadas mais recentemente
+          </p>
+          <Link
+            href="/vendors"
+            className="rounded bg-[var(--color-neutral-100)] px-3 py-1 text-sm font-bold text-[var(--color-neutral-700)] transition hover:bg-[var(--color-neutral-200)]"
+          >
+            Ver todos →
+          </Link>
         </div>
       </SectionCard>
     </PageContainer>
