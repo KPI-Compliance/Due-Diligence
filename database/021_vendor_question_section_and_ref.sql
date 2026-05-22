@@ -11,19 +11,25 @@ ALTER TABLE assessment_question_responses
   ADD COLUMN IF NOT EXISTS section typeform_question_section;
 
 -- Backfill section for existing rows using the question mapping table.
--- Joins through assessments → typeform_forms → typeform_form_question_mappings
--- on normalised question text. Rows with no match stay NULL (falls back to
--- keyword matching at query time, same as before).
-UPDATE assessment_question_responses aqr
-SET section = m.section
-FROM assessments a
-JOIN typeform_forms f
-  ON f.form_id = a.typeform_form_id
-JOIN typeform_form_question_mappings m
-  ON m.typeform_form_config_id = f.id
-  AND lower(trim(m.question_text)) = lower(trim(aqr.question_text))
-WHERE aqr.assessment_id = a.id
-  AND aqr.section IS NULL;
+-- Uses a subquery to avoid referencing the update target inside a FROM JOIN,
+-- which silently matches 0 rows in PostgreSQL.
+UPDATE assessment_question_responses
+SET section = sub.mapping_section::typeform_question_section
+FROM (
+  SELECT
+    aqr.id,
+    m.section::text AS mapping_section
+  FROM assessment_question_responses aqr
+  JOIN assessments a
+    ON a.id = aqr.assessment_id
+  JOIN typeform_forms f
+    ON f.form_id = a.typeform_form_id
+  JOIN typeform_form_question_mappings m
+    ON m.typeform_form_config_id = f.id
+   AND lower(trim(m.question_text)) = lower(trim(aqr.question_text))
+  WHERE aqr.section IS NULL
+) sub
+WHERE assessment_question_responses.id = sub.id;
 
 CREATE INDEX IF NOT EXISTS idx_assessment_question_responses_question_ref
   ON assessment_question_responses (question_ref)
