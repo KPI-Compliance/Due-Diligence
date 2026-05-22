@@ -2079,11 +2079,13 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
     let questions: Array<{
       id: string;
       domain: string;
+      question_ref: string | null;
       question_text: string;
       answer_text: string | null;
       review_status: string;
       analyst_evaluation: string | null;
       analyst_observations: string | null;
+      section: string | null;
     }> = [];
     if (latestAssessment) {
       try {
@@ -2091,22 +2093,26 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
           SELECT
             id::text,
             domain,
+            question_ref,
             question_text,
             answer_text,
             review_status::text,
             analyst_evaluation::text,
-            analyst_observations
+            analyst_observations,
+            section::text
           FROM assessment_question_responses
           WHERE assessment_id = ${latestAssessment.id}
           ORDER BY created_at ASC
         `) as Array<{
           id: string;
           domain: string;
+          question_ref: string | null;
           question_text: string;
           answer_text: string | null;
           review_status: string;
           analyst_evaluation: string | null;
           analyst_observations: string | null;
+          section: string | null;
         }>;
       } catch (error) {
         const code = (error as { code?: string }).code;
@@ -2117,32 +2123,43 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
           SELECT
             id::text,
             domain,
+            NULL::text AS question_ref,
             question_text,
             answer_text,
-            review_status::text
+            review_status::text,
+            NULL::text AS analyst_evaluation,
+            NULL::text AS analyst_observations,
+            NULL::text AS section
           FROM assessment_question_responses
           WHERE assessment_id = ${latestAssessment.id}
           ORDER BY created_at ASC
         `) as Array<{
           id: string;
           domain: string;
+          question_ref: string | null;
           question_text: string;
           answer_text: string | null;
           review_status: string;
           analyst_evaluation: null;
           analyst_observations: null;
+          section: null;
         }>;
       }
     }
 
     finalQuestions = questions.map((q) => {
+      const storedSection = kind === "vendor" ? mapVendorSectionFromOverride(q.section ?? undefined) : null;
       const overrideSection =
         kind === "vendor"
-          ? mapVendorSectionFromOverride(sectionOverrides.get(`text:${q.question_text.trim().toLowerCase()}`))
+          ? mapVendorSectionFromOverride(
+              (q.question_ref ? sectionOverrides.get(`key:${q.question_ref}`) : undefined) ??
+                sectionOverrides.get(`text:${q.question_text.trim().toLowerCase()}`),
+            )
           : null;
       const section =
         kind === "vendor"
-          ? (overrideSection ??
+          ? (storedSection ??
+            overrideSection ??
             mapVendorQuestionSection({
               question: q.question_text,
               domain: q.domain,

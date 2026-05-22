@@ -1245,24 +1245,36 @@ export async function syncExternalQuestionnaireForEntity(input: {
   }
 
   if (answers.length > 0) {
+    const vendorQuestionMappings = await getQuestionMappings(matchedForm?.id);
+    const resolvedSections =
+      vendorQuestionMappings.length > 0
+        ? resolvePartnerSectionsFromMappings(answers, vendorQuestionMappings)
+        : answers.map(() => null as string | null);
+
     const assessmentIds = answers.map(() => assessment.id);
     const domains = answers.map((a) => a.domain);
+    const questionRefs = answers.map((a) => a.questionRef || null);
     const questionTexts = answers.map((a) => a.question);
     const answerTexts = answers.map((a) => a.value);
+    const sections = resolvedSections.map((s) => (s && s !== "UNCLASSIFIED" ? s : null));
 
     await sql`
       INSERT INTO assessment_question_responses (
         assessment_id,
         domain,
+        question_ref,
         question_text,
         answer_text,
+        section,
         review_status
       )
       SELECT
         unnest(${assessmentIds}::uuid[]),
         unnest(${domains}::text[]),
+        unnest(${questionRefs}::text[]),
         unnest(${questionTexts}::text[]),
         unnest(${answerTexts}::text[]),
+        unnest(${sections}::typeform_question_section[]),
         'NEEDS_REVIEW'
     `;
   }
