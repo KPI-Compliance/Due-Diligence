@@ -2086,6 +2086,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
       analyst_evaluation: string | null;
       analyst_observations: string | null;
       section: string | null;
+      question_order: number | null;
     }> = [];
     if (latestAssessment) {
       try {
@@ -2099,10 +2100,11 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
             review_status::text,
             analyst_evaluation::text,
             analyst_observations,
-            section::text
+            section::text,
+            question_order
           FROM assessment_question_responses
           WHERE assessment_id = ${latestAssessment.id}
-          ORDER BY created_at ASC
+          ORDER BY question_order ASC NULLS LAST, created_at ASC
         `) as Array<{
           id: string;
           domain: string;
@@ -2113,6 +2115,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
           analyst_evaluation: string | null;
           analyst_observations: string | null;
           section: string | null;
+          question_order: number | null;
         }>;
       } catch (error) {
         const code = (error as { code?: string }).code;
@@ -2129,7 +2132,8 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
             review_status::text,
             NULL::text AS analyst_evaluation,
             NULL::text AS analyst_observations,
-            NULL::text AS section
+            NULL::text AS section,
+            NULL::integer AS question_order
           FROM assessment_question_responses
           WHERE assessment_id = ${latestAssessment.id}
           ORDER BY created_at ASC
@@ -2143,6 +2147,7 @@ export async function getEntityDetailBySlug(kind: "vendor" | "partner", slug: st
           analyst_evaluation: null;
           analyst_observations: null;
           section: null;
+          question_order: null;
         }>;
       }
     }

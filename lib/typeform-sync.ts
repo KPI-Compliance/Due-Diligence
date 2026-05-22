@@ -1257,6 +1257,14 @@ export async function syncExternalQuestionnaireForEntity(input: {
     const questionTexts = answers.map((a) => a.question);
     const answerTexts = answers.map((a) => a.value);
     const sections = resolvedSections.map((s) => (s && s !== "UNCLASSIFIED" ? s : null));
+    const questionOrders = answers.map((answer, index) => {
+      if (!vendorQuestionMappings.length) return index + 1;
+      const byRef = vendorQuestionMappings.find((m) => m.question_ref && m.question_ref === answer.questionRef);
+      const byText = vendorQuestionMappings.find(
+        (m) => normalizeComparable(m.question_text) === normalizeComparable(answer.question),
+      );
+      return (byRef ?? byText)?.question_order ?? index + 1;
+    });
 
     await sql`
       INSERT INTO assessment_question_responses (
@@ -1266,6 +1274,7 @@ export async function syncExternalQuestionnaireForEntity(input: {
         question_text,
         answer_text,
         section,
+        question_order,
         review_status
       )
       SELECT
@@ -1275,6 +1284,7 @@ export async function syncExternalQuestionnaireForEntity(input: {
         unnest(${questionTexts}::text[]),
         unnest(${answerTexts}::text[]),
         unnest(${sections}::typeform_question_section[]),
+        unnest(${questionOrders}::integer[]),
         'NEEDS_REVIEW'
     `;
   }
